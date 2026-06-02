@@ -66,9 +66,15 @@
 | Path | View | Auth Required |
 |------|------|---------------|
 | `/` | Customer — Menu & ordering | No |
-| `/track` | Customer — Order tracking | No |
-| `/pos` | Cashier — Order board | PIN login |
-| `/admin` | Admin — Dashboard | PIN login |
+| `/track.html?id=xxx` | Customer — Order tracking | No |
+| `/pos.html` | Cashier — Order board | PIN login |
+| `/admin.html` | Admin — Dashboard (future) | PIN login |
+
+### 3.2 Hosting
+
+- **URL:** https://kuettai.github.io/rlc-cafe-pos/
+- **Deployment:** GitHub Actions auto-deploys on push to `frontend/`
+- **Repo:** https://github.com/kuettai/rlc-cafe-pos
 
 ### 3.2 PWA Configuration
 
@@ -332,9 +338,11 @@ Attributes:
 ### 7.2 Deployment
 
 - Infrastructure as Code: **AWS CDK (TypeScript)** — all resources defined in code for easy migration between AWS accounts
-- CI/CD: GitHub Actions → `cdk deploy` for backend, build and deploy to GitHub Pages for frontend
+- CI/CD: GitHub Actions → auto-deploy frontend to GitHub Pages on push to `frontend/`
+- Backend: `cd infra && npx cdk deploy` to update Lambda + API Gateway
 - Account migration: Simply configure new AWS credentials and run `cdk deploy` to replicate entire stack
-- Frontend: GitHub Actions → build and deploy to GitHub Pages
+- Frontend URL: https://kuettai.github.io/rlc-cafe-pos/
+- API URL: https://hcydppml1a.execute-api.ap-southeast-5.amazonaws.com/prod/
 
 ### 7.3 Environments
 
@@ -363,3 +371,18 @@ Attributes:
 - CloudFront CDN if GitHub Pages latency is an issue from Malaysia
 - Display screen app (TV at counter showing "Ready" orders)
 - Customer push notifications via Web Push API
+
+## 11. Current Deployment
+
+| Component | URL/Location |
+|-----------|-------------|
+| Frontend (Customer + POS) | https://kuettai.github.io/rlc-cafe-pos/ |
+| API Gateway | https://hcydppml1a.execute-api.ap-southeast-5.amazonaws.com/prod/ |
+| GitHub Repo | https://github.com/kuettai/rlc-cafe-pos |
+| AWS Region | ap-southeast-5 (Malaysia) |
+| AWS Account | 956288449190 |
+| CloudFormation Stack | RlcCafeStack |
+
+### Test Credentials
+- Admin: userId=`admin-001`, PIN=`123456`
+- Cashier: userId=`7cf1994a-4e5d-4603-af7e-475e5043fcde` (Sarah), PIN=`1234`

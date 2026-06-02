@@ -1,5 +1,27 @@
+# Dependencies
 node_modules/
+
+# Build output
 dist/
 cdk.out/
+
+# Source maps
 *.js.map
+
+# Environment
 .env
+.env.*
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# AWS
+.aws-sam/
+
+# Logs
+*.log
