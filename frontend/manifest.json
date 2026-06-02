@@ -1,7 +1,8 @@
 {
   "name": "RLC Café",
   "short_name": "Café",
-  "start_url": "/",
+  "start_url": "/rlc-cafe-pos/",
+  "scope": "/rlc-cafe-pos/",
   "display": "standalone",
   "theme_color": "#2563EB",
   "background_color": "#ffffff",
