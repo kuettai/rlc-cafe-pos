@@ -130,7 +130,7 @@ function renderBoard(){
 function timeAgo(d){ const m=Math.floor((Date.now()-new Date(d))/60000); return m<1?'just now':m<60?`${m}m ago`:`${Math.floor(m/60)}h ${m%60}m ago`; }
 
 function cardHtml(o){
-  const items = (o.items||[]).map(i=>`${i.qty}x ${i.name}${i.variant?' ('+i.variant+')':''}`).join(', ');
+  const items = (o.items||[]).map(i=>`${i.quantity||i.qty}x ${i.name}${i.variant?' ('+i.variant+')':''}`).join(', ');
   return `<div class="pos-card pos-card-${o.status.toLowerCase()}" data-id="${o.id||o.orderId}">
     <div class="pos-card-name">${o.customerName||'Guest'}</div>
     <div class="pos-card-items">${items||'—'}</div>
@@ -143,7 +143,7 @@ function bindCards(){ document.querySelectorAll('.pos-card').forEach(c=>c.onclic
 function openDetail(id){
   const o = orders.find(x=>(x.id||x.orderId)===id);
   if(!o) return;
-  const items = (o.items||[]).map(i=>`<li>${i.qty}x ${i.name}${i.variant?' ('+i.variant+')':''}</li>`).join('');
+  const items = (o.items||[]).map(i=>`<li>${i.quantity||i.qty}x ${i.name}${i.variant?' ('+i.variant+')':''}</li>`).join('');
   let actions = '';
   if(o.status==='PENDING') actions=`<button class="pos-btn pos-btn-primary pos-btn-lg" id="btnApprove">✓ Approve</button>
     <button class="pos-btn pos-btn-lg" id="btnNewcomer" style="background:#8b5cf6;color:#fff">🎁 Newcomer</button>
