@@ -148,7 +148,8 @@ function openDetail(id){
   if(o.status==='PENDING') actions=`<button class="pos-btn pos-btn-primary pos-btn-lg" id="btnApprove">✓ Approve</button>
     <button class="pos-btn pos-btn-lg" id="btnNewcomer" style="background:#8b5cf6;color:#fff">🎁 Newcomer</button>
     <button class="pos-btn pos-btn-danger pos-btn-lg" id="btnReject">✗ Reject</button>`;
-  else if(o.status==='PREPARING') actions=`<button class="pos-btn pos-btn-primary pos-btn-lg" id="btnReady">✓ Ready</button>`;
+  else if(o.status==='PREPARING') actions=`<button class="pos-btn pos-btn-primary pos-btn-lg" id="btnReady">✓ Ready</button>
+    <button class="pos-btn pos-btn-lg" id="btnUndo" style="background:#6b7280;color:#fff">↩ Undo</button>`;
 
   const modal = document.createElement('div');
   modal.className='pos-modal-overlay';
@@ -168,6 +169,7 @@ function openDetail(id){
     modal.querySelector('#btnReject').onclick=()=>showRejectDialog(id, modal);
   } else if(o.status==='PREPARING'){
     modal.querySelector('#btnReady').onclick=async()=>{ await api('PUT',`/api/pos/orders/${id}/ready`); modal.remove(); fetchOrders(); };
+    modal.querySelector('#btnUndo').onclick=async()=>{ await api('PUT',`/api/pos/orders/${id}/undo`); modal.remove(); fetchOrders(); };
   }
 }
 

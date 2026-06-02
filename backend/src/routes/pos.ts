@@ -111,6 +111,22 @@ async function markReady(event: APIGatewayProxyEvent): Promise<APIGatewayProxyRe
   return res(200, { orderId: id, status: 'READY' });
 }
 
+async function undoToPending(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+  const id = event.pathParameters?.id;
+  if (!id) return res(400, { error: 'Missing order id' });
+
+  await docClient.send(new UpdateCommand({
+    TableName: ORDERS_TABLE,
+    Key: { PK: `ORDER#${id}`, SK: 'META' },
+    UpdateExpression: 'SET #s = :s, updatedAt = :u',
+    ExpressionAttributeNames: { '#s': 'status' },
+    ExpressionAttributeValues: { ':s': 'PENDING', ':u': new Date().toISOString(), ':prev': 'PREPARING' },
+    ConditionExpression: '#s = :prev',
+  }));
+
+  return res(200, { orderId: id, status: 'PENDING' });
+}
+
 async function rejectOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
   const id = event.pathParameters?.id;
   if (!id) return res(400, { error: 'Missing order id' });
@@ -317,6 +333,10 @@ export async function handlePos(event: APIGatewayProxyEvent): Promise<APIGateway
   if (method === 'PUT' && path.endsWith('/ready')) {
     const id = extractSegment(path, /\/api\/pos\/orders\/([^/]+)\/ready/, 1);
     if (id) { event.pathParameters = { id }; return markReady(event); }
+  }
+  if (method === 'PUT' && path.endsWith('/undo')) {
+    const id = extractSegment(path, /\/api\/pos\/orders\/([^/]+)\/undo/, 1);
+    if (id) { event.pathParameters = { id }; return undoToPending(event); }
   }
   if (method === 'PUT' && path.endsWith('/reject')) {
     const id = extractSegment(path, /\/api\/pos\/orders\/([^/]+)\/reject/, 1);
