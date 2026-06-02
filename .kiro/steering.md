@@ -67,27 +67,34 @@ cafepos/
 - API responses: `{ statusCode, headers: {}, body: JSON.stringify(...) }`
 - Path parameter extraction from `event.path` (not `event.pathParameters`) due to proxy integration
 
-## Current Status (as of 2026-06-02)
+## Current Status (as of 2026-06-03)
 ### Completed
-- ✅ All backend routes (auth, cafe, menu, orders, pos, admin)
+- ✅ All backend routes (auth, cafe, menu, orders, pos, admin, GET /api/admin/users)
 - ✅ Customer ordering PWA (menu, cart, order submission)
 - ✅ Order tracking page (auto-polls status)
 - ✅ Cashier POS (login, order board, approve/ready/undo/reject, walk-up, café controls)
+- ✅ Admin dashboard page (admin.html) — menu CRUD, ingredients, recipes, users, reports, settings
 - ✅ CDK infrastructure deployed
 - ✅ GitHub Pages CI/CD
 - ✅ Variant pricing (e.g., Oat Milk +RM1)
 - ✅ Order expiry cron (5min check, 1hr timeout)
+- ✅ Undo: move Preparing back to Pending
+- ✅ Local dev server (`npm run dev`)
+
+### Pending Local Testing (committed but NOT pushed)
+- Admin dashboard (admin.html) — needs manual testing before deploy
 
 ### TODO
-- [ ] Admin dashboard page (admin.html) — menu CRUD, ingredients, recipes, users, reports, settings
+- [ ] Test admin.html thoroughly (all tabs: menu CRUD, ingredients, recipes, users, reports, settings)
 - [ ] Recipe-based ingredient deduction on order approval
 - [ ] Email notifications (low stock, end-of-day summary)
 - [ ] PWA icons (192x192, 512x512)
-- [ ] Food item quantity management UI
+- [ ] Food item quantity management UI (cashier sets count per day)
 - [ ] Celebration mode pricing reflected on customer menu
 - [ ] End-of-day close flow (auto-expire remaining orders)
-- [ ] Customer order cancel/modify UI
+- [ ] Customer order cancel/modify UI on track.html
 - [ ] Polish: better error handling, loading states, animations
+- [ ] Close café via auto-close at configured hour
 
 ## Important Context
 - Church café operates Sundays only: 10:15-11:30 and 12:45-13:30

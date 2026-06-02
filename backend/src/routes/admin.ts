@@ -103,6 +103,12 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
     }
 
     // Users
+    if (method === 'GET' && path.endsWith('/admin/users')) {
+      const r = await docClient.send(new ScanCommand({ TableName: USERS_TABLE }));
+      const users = (r.Items || []).map(u => ({ userId: u.userId, name: u.name, role: u.role, isActive: u.isActive }));
+      return res(200, { users });
+    }
+
     if (method === 'POST' && path.endsWith('/admin/users')) {
       const userId = uuid();
       const item = {
