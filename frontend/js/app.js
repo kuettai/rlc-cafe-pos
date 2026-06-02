@@ -30,7 +30,7 @@ function getAvailable(item) {
 
 function renderMenu() {
   const name = localStorage.getItem('customerName') || '';
-  const categories = ['DRINKS', 'FOOD'];
+  const categories = ['DRINK', 'FOOD'];
   const grouped = {};
   categories.forEach(c => { grouped[c] = menu.filter(i => i.category === c); });
 
@@ -42,7 +42,7 @@ function renderMenu() {
 
   categories.forEach(cat => {
     if (!grouped[cat].length) return;
-    html += `<h2 class="category-title">${cat === 'DRINKS' ? '🥤 Drinks' : '🍔 Food'}</h2>`;
+    html += `<h2 class="category-title">${cat === 'DRINK' ? '🥤 Drinks' : '🍔 Food'}</h2>`;
     grouped[cat].forEach(item => {
       const avail = getAvailable(item);
       const cartItem = cart.find(c => c.id === item.id && c.variant === (item.variants ? item.variants[0] : null));
@@ -58,8 +58,9 @@ function renderMenu() {
       if (item.variants && item.variants.length) {
         html += `<div class="variants" data-item-id="${item.id}">`;
         item.variants.forEach((v, i) => {
-          const isActive = cart.some(c => c.id === item.id && c.variant === v);
-          html += `<button class="${isActive ? 'active' : ''}" data-variant="${v}" aria-pressed="${isActive}">${v}</button>`;
+          const isActive = cart.some(c => c.id === item.id && c.variant === v.id);
+          const priceTag = v.priceModifier ? ` (+RM${v.priceModifier})` : '';
+          html += `<button class="${isActive ? 'active' : ''}" data-variant="${v.id}" aria-pressed="${isActive}">${v.name}${priceTag}</button>`;
         });
         html += `</div>`;
       }
@@ -109,7 +110,9 @@ function bindMenuEvents() {
         const existing = cart.find(c => c.id === id && c.variant === variant);
         const totalQty = cart.filter(c => c.id === id).reduce((s, c) => s + c.qty, 0);
         if (item.category === 'FOOD' && totalQty >= getAvailable(item)) return;
-        if (existing) { existing.qty++; } else { cart.push({ id, name: item.name, variant, price: item.basePrice, qty: 1 }); }
+        const variantObj = item.variants?.find(v => v.id === variant);
+        const price = item.basePrice + (variantObj?.priceModifier || 0);
+        if (existing) { existing.qty++; } else { cart.push({ id, name: item.name, variant, price, qty: 1 }); }
       } else {
         const existing = cart.find(c => c.id === id && c.variant === variant);
         if (existing) { existing.qty--; if (existing.qty <= 0) cart = cart.filter(c => c !== existing); }
@@ -188,14 +191,14 @@ cartSubmit.addEventListener('click', async () => {
 
 async function loadMenu() {
   const data = await apiFetch('/api/menu');
-  menu = data.items || data;
-  queueSize = data.queueSize || 0;
+  menu = (data.items || data).map(i => ({ ...i, id: i.menuItemId }));
 }
 
 async function init() {
   try {
     const status = await apiFetch('/api/cafe/status');
-    if (status.status === 'CLOSED') {
+    queueSize = status.queueSize || 0;
+    if (status.cafeStatus === 'CLOSED') {
       app.innerHTML = `<div class="closed-msg"><h2>Café is closed</h2><p>See you next Sunday! ☕</p><p style="margin-top:12px;font-size:.9rem">📍 Lot 5, Jalan 51A/221, 46100 PJ</p></div>`;
       return;
     }
