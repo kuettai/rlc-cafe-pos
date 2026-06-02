@@ -1,0 +1,339 @@
+import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
+import { v4 as uuid } from 'uuid';
+import { docClient, ORDERS_TABLE, MENU_TABLE, SETTINGS_TABLE, INGREDIENTS_TABLE, GetCommand, PutCommand, UpdateCommand, QueryCommand, ScanCommand } from '../lib/db';
+
+const res = (statusCode: number, body: object): APIGatewayProxyResult => ({
+  statusCode, headers: {}, body: JSON.stringify(body),
+});
+
+async function getSettings() {
+  const r = await docClient.send(new GetCommand({ TableName: SETTINGS_TABLE, Key: { PK: 'SETTINGS', SK: 'CONFIG' } }));
+  return r.Item;
+}
+
+async function getMenuItem(menuItemId: string) {
+  const r = await docClient.send(new GetCommand({ TableName: MENU_TABLE, Key: { PK: `MENU#${menuItemId}`, SK: 'META' } }));
+  return r.Item;
+}
+
+async function releaseFood(items: { menuItemId: string; quantity: number; category?: string }[]) {
+  for (const item of items) {
+    if (item.category === 'FOOD') {
+      await docClient.send(new UpdateCommand({
+        TableName: MENU_TABLE,
+        Key: { PK: `MENU#${item.menuItemId}`, SK: 'META' },
+        UpdateExpression: 'SET foodReserved = foodReserved - :q',
+        ExpressionAttributeValues: { ':q': item.quantity },
+      }));
+    }
+  }
+}
+
+async function listOrders(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+  const search = event.queryStringParameters?.search?.toLowerCase();
+  const statuses = ['PENDING', 'PREPARING', 'READY'];
+  let allOrders: any[] = [];
+
+  for (const status of statuses) {
+    const r = await docClient.send(new QueryCommand({
+      TableName: ORDERS_TABLE,
+      IndexName: 'status-createdAt-index',
+      KeyConditionExpression: '#s = :s',
+      ExpressionAttributeNames: { '#s': 'status' },
+      ExpressionAttributeValues: { ':s': status },
+      ScanIndexForward: false,
+    }));
+    allOrders.push(...(r.Items || []));
+  }
+
+  if (search) {
+    allOrders = allOrders.filter(o => o.customerName?.toLowerCase().includes(search));
+  }
+
+  // Sort: PENDING newest first, then PREPARING, then READY
+  const priority: Record<string, number> = { PENDING: 0, PREPARING: 1, READY: 2 };
+  allOrders.sort((a, b) => (priority[a.status] ?? 3) - (priority[b.status] ?? 3));
+
+  return res(200, { orders: allOrders });
+}
+
+async function approveOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+  const id = event.pathParameters?.id;
+  if (!id) return res(400, { error: 'Missing order id' });
+
+  const body = JSON.parse(event.body || '{}');
+  const r = await docClient.send(new GetCommand({ TableName: ORDERS_TABLE, Key: { PK: `ORDER#${id}`, SK: 'META' } }));
+  if (!r.Item) return res(404, { error: 'Order not found' });
+
+  const order = r.Item;
+  let totalAmount = order.totalAmount;
+  let discountType = body.discountType || 'NONE';
+  let discountOffset = 0;
+
+  if (body.discountType && body.discountType !== 'NONE') {
+    let newTotal = 0;
+    for (const item of order.items) {
+      if (item.category === 'DRINK') {
+        const discountedPrice = body.discountType === 'STAFF' ? 5 : 0;
+        newTotal += discountedPrice * item.quantity;
+      } else {
+        newTotal += item.unitPrice * item.quantity;
+      }
+    }
+    discountOffset = totalAmount - newTotal;
+    totalAmount = newTotal;
+  }
+
+  await docClient.send(new UpdateCommand({
+    TableName: ORDERS_TABLE,
+    Key: { PK: `ORDER#${id}`, SK: 'META' },
+    UpdateExpression: 'SET #s = :s, approvedBy = :a, discountType = :dt, discountOffset = :do, totalAmount = :t, updatedAt = :u',
+    ExpressionAttributeNames: { '#s': 'status' },
+    ExpressionAttributeValues: { ':s': 'PREPARING', ':a': body.approvedBy, ':dt': discountType, ':do': discountOffset, ':t': totalAmount, ':u': new Date().toISOString() },
+  }));
+
+  return res(200, { orderId: id, status: 'PREPARING', totalAmount, discountOffset });
+}
+
+async function markReady(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+  const id = event.pathParameters?.id;
+  if (!id) return res(400, { error: 'Missing order id' });
+
+  await docClient.send(new UpdateCommand({
+    TableName: ORDERS_TABLE,
+    Key: { PK: `ORDER#${id}`, SK: 'META' },
+    UpdateExpression: 'SET #s = :s, updatedAt = :u',
+    ExpressionAttributeNames: { '#s': 'status' },
+    ExpressionAttributeValues: { ':s': 'READY', ':u': new Date().toISOString(), ':prev': 'PREPARING' },
+    ConditionExpression: '#s = :prev',
+  }));
+
+  return res(200, { orderId: id, status: 'READY' });
+}
+
+async function rejectOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+  const id = event.pathParameters?.id;
+  if (!id) return res(400, { error: 'Missing order id' });
+
+  const body = JSON.parse(event.body || '{}');
+  const r = await docClient.send(new GetCommand({ TableName: ORDERS_TABLE, Key: { PK: `ORDER#${id}`, SK: 'META' } }));
+  if (!r.Item) return res(404, { error: 'Order not found' });
+  if (r.Item.status !== 'PENDING') return res(400, { error: 'Only PENDING orders can be rejected' });
+
+  await releaseFood(r.Item.items);
+
+  await docClient.send(new UpdateCommand({
+    TableName: ORDERS_TABLE,
+    Key: { PK: `ORDER#${id}`, SK: 'META' },
+    UpdateExpression: 'SET #s = :s, rejectionReason = :r, updatedAt = :u',
+    ExpressionAttributeNames: { '#s': 'status' },
+    ExpressionAttributeValues: { ':s': 'CANCELLED', ':r': body.reason, ':u': new Date().toISOString() },
+  }));
+
+  return res(200, { orderId: id, status: 'CANCELLED' });
+}
+
+async function createWalkUp(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+  const body = JSON.parse(event.body || '{}');
+  const { customerName, items, discountType } = body;
+  if (!customerName || !items?.length) return res(400, { error: 'customerName and items required' });
+
+  const settings = await getSettings();
+  const orderItems: any[] = [];
+  let totalAmount = 0;
+
+  for (const item of items) {
+    const menu = await getMenuItem(item.menuItemId);
+    if (!menu || !menu.isActive || !menu.isEnabledToday) return res(400, { error: `Item ${item.menuItemId} unavailable` });
+
+    if (menu.category === 'FOOD') {
+      const available = (menu.foodQuantityToday || 0) - (menu.foodReserved || 0);
+      if (available < item.quantity) return res(400, { error: `Insufficient stock for ${menu.name}` });
+    }
+
+    let unitPrice = menu.basePrice;
+    const variant = item.variant ? menu.variants?.find((v: any) => v.name === item.variant) : null;
+    if (variant) unitPrice = variant.price ?? unitPrice;
+    if (settings?.celebrationMode && menu.category === 'DRINK') unitPrice = settings.celebrationPrice;
+
+    orderItems.push({ menuItemId: item.menuItemId, name: menu.name, variant: item.variant || null, quantity: item.quantity, unitPrice, category: menu.category });
+    totalAmount += unitPrice * item.quantity;
+  }
+
+  // Apply discount
+  let discountOffset = 0;
+  if (discountType && discountType !== 'NONE') {
+    const originalTotal = totalAmount;
+    totalAmount = 0;
+    for (const oi of orderItems) {
+      if (oi.category === 'DRINK') {
+        const dp = discountType === 'STAFF' ? 5 : 0;
+        totalAmount += dp * oi.quantity;
+      } else {
+        totalAmount += oi.unitPrice * oi.quantity;
+      }
+    }
+    discountOffset = originalTotal - totalAmount;
+  }
+
+  // Reserve food
+  for (const oi of orderItems) {
+    if (oi.category === 'FOOD') {
+      await docClient.send(new UpdateCommand({
+        TableName: MENU_TABLE,
+        Key: { PK: `MENU#${oi.menuItemId}`, SK: 'META' },
+        UpdateExpression: 'SET foodReserved = foodReserved + :q',
+        ExpressionAttributeValues: { ':q': oi.quantity },
+      }));
+    }
+  }
+
+  const orderId = uuid();
+  const now = new Date().toISOString();
+  const expiresAt = Math.floor(Date.now() / 1000) + (settings?.orderExpiryMinutes || 30) * 60;
+
+  await docClient.send(new PutCommand({
+    TableName: ORDERS_TABLE,
+    Item: {
+      PK: `ORDER#${orderId}`, SK: 'META', orderId, customerName,
+      items: orderItems, totalAmount, status: 'PREPARING',
+      discountType: discountType || 'NONE', discountOffset,
+      createdAt: now, updatedAt: now, expiresAt,
+      isWalkUp: true, flaggedItems: [],
+    },
+  }));
+
+  return res(201, { orderId, totalAmount, status: 'PREPARING' });
+}
+
+async function openCafe(): Promise<APIGatewayProxyResult> {
+  await docClient.send(new UpdateCommand({
+    TableName: SETTINGS_TABLE,
+    Key: { PK: 'SETTINGS', SK: 'CONFIG' },
+    UpdateExpression: 'SET cafeStatus = :s',
+    ExpressionAttributeValues: { ':s': 'OPEN' },
+  }));
+  return res(200, { cafeStatus: 'OPEN' });
+}
+
+async function closeCafe(): Promise<APIGatewayProxyResult> {
+  await docClient.send(new UpdateCommand({
+    TableName: SETTINGS_TABLE,
+    Key: { PK: 'SETTINGS', SK: 'CONFIG' },
+    UpdateExpression: 'SET cafeStatus = :s',
+    ExpressionAttributeValues: { ':s': 'CLOSED' },
+  }));
+  return res(200, { cafeStatus: 'CLOSED' });
+}
+
+async function toggleCelebration(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+  const body = JSON.parse(event.body || '{}');
+  await docClient.send(new UpdateCommand({
+    TableName: SETTINGS_TABLE,
+    Key: { PK: 'SETTINGS', SK: 'CONFIG' },
+    UpdateExpression: 'SET celebrationMode = :m',
+    ExpressionAttributeValues: { ':m': body.enabled },
+  }));
+  return res(200, { celebrationMode: body.enabled });
+}
+
+async function toggleMenuItem(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+  const id = event.pathParameters?.id;
+  if (!id) return res(400, { error: 'Missing menu item id' });
+
+  const menu = await getMenuItem(id);
+  if (!menu) return res(404, { error: 'Menu item not found' });
+
+  const newEnabled = !menu.isEnabledToday;
+  await docClient.send(new UpdateCommand({
+    TableName: MENU_TABLE,
+    Key: { PK: `MENU#${id}`, SK: 'META' },
+    UpdateExpression: 'SET isEnabledToday = :e',
+    ExpressionAttributeValues: { ':e': newEnabled },
+  }));
+
+  // If disabling, flag pending orders containing this item
+  if (!newEnabled) {
+    const r = await docClient.send(new QueryCommand({
+      TableName: ORDERS_TABLE,
+      IndexName: 'status-createdAt-index',
+      KeyConditionExpression: '#s = :s',
+      ExpressionAttributeNames: { '#s': 'status' },
+      ExpressionAttributeValues: { ':s': 'PENDING' },
+    }));
+
+    for (const order of r.Items || []) {
+      const hasItem = order.items?.some((i: any) => i.menuItemId === id);
+      if (hasItem) {
+        const flagged = [...(order.flaggedItems || []), id];
+        await docClient.send(new UpdateCommand({
+          TableName: ORDERS_TABLE,
+          Key: { PK: `ORDER#${order.orderId}`, SK: 'META' },
+          UpdateExpression: 'SET flaggedItems = :f',
+          ExpressionAttributeValues: { ':f': flagged },
+        }));
+      }
+    }
+  }
+
+  return res(200, { menuItemId: id, isEnabledToday: newEnabled });
+}
+
+async function getInventory(): Promise<APIGatewayProxyResult> {
+  const r = await docClient.send(new ScanCommand({ TableName: INGREDIENTS_TABLE }));
+  return res(200, { ingredients: r.Items || [] });
+}
+
+async function adjustStock(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+  const id = event.pathParameters?.id;
+  if (!id) return res(400, { error: 'Missing ingredient id' });
+
+  const body = JSON.parse(event.body || '{}');
+  await docClient.send(new UpdateCommand({
+    TableName: INGREDIENTS_TABLE,
+    Key: { PK: `INGREDIENT#${id}`, SK: 'META' },
+    UpdateExpression: 'SET currentStock = :s',
+    ExpressionAttributeValues: { ':s': body.currentStock },
+  }));
+
+  return res(200, { ingredientId: id, currentStock: body.currentStock });
+}
+
+function extractSegment(path: string, pattern: RegExp, index: number): string | null {
+  const match = path.match(pattern);
+  return match ? match[index] : null;
+}
+
+export async function handlePos(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+  const method = event.httpMethod;
+  const path = event.path;
+
+  if (method === 'GET' && path === '/api/pos/orders') return listOrders(event);
+  if (method === 'POST' && path === '/api/pos/orders') return createWalkUp(event);
+  if (method === 'PUT' && path.endsWith('/approve')) {
+    const id = extractSegment(path, /\/api\/pos\/orders\/([^/]+)\/approve/, 1);
+    if (id) { event.pathParameters = { id }; return approveOrder(event); }
+  }
+  if (method === 'PUT' && path.endsWith('/ready')) {
+    const id = extractSegment(path, /\/api\/pos\/orders\/([^/]+)\/ready/, 1);
+    if (id) { event.pathParameters = { id }; return markReady(event); }
+  }
+  if (method === 'PUT' && path.endsWith('/reject')) {
+    const id = extractSegment(path, /\/api\/pos\/orders\/([^/]+)\/reject/, 1);
+    if (id) { event.pathParameters = { id }; return rejectOrder(event); }
+  }
+  if (method === 'PUT' && path === '/api/pos/cafe/open') return openCafe();
+  if (method === 'PUT' && path === '/api/pos/cafe/close') return closeCafe();
+  if (method === 'PUT' && path === '/api/pos/cafe/celebration') return toggleCelebration(event);
+  if (method === 'PUT' && path.match(/\/api\/pos\/menu\/[^/]+\/toggle$/)) {
+    const id = extractSegment(path, /\/api\/pos\/menu\/([^/]+)\/toggle/, 1);
+    if (id) { event.pathParameters = { id }; return toggleMenuItem(event); }
+  }
+  if (method === 'GET' && path === '/api/pos/inventory') return getInventory();
+  if (method === 'PUT' && path.match(/\/api\/pos\/inventory\/[^/]+$/)) {
+    const id = extractSegment(path, /\/api\/pos\/inventory\/([^/]+)/, 1);
+    if (id) { event.pathParameters = { id }; return adjustStock(event); }
+  }
+
+  return res(404, { error: 'Not found' });
+}
