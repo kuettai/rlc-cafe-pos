@@ -64,7 +64,8 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
       const ingredientId = uuid();
       const item = {
         PK: `INGREDIENT#${ingredientId}`, SK: 'META', ingredientId,
-        name: body.name, unit: body.unit, currentStock: body.currentStock,
+        name: body.name, unit: body.unit, usageUnit: body.usageUnit || null,
+        currentStock: body.currentStock,
         lowStockThreshold: body.lowStockThreshold, storageLocation: body.storageLocation
       };
       await docClient.send(new PutCommand({ TableName: INGREDIENTS_TABLE, Item: item }));
@@ -184,7 +185,7 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
       const totalRevenue = orders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
       const totalOffsets = orders.reduce((sum, o) => sum + (o.discountOffset || 0), 0);
       const netExpected = totalRevenue - totalOffsets;
-      return res(200, { date: today, totalOrders, totalRevenue, totalOffsets, netExpected });
+      return res(200, { date: today, totalOrders, totalRevenue, totalOffsets, netExpected, orders });
     }
 
     if (method === 'GET' && path.endsWith('/admin/reports/weekly')) {

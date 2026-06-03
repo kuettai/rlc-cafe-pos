@@ -49,3 +49,30 @@ Base URL: `https://hcydppml1a.execute-api.ap-southeast-5.amazonaws.com/prod`
 | GET | /api/admin/reports/weekly | Weekly summary (stub) |
 | GET | /api/admin/reports/inventory | Low stock report |
 | GET | /api/admin/activity-log | Activity log (stub) |
+| GET | /api/admin/checklist/config | Get checklist configuration |
+| PUT | /api/admin/checklist/config | Save checklist config. Body: {open: [...], close: [...]} |
+| GET | /api/admin/checklist/logs | Get historical checklist completion logs |
+| POST | /api/admin/planogram/reference | Upload reference photo. Body: {location, image (base64)} |
+
+## Checklist Endpoints (Requires JWT, role: CASHIER or ADMIN)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /api/pos/checklist | Get checklist config + today's completion status |
+| PUT | /api/pos/checklist/check | Mark item done. Body: {phase, itemId, completedBy} |
+| PUT | /api/pos/checklist/uncheck | Uncheck item. Body: {phase, itemId} |
+
+## Planogram Endpoints (Requires JWT, role: CASHIER or ADMIN)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | /api/pos/planogram/analyze | Upload photos for AI stock count. Body: {location, images[]} |
+| POST | /api/pos/planogram/confirm | Confirm counts and save. Body: {counts: [{ingredientId, count}]} |
+| GET | /api/pos/planogram/reference/{location} | Get reference photo presigned URL |
+
+## Receipt Endpoints (Public)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | /api/orders/{id}/receipt | Upload receipt image. Body: {image (base64)} |
+| GET | /api/orders/{id}/receipt | Get presigned URL to view receipt |

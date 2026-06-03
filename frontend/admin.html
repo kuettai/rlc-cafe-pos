@@ -3,18 +3,20 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#1F2937">
-<title>RLC Café Admin</title>
+<meta name="theme-color" content="#4A2C17">
+<title>Admin - RLC Café</title>
 <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/admin.css">
 </head>
 <body>
-<header class="admin-header"><h1>☕ RLC Café Admin</h1></header>
+<header class="pos-header" style="background:linear-gradient(135deg,#4A2C17 0%,#6B4226 50%,#8B5E3C 100%)">
+  <h1>☕ RLC Café Admin</h1>
+</header>
 <div class="error-banner" id="errorBanner" role="alert"></div>
-<div id="app"></div>
+<div class="admin-app" id="app"></div>
 
 <script src="js/config.js"></script>
 <script src="js/admin.js"></script>
-<script>if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js');</script>
 </body>
 </html>

@@ -1,372 +1,699 @@
 (function(){
 const $ = s => document.querySelector(s);
 const app = $('#app');
-let token = sessionStorage.getItem('admin_token');
-let currentUser = sessionStorage.getItem('admin_user') || '';
-let activeTab = 'orders';
-let orders = [];
-let pollTimer = null;
+let token = sessionStorage.getItem('pos_token');
+let currentUser = sessionStorage.getItem('pos_user') || '';
+let currentTab = 'menu';
 
-function authHeaders(){ return {'Content-Type':'application/json', Authorization:`Bearer ${token}`}; }
+function authHeaders(){ return { 'Content-Type':'application/json', Authorization:`Bearer ${token}` }; }
 
 async function api(method, path, body){
-  const opts = {method, headers: authHeaders()};
+  const opts = { method, headers: authHeaders() };
   if(body) opts.body = JSON.stringify(body);
   const res = await fetch(`${API_BASE}${path}`, opts);
   if(res.status === 401){ logout(); throw new Error('Unauthorized'); }
-  if(!res.ok) throw new Error(await res.text());
+  if(!res.ok){ const err = await res.text(); throw new Error(err); }
   return res.json();
 }
 
 function showError(msg){ const b=$('#errorBanner'); b.textContent=msg; b.classList.add('show'); setTimeout(()=>b.classList.remove('show'),4000); }
 
-// --- Auth ---
+// --- Login ---
 function renderLogin(){
-  stopPolling();
-  app.innerHTML = `<div class="pos-login"><h2>Admin Login</h2><form id="loginForm">
-    <input id="loginUser" placeholder="User ID" required class="pos-input" autocomplete="username">
-    <input id="loginPin" type="password" inputmode="numeric" maxlength="6" placeholder="PIN" required class="pos-input">
-    <button type="submit" class="pos-btn pos-btn-primary">Login</button></form></div>`;
+  app.innerHTML = `<div class="admin-login">
+    <h2>Admin Login</h2>
+    <p>Access restricted to administrators</p>
+    <form id="loginForm">
+      <input id="loginUser" placeholder="Your name (e.g. Admin)" required autocomplete="username" class="pos-input">
+      <input id="loginPin" type="password" inputmode="numeric" maxlength="6" placeholder="PIN" required class="pos-input">
+      <button type="submit" class="pos-btn pos-btn-primary" style="width:100%">Login</button>
+    </form></div>`;
   $('#loginForm').onsubmit = async e => {
     e.preventDefault();
     try{
-      const res = await fetch(`${API_BASE}/api/auth/login`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:$('#loginUser').value,pin:$('#loginPin').value})});
-      if(!res.ok) throw new Error('Login failed');
+      const res = await fetch(`${API_BASE}/api/auth/login`,{ method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({userId:$('#loginUser').value, pin:$('#loginPin').value}) });
+      if(!res.ok) throw new Error();
       const data = await res.json();
       if(data.role !== 'ADMIN'){ showError('Admin access required'); return; }
       token = data.token;
-      currentUser = data.name || $('#loginUser').value;
-      sessionStorage.setItem('admin_token', token);
-      sessionStorage.setItem('admin_user', currentUser);
+      currentUser = data.name || 'Admin';
+      sessionStorage.setItem('pos_token', token);
+      sessionStorage.setItem('pos_user', currentUser);
       renderApp();
     } catch(e){ showError('Invalid credentials'); }
   };
 }
 
-function logout(){ token=null; currentUser=''; sessionStorage.removeItem('admin_token'); sessionStorage.removeItem('admin_user'); renderLogin(); }
+function logout(){ token=null; sessionStorage.removeItem('pos_token'); sessionStorage.removeItem('pos_user'); renderLogin(); }
 
-// --- Main Layout ---
-const tabs = [
-  {id:'orders',icon:'📋',label:'Orders'},
-  {id:'menu',icon:'🍽️',label:'Menu'},
-  {id:'ingredients',icon:'🧂',label:'Ingredients'},
-  {id:'recipes',icon:'📖',label:'Recipes'},
-  {id:'users',icon:'👥',label:'Users'},
-  {id:'reports',icon:'📊',label:'Reports'},
-  {id:'settings',icon:'⚙️',label:'Settings'}
-];
-
+// --- Main app shell ---
 function renderApp(){
-  app.innerHTML = `<div class="admin-layout">
-    <nav class="admin-sidebar">${tabs.map(t=>`<button class="admin-nav-btn${t.id===activeTab?' active':''}" data-tab="${t.id}"><span class="admin-nav-icon">${t.icon}</span><span class="admin-nav-label">${t.label}</span></button>`).join('')}
-      <button class="admin-nav-btn admin-logout-btn" id="btnLogout"><span class="admin-nav-icon">🚪</span><span class="admin-nav-label">Logout</span></button>
-    </nav>
-    <nav class="admin-bottombar">${tabs.map(t=>`<button class="admin-tab-btn${t.id===activeTab?' active':''}" data-tab="${t.id}"><span>${t.icon}</span><span>${t.label}</span></button>`).join('')}</nav>
-    <main class="admin-content" id="tabContent"></main>
-  </div>`;
-  app.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{ activeTab=b.dataset.tab; renderApp(); });
-  $('#btnLogout').onclick = logout;
-  renderTab();
+  app.innerHTML = `<nav class="admin-nav">
+    <span class="admin-nav-user">👤 ${currentUser}</span>
+    <button data-tab="menu" class="active">Menu</button>
+    <button data-tab="users">Users</button>
+    <button data-tab="ingredients">Ingredients</button>
+    <button data-tab="checklist">Checklist</button>
+    <button data-tab="planogram">Planogram</button>
+    <button data-tab="settings">Settings</button>
+    <button data-tab="reports">Reports</button>
+    <a href="pos.html" class="pos-btn pos-btn-sm" style="text-decoration:none;margin-left:auto">POS</a>
+    <button class="nav-logout">Logout</button>
+  </nav>
+  <div id="adminContent"></div>`;
+  app.querySelectorAll('.admin-nav button[data-tab]').forEach(btn=>{
+    btn.onclick=()=>{
+      app.querySelectorAll('.admin-nav button').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      currentTab = btn.dataset.tab;
+      loadTab();
+    };
+  });
+  app.querySelector('.nav-logout').onclick = logout;
+  loadTab();
 }
 
-function renderTab(){
-  const c=$('#tabContent');
-  stopPolling();
-  switch(activeTab){
-    case 'orders': renderOrders(c); break;
-    case 'menu': renderMenu(c); break;
-    case 'ingredients': renderIngredients(c); break;
-    case 'recipes': renderRecipes(c); break;
-    case 'users': renderUsers(c); break;
-    case 'reports': renderReports(c); break;
-    case 'settings': renderSettings(c); break;
+function loadTab(){
+  const c = $('#adminContent');
+  switch(currentTab){
+    case 'menu': loadMenu(c); break;
+    case 'users': loadUsers(c); break;
+    case 'ingredients': loadIngredients(c); break;
+    case 'checklist': loadChecklist(c); break;
+    case 'planogram': loadPlanogram(c); break;
+    case 'settings': loadSettings(c); break;
+    case 'reports': loadReports(c); break;
   }
 }
 
-// --- Orders Tab ---
-function startPolling(){ stopPolling(); pollTimer=setInterval(fetchOrders,7000); }
-function stopPolling(){ if(pollTimer){clearInterval(pollTimer);pollTimer=null;} }
-
-async function fetchOrders(){
-  try{ const data=await api('GET','/api/pos/orders'); orders=Array.isArray(data)?data:data.orders||[]; renderOrderBoard(); }catch(e){}
-}
-
-function renderOrders(c){
-  c.innerHTML=`<div class="admin-section-header"><h2>Orders</h2><button class="pos-btn pos-btn-primary" id="btnWalkup">+ Walk-up Order</button></div><div id="orderBoard" class="pos-kanban"></div>`;
-  $('#btnWalkup').onclick = openWalkup;
-  fetchOrders();
-  startPolling();
-}
-
-function renderOrderBoard(){
-  const board=$('#orderBoard');
-  if(!board) return;
-  const pending=orders.filter(o=>o.status==='PENDING').sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
-  const preparing=orders.filter(o=>o.status==='PREPARING');
-  const ready=orders.filter(o=>o.status==='READY');
-  board.innerHTML=`<div class="pos-col pos-col-pending"><h3>Pending (${pending.length})</h3>${pending.map(cardHtml).join('')}</div>
-    <div class="pos-col pos-col-preparing"><h3>Preparing (${preparing.length})</h3>${preparing.map(cardHtml).join('')}</div>
-    <div class="pos-col pos-col-ready"><h3>Ready (${ready.length})</h3>${ready.map(cardHtml).join('')}</div>`;
-  board.querySelectorAll('.pos-card').forEach(c=>c.onclick=()=>openOrderDetail(c.dataset.id));
-}
-
-function cardHtml(o){
-  const items=(o.items||[]).map(i=>`${i.quantity||i.qty}x ${i.name}`).join(', ');
-  return `<div class="pos-card pos-card-${o.status.toLowerCase()}" data-id="${o.id||o.orderId}">
-    <div class="pos-card-name">${o.customerName||'Guest'}</div>
-    <div class="pos-card-items">${items||'—'}</div>
-    <div class="pos-card-footer"><span>RM ${(o.total||0).toFixed(2)}</span><span>${timeAgo(o.createdAt)}</span></div></div>`;
-}
-
-function timeAgo(d){ const m=Math.floor((Date.now()-new Date(d))/60000); return m<1?'just now':m<60?`${m}m ago`:`${Math.floor(m/60)}h ago`; }
-
-function openOrderDetail(id){
-  const o=orders.find(x=>(x.id||x.orderId)===id);
-  if(!o) return;
-  const items=(o.items||[]).map(i=>`<li>${i.quantity||i.qty}x ${i.name}${i.variant?' ('+i.variant+')':''} - RM ${((i.price||0)*(i.quantity||i.qty)).toFixed(2)}</li>`).join('');
-  let actions='';
-  if(o.status==='PENDING') actions=`<button class="pos-btn pos-btn-primary" onclick="window._orderAction('approve','${id}')">Approve</button><button class="pos-btn pos-btn-danger" onclick="window._orderAction('reject','${id}')">Reject</button>`;
-  if(o.status==='PREPARING') actions=`<button class="pos-btn pos-btn-primary" onclick="window._orderAction('ready','${id}')">Ready</button><button class="pos-btn" onclick="window._orderAction('undo','${id}')">Undo</button>`;
-  if(o.status==='READY') actions=`<button class="pos-btn" onclick="window._orderAction('undo','${id}')">Undo</button>`;
-  showModal(`<h3>${o.customerName||'Guest'}</h3><ul class="pos-detail-items">${items}</ul><p class="pos-detail-total">Total: RM ${(o.total||0).toFixed(2)}</p><div class="pos-detail-actions">${actions}</div>`);
-}
-
-window._orderAction = async(action,id)=>{
-  try{ await api('PUT',`/api/pos/orders/${id}/${action}`); closeModal(); fetchOrders(); }catch(e){ showError('Action failed'); }
-};
-
-async function openWalkup(){
-  let menu=[];
-  try{ menu=await api('GET','/api/menu'); if(!Array.isArray(menu)) menu=menu.items||[]; }catch(e){}
-  let cart=[];
-  const render=()=>{
-    const cartHtml=cart.map((c,i)=>`<li>${c.qty}x ${c.name}${c.variant?' ('+c.variant+')':''} <button class="pos-remove-item" data-i="${i}">✗</button></li>`).join('');
-    showModal(`<h3>Walk-up Order</h3>
-      <input id="walkupName" placeholder="Customer name" class="pos-input" style="margin-bottom:12px">
-      <div class="admin-table-wrap" style="max-height:40vh;overflow-y:auto">${menu.map((m,mi)=>`<div class="pos-walkup-item"><span>${m.name} - RM ${(m.basePrice||m.price||0).toFixed(2)}</span>
-        ${(m.variants&&m.variants.length)?m.variants.map(v=>`<button class="pos-variant-btn" data-mi="${mi}" data-v="${v.id||v.name}">${v.name}</button>`).join(''):`<button class="pos-add-btn" data-mi="${mi}">+</button>`}</div>`).join('')}</div>
-      <div class="pos-walkup-cart"><strong>Cart:</strong><ul>${cartHtml||'<li>Empty</li>'}</ul></div>
-      <button class="pos-btn pos-btn-primary" id="submitWalkup" style="width:100%">Submit Order</button>`);
-    document.querySelectorAll('.pos-add-btn').forEach(b=>b.onclick=()=>{ const m=menu[b.dataset.mi]; cart.push({menuItemId:m.id,name:m.name,variant:null,qty:1,price:m.basePrice||m.price||0}); render(); });
-    document.querySelectorAll('.pos-variant-btn').forEach(b=>b.onclick=()=>{ const m=menu[b.dataset.mi]; const v=m.variants.find(x=>(x.id||x.name)===b.dataset.v); cart.push({menuItemId:m.id,name:m.name,variant:v.name,variantId:v.id,qty:1,price:(m.basePrice||m.price||0)+(v.priceModifier||0)}); render(); });
-    document.querySelectorAll('.pos-remove-item').forEach(b=>b.onclick=()=>{ cart.splice(+b.dataset.i,1); render(); });
-    const sub=$('#submitWalkup');
-    if(sub) sub.onclick=async()=>{
-      const name=$('#walkupName').value||'Walk-up';
-      if(!cart.length){ showError('Add items first'); return; }
-      try{ await api('POST','/api/pos/orders',{customerName:name,items:cart}); closeModal(); fetchOrders(); }catch(e){ showError('Failed to create order'); }
-    };
-  };
-  render();
-}
-
-// --- Modal ---
-function showModal(html){
-  let overlay=document.querySelector('.admin-modal-overlay');
-  if(!overlay){ overlay=document.createElement('div'); overlay.className='admin-modal-overlay'; document.body.appendChild(overlay); }
-  overlay.innerHTML=`<div class="admin-modal"><button class="admin-modal-close" id="modalClose">✕</button>${html}</div>`;
-  overlay.style.display='flex';
-  overlay.querySelector('#modalClose').onclick=closeModal;
-  overlay.onclick=e=>{ if(e.target===overlay) closeModal(); };
-}
-function closeModal(){ const o=document.querySelector('.admin-modal-overlay'); if(o) o.style.display='none'; }
-
-// --- Menu Tab ---
-async function renderMenu(c){
-  c.innerHTML='<div class="admin-section-header"><h2>Menu Items</h2><button class="pos-btn pos-btn-primary" id="btnAddMenu">+ Add Item</button></div><div id="menuList" class="loading">Loading...</div>';
-  $('#btnAddMenu').onclick=()=>menuForm();
+// --- Menu Management ---
+async function loadMenu(container){
+  container.innerHTML = '<div class="loading">Loading menu...</div>';
   try{
-    let items=await api('GET','/api/menu');
-    if(!Array.isArray(items)) items=items.items||[];
-    $('#menuList').innerHTML=items.length?`<table class="admin-table"><thead><tr><th>Name</th><th>Category</th><th>Price</th><th>Active</th><th>Actions</th></tr></thead><tbody>${items.map(m=>`<tr>
-      <td>${m.name}</td><td>${m.category||'-'}</td><td>RM ${(m.basePrice||m.price||0).toFixed(2)}</td><td>${m.active!==false?'✓':'✗'}</td>
-      <td><button class="pos-btn pos-btn-sm" data-edit="${m.id}">Edit</button> <button class="pos-btn pos-btn-sm pos-btn-danger" data-del="${m.id}">Delete</button></td></tr>`).join('')}</tbody></table>`:'<p>No menu items</p>';
-    document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>menuForm(items.find(i=>i.id===b.dataset.edit)));
-    document.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{ if(confirm('Delete this item?')){ try{ await api('DELETE',`/api/admin/menu/${b.dataset.del}`); renderMenu(c); }catch(e){ showError('Delete failed'); }} });
-  }catch(e){ $('#menuList').innerHTML='<p>Failed to load menu</p>'; }
+    const data = await api('GET','/api/menu');
+    const items = (Array.isArray(data) ? data : data.items || []);
+    renderMenuSection(container, items);
+  } catch(e){ container.innerHTML = '<div class="admin-empty"><p>Failed to load menu</p></div>'; }
 }
 
-function menuForm(item){
-  const isEdit=!!item;
-  let variants=item?[...(item.variants||[])]:[];
-  const render=()=>{
-    const variantsHtml=variants.map((v,i)=>`<div style="display:flex;gap:8px;margin-bottom:4px"><input class="pos-input" placeholder="ID" value="${v.id||''}" data-vi="${i}" data-f="id" style="width:60px"><input class="pos-input" placeholder="Name" value="${v.name||''}" data-vi="${i}" data-f="name"><input class="pos-input" type="number" step="0.1" placeholder="+/-Price" value="${v.priceModifier||0}" data-vi="${i}" data-f="priceModifier" style="width:80px"><button class="pos-btn pos-btn-sm pos-btn-danger" data-rmv="${i}">✗</button></div>`).join('');
-    showModal(`<h3>${isEdit?'Edit':'Add'} Menu Item</h3>
-      <form id="menuItemForm" class="admin-form">
-        <label>Name<input class="pos-input" id="miName" value="${item?.name||''}" required></label>
-        <label>Category<select class="pos-input" id="miCat"><option value="DRINK"${item?.category==='DRINK'?' selected':''}>DRINK</option><option value="FOOD"${item?.category==='FOOD'?' selected':''}>FOOD</option></select></label>
-        <label>Base Price (RM)<input class="pos-input" type="number" step="0.1" id="miPrice" value="${item?.basePrice||item?.price||''}" required></label>
-        <label>Sort Order<input class="pos-input" type="number" id="miSort" value="${item?.sortOrder||0}"></label>
-        <div><strong>Variants</strong><button type="button" class="pos-btn pos-btn-sm" id="addVariant">+ Add</button></div>
-        <div id="variantsList">${variantsHtml}</div>
-        <button type="submit" class="pos-btn pos-btn-primary" style="width:100%;margin-top:12px">${isEdit?'Update':'Create'}</button>
-      </form>`);
-    $('#addVariant').onclick=()=>{ variants.push({id:'',name:'',priceModifier:0}); render(); };
-    document.querySelectorAll('[data-rmv]').forEach(b=>b.onclick=()=>{ variants.splice(+b.dataset.rmv,1); render(); });
-    document.querySelectorAll('[data-vi]').forEach(inp=>inp.oninput=()=>{ const i=+inp.dataset.vi; const f=inp.dataset.f; variants[i][f]=f==='priceModifier'?parseFloat(inp.value)||0:inp.value; });
-    $('#menuItemForm').onsubmit=async e=>{
-      e.preventDefault();
-      const body={name:$('#miName').value,category:$('#miCat').value,basePrice:parseFloat($('#miPrice').value),sortOrder:parseInt($('#miSort').value)||0,variants};
-      try{
-        if(isEdit) await api('PUT',`/api/admin/menu/${item.id}`,body);
-        else await api('POST','/api/admin/menu',body);
-        closeModal(); renderMenu($('#tabContent'));
-      }catch(e){ showError('Save failed'); }
-    };
-  };
-  render();
-}
-
-// --- Ingredients Tab ---
-async function renderIngredients(c){
-  c.innerHTML='<div class="admin-section-header"><h2>Ingredients</h2><button class="pos-btn pos-btn-primary" id="btnAddIng">+ Add Ingredient</button></div><div id="ingList" class="loading">Loading...</div>';
-  $('#btnAddIng').onclick=()=>ingredientForm();
-  try{
-    let items=await api('GET','/api/pos/inventory');
-    if(!Array.isArray(items)) items=items.ingredients||items.items||[];
-    $('#ingList').innerHTML=items.length?`<table class="admin-table"><thead><tr><th>Name</th><th>Stock</th><th>Unit</th><th>Threshold</th><th>Location</th><th>Actions</th></tr></thead><tbody>${items.map(m=>`<tr>
-      <td>${m.name}</td><td><input type="number" class="admin-stock-input" data-id="${m.id}" value="${m.currentStock||0}" style="width:70px"></td><td>${m.unit||'-'}</td><td>${m.lowStockThreshold||m.threshold||'-'}</td><td>${m.storageLocation||m.location||'-'}</td>
-      <td><button class="pos-btn pos-btn-sm" data-edit="${m.id}">Edit</button></td></tr>`).join('')}</tbody></table>`:'<p>No ingredients</p>';
-    document.querySelectorAll('.admin-stock-input').forEach(inp=>inp.onchange=async()=>{
-      try{ await api('PUT',`/api/pos/inventory/${inp.dataset.id}`,{currentStock:parseFloat(inp.value)}); }catch(e){ showError('Stock update failed'); }
+function renderMenuSection(container, items){
+  let html = `<div class="admin-section">
+    <div class="admin-section-header">
+      <h2>Menu Items</h2>
+      <button class="pos-btn pos-btn-primary" id="btnAddMenu">+ Add Item</button>
+    </div>`;
+  if(!items.length){
+    html += '<div class="admin-empty"><p>No menu items yet</p></div>';
+  } else {
+    items.forEach(item=>{
+      const badge = item.category === 'DRINK' ? 'badge-drink' : 'badge-food';
+      const variants = (item.variants||[]).map(v=>v.name||v).join(', ');
+      html += `<div class="admin-card">
+        <div class="admin-card-header">
+          <div>
+            <div class="admin-card-title">${item.name}</div>
+            <div class="admin-card-subtitle">RM ${(item.basePrice||0).toFixed(2)}${variants ? ' · '+variants : ''}</div>
+          </div>
+          <div class="admin-card-actions">
+            <span class="admin-card-badge ${badge}">${item.category}</span>
+            <button class="pos-btn pos-btn-sm" data-edit-menu="${item.menuItemId||item.id}">Edit</button>
+            <button class="pos-btn pos-btn-sm pos-btn-danger" data-del-menu="${item.menuItemId||item.id}">Delete</button>
+          </div>
+        </div>
+      </div>`;
     });
-    document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>ingredientForm(items.find(i=>i.id===b.dataset.edit)));
-  }catch(e){ $('#ingList').innerHTML='<p>Failed to load</p>'; }
-}
+  }
+  html += '</div>';
+  container.innerHTML = html;
 
-function ingredientForm(item){
-  const isEdit=!!item;
-  showModal(`<h3>${isEdit?'Edit':'Add'} Ingredient</h3>
-    <form id="ingForm" class="admin-form">
-      <label>Name<input class="pos-input" id="ingName" value="${item?.name||''}" required></label>
-      <label>Unit<select class="pos-input" id="ingUnit"><option value="ml"${item?.unit==='ml'?' selected':''}>ml</option><option value="g"${item?.unit==='g'?' selected':''}>g</option><option value="spoons"${item?.unit==='spoons'?' selected':''}>spoons</option><option value="pieces"${item?.unit==='pieces'?' selected':''}>pieces</option></select></label>
-      <label>Current Stock<input class="pos-input" type="number" id="ingStock" value="${item?.currentStock||0}"></label>
-      <label>Low Stock Threshold<input class="pos-input" type="number" id="ingThresh" value="${item?.lowStockThreshold||item?.threshold||0}"></label>
-      <label>Storage Location<select class="pos-input" id="ingLoc"><option value="FRIDGE"${item?.storageLocation==='FRIDGE'?' selected':''}>FRIDGE</option><option value="STOREROOM"${(item?.storageLocation||'STOREROOM')==='STOREROOM'?' selected':''}>STOREROOM</option></select></label>
-      <button type="submit" class="pos-btn pos-btn-primary" style="width:100%;margin-top:12px">${isEdit?'Update':'Create'}</button>
-    </form>`);
-  $('#ingForm').onsubmit=async e=>{
-    e.preventDefault();
-    const body={name:$('#ingName').value,unit:$('#ingUnit').value,currentStock:parseFloat($('#ingStock').value),lowStockThreshold:parseFloat($('#ingThresh').value),storageLocation:$('#ingLoc').value};
-    try{
-      if(isEdit) await api('PUT',`/api/admin/ingredients/${item.id}`,body);
-      else await api('POST','/api/admin/ingredients',body);
-      closeModal(); renderIngredients($('#tabContent'));
-    }catch(e){ showError('Save failed'); }
-  };
-}
-
-// --- Recipes Tab ---
-async function renderRecipes(c){
-  c.innerHTML='<div class="admin-section-header"><h2>Recipes</h2></div><div class="admin-form"><label>Select Menu Item<select class="pos-input" id="recipeMenu"><option value="">-- Select --</option></select></div><div id="recipeContent"></div>';
-  let menuItems=[], ingredients=[];
-  try{ menuItems=await api('GET','/api/menu'); if(!Array.isArray(menuItems)) menuItems=menuItems.items||[]; }catch(e){}
-  try{ ingredients=await api('GET','/api/pos/inventory'); if(!Array.isArray(ingredients)) ingredients=ingredients.ingredients||ingredients.items||[]; }catch(e){}
-  const sel=$('#recipeMenu');
-  menuItems.forEach(m=>{ const o=document.createElement('option'); o.value=m.id; o.textContent=m.name; sel.appendChild(o); });
-  sel.onchange=()=>loadRecipe(sel.value, menuItems, ingredients);
-}
-
-async function loadRecipe(menuItemId, menuItems, ingredients){
-  const rc=$('#recipeContent');
-  if(!menuItemId){ rc.innerHTML=''; return; }
-  const item=menuItems.find(m=>m.id===menuItemId);
-  let recipe=[];
-  try{ const data=await api('GET',`/api/admin/recipes/${menuItemId}`); recipe=Array.isArray(data)?data:data.ingredients||[]; }catch(e){}
-  let rows=[...recipe];
-  const render=()=>{
-    rc.innerHTML=`<table class="admin-table"><thead><tr><th>Ingredient</th><th>Quantity</th><th></th></tr></thead><tbody>${rows.map((r,i)=>`<tr>
-      <td><select class="pos-input admin-rec-ing" data-i="${i}">${ingredients.map(ing=>`<option value="${ing.id}"${ing.id===r.ingredientId?' selected':''}>${ing.name}</option>`).join('')}</select></td>
-      <td><input class="pos-input" type="number" step="0.1" value="${r.quantity||0}" data-i="${i}" data-f="qty" style="width:80px"></td>
-      <td><button class="pos-btn pos-btn-sm pos-btn-danger" data-rm="${i}">✗</button></td></tr>`).join('')}</tbody></table>
-      <button class="pos-btn pos-btn-sm" id="addRecipeRow" style="margin-top:8px">+ Add Ingredient</button>
-      <button class="pos-btn pos-btn-primary" id="saveRecipe" style="margin-top:12px;width:100%">Save Recipe</button>`;
-    document.querySelectorAll('.admin-rec-ing').forEach(s=>s.onchange=()=>{ rows[+s.dataset.i].ingredientId=s.value; });
-    document.querySelectorAll('[data-f="qty"]').forEach(inp=>inp.oninput=()=>{ rows[+inp.dataset.i].quantity=parseFloat(inp.value)||0; });
-    document.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{ rows.splice(+b.dataset.rm,1); render(); });
-    $('#addRecipeRow').onclick=()=>{ rows.push({ingredientId:ingredients[0]?.id||'',quantity:0}); render(); };
-    $('#saveRecipe').onclick=async()=>{
-      try{ await api('POST','/api/admin/recipes',{menuItemId,variantId:null,ingredients:rows.map(r=>({ingredientId:r.ingredientId,quantity:r.quantity}))}); showError('Recipe saved!'); }catch(e){ showError('Save failed'); }
+  $('#btnAddMenu').onclick = ()=> openMenuForm(container, null, items);
+  container.querySelectorAll('[data-edit-menu]').forEach(btn=>{
+    btn.onclick=()=>{ const item=items.find(i=>(i.menuItemId||i.id)===btn.dataset.editMenu); openMenuForm(container, item, items); };
+  });
+  container.querySelectorAll('[data-del-menu]').forEach(btn=>{
+    btn.onclick=async()=>{
+      if(!confirm('Delete this menu item?')) return;
+      try{ await api('DELETE',`/api/admin/menu/${btn.dataset.delMenu}`); loadMenu(container); } catch(e){ showError('Delete failed'); }
     };
+  });
+}
+
+function openMenuForm(container, item, allItems){
+  const isEdit = !!item;
+  const variants = item?.variants || [];
+  let variantHtml = variants.map((v,i)=>`<div class="variant-row">
+    <input class="pos-input" placeholder="Name" value="${v.name||''}" data-vi="${i}" data-vf="name">
+    <input class="pos-input" placeholder="+Price" type="number" step="0.5" value="${v.priceModifier||0}" data-vi="${i}" data-vf="priceModifier">
+    <button class="remove-variant" data-vri="${i}">✕</button></div>`).join('');
+
+  const form = document.createElement('div');
+  form.className = 'admin-form';
+  form.innerHTML = `<h3>${isEdit?'Edit':'Add'} Menu Item</h3>
+    <div class="admin-form-row">
+      <div class="admin-form-group"><label>Name</label><input id="mfName" class="pos-input" value="${item?.name||''}"></div>
+      <div class="admin-form-group"><label>Category</label><select id="mfCategory" class="pos-input"><option value="DRINK" ${item?.category==='DRINK'?'selected':''}>Drink</option><option value="FOOD" ${item?.category==='FOOD'?'selected':''}>Food</option></select></div>
+    </div>
+    <div class="admin-form-row">
+      <div class="admin-form-group"><label>Base Price (RM)</label><input id="mfPrice" type="number" step="0.5" class="pos-input" value="${item?.basePrice||''}"></div>
+      <div class="admin-form-group"><label>Sort Order</label><input id="mfSort" type="number" class="pos-input" value="${item?.sortOrder||0}"></div>
+    </div>
+    <div class="admin-form-group"><label>Variants</label><div id="variantList" class="variant-list">${variantHtml}</div>
+      <button class="pos-btn pos-btn-sm" id="btnAddVariant" style="margin-top:8px">+ Add Variant</button></div>
+    <div class="admin-form-actions">
+      <button class="pos-btn pos-btn-primary" id="mfSubmit">${isEdit?'Save Changes':'Add Item'}</button>
+      <button class="pos-btn" id="mfCancel">Cancel</button>
+    </div>`;
+
+  container.querySelector('.admin-section').prepend(form);
+  let currentVariants = [...variants];
+
+  form.querySelector('#btnAddVariant').onclick=()=>{
+    currentVariants.push({name:'',priceModifier:0});
+    refreshVariants();
   };
-  render();
-}
 
-// --- Users Tab ---
-async function renderUsers(c){
-  c.innerHTML='<div class="admin-section-header"><h2>Users</h2><button class="pos-btn pos-btn-primary" id="btnAddUser">+ Add User</button></div><div id="userList" class="loading">Loading...</div>';
-  $('#btnAddUser').onclick=()=>userForm();
-  try{
-    let users=await api('GET','/api/admin/users');
-    if(!Array.isArray(users)) users=users.users||[];
-    $('#userList').innerHTML=users.length?`<table class="admin-table"><thead><tr><th>Name</th><th>Role</th><th>Active</th><th>Actions</th></tr></thead><tbody>${users.map(u=>`<tr>
-      <td>${u.name||u.userId}</td><td>${u.role}</td><td>${u.active!==false?'✓':'✗'}</td>
-      <td><button class="pos-btn pos-btn-sm" data-edit="${u.id||u.userId}">Edit</button> <button class="pos-btn pos-btn-sm pos-btn-danger" data-del="${u.id||u.userId}">Delete</button></td></tr>`).join('')}</tbody></table>`:'<p>No users found</p>';
-    document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>userForm(users.find(u=>(u.id||u.userId)===b.dataset.edit)));
-    document.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{ if(confirm('Delete this user?')){ try{ await api('DELETE',`/api/admin/users/${b.dataset.del}`); renderUsers(c); }catch(e){ showError('Delete failed'); }} });
-  }catch(e){ $('#userList').innerHTML='<p>No users found</p>'; }
-}
+  function refreshVariants(){
+    const list = form.querySelector('#variantList');
+    list.innerHTML = currentVariants.map((v,i)=>`<div class="variant-row">
+      <input class="pos-input" placeholder="Name" value="${v.name||''}" data-vi="${i}" data-vf="name">
+      <input class="pos-input" placeholder="+Price" type="number" step="0.5" value="${v.priceModifier||0}" data-vi="${i}" data-vf="priceModifier">
+      <button class="remove-variant" data-vri="${i}">✕</button></div>`).join('');
+    list.querySelectorAll('input').forEach(inp=>inp.oninput=()=>{
+      const idx=+inp.dataset.vi;
+      const field=inp.dataset.vf;
+      currentVariants[idx][field] = field==='priceModifier' ? +inp.value : inp.value;
+    });
+    list.querySelectorAll('.remove-variant').forEach(btn=>btn.onclick=()=>{
+      currentVariants.splice(+btn.dataset.vri,1);
+      refreshVariants();
+    });
+  }
+  refreshVariants();
 
-function userForm(item){
-  const isEdit=!!item;
-  showModal(`<h3>${isEdit?'Edit':'Add'} User</h3>
-    <form id="userForm" class="admin-form">
-      <label>Name<input class="pos-input" id="uName" value="${item?.name||''}" required></label>
-      <label>PIN<input class="pos-input" type="password" id="uPin" maxlength="6" inputmode="numeric" placeholder="${isEdit?'Leave blank to keep':'6-digit PIN'}" ${isEdit?'':'required'}></label>
-      <label>Role<select class="pos-input" id="uRole"><option value="CASHIER"${item?.role==='CASHIER'?' selected':''}>CASHIER</option><option value="ADMIN"${item?.role==='ADMIN'?' selected':''}>ADMIN</option></select></label>
-      ${isEdit?`<label><input type="checkbox" id="uActive" ${item?.active!==false?'checked':''}> Active</label>`:''}
-      <button type="submit" class="pos-btn pos-btn-primary" style="width:100%;margin-top:12px">${isEdit?'Update':'Create'}</button>
-    </form>`);
-  $('#userForm').onsubmit=async e=>{
-    e.preventDefault();
-    const body={name:$('#uName').value,role:$('#uRole').value};
-    const pin=$('#uPin').value;
-    if(pin) body.pin=pin;
-    if(isEdit){ const act=$('#uActive'); if(act) body.active=act.checked; }
-    try{
-      if(isEdit) await api('PUT',`/api/admin/users/${item.id||item.userId}`,body);
-      else await api('POST','/api/admin/users',body);
-      closeModal(); renderUsers($('#tabContent'));
-    }catch(e){ showError('Save failed'); }
-  };
-}
-
-// --- Reports Tab ---
-async function renderReports(c){
-  c.innerHTML='<div class="admin-section-header"><h2>Reports</h2></div><div class="admin-report-cards" id="dailyReport"><h3>Daily Report</h3><p class="loading">Loading...</p></div><div id="invReport"><h3>Inventory Report</h3><p class="loading">Loading...</p></div>';
-  try{
-    const daily=await api('GET','/api/admin/reports/daily');
-    $('#dailyReport').innerHTML=`<h3>Daily Report</h3><div class="admin-cards-row">
-      <div class="admin-card"><span>Orders</span><strong>${daily.totalOrders||0}</strong></div>
-      <div class="admin-card"><span>Revenue</span><strong>RM ${(daily.revenue||0).toFixed(2)}</strong></div>
-      <div class="admin-card"><span>Offsets</span><strong>RM ${(daily.offsets||0).toFixed(2)}</strong></div>
-      <div class="admin-card"><span>Net</span><strong>RM ${(daily.net||daily.revenue||0).toFixed(2)}</strong></div></div>`;
-  }catch(e){ $('#dailyReport').innerHTML='<h3>Daily Report</h3><p>Unable to load</p>'; }
-  try{
-    let inv=await api('GET','/api/admin/reports/inventory');
-    if(!Array.isArray(inv)) inv=inv.items||inv.ingredients||[];
-    const lowStock=inv.filter(i=>i.currentStock<=( i.lowStockThreshold||i.threshold||0));
-    $('#invReport').innerHTML=`<h3>Inventory Report</h3>${lowStock.length?`<table class="admin-table"><thead><tr><th>Name</th><th>Stock</th><th>Threshold</th></tr></thead><tbody>${lowStock.map(i=>`<tr class="admin-low-stock"><td>${i.name}</td><td>${i.currentStock}</td><td>${i.lowStockThreshold||i.threshold}</td></tr>`).join('')}</tbody></table>`:'<p>All stock levels OK ✓</p>'}`;
-  }catch(e){ $('#invReport').innerHTML='<h3>Inventory Report</h3><p>Unable to load</p>'; }
-}
-
-// --- Settings Tab ---
-async function renderSettings(c){
-  c.innerHTML='<div class="admin-section-header"><h2>Settings</h2></div><div id="settingsForm" class="loading">Loading...</div>';
-  try{
-    const settings=await api('GET','/api/admin/settings');
-    $('#settingsForm').innerHTML=`<form id="sForm" class="admin-form">
-      <label>Order Expiry (minutes)<input class="pos-input" type="number" id="sExpiry" value="${settings.orderExpiryMinutes||15}"></label>
-      <label>Archive After (minutes)<input class="pos-input" type="number" id="sArchive" value="${settings.archiveAfterMinutes||60}"></label>
-      <button type="submit" class="pos-btn pos-btn-primary" style="margin-top:12px">Save Settings</button>
-    </form>`;
-    $('#sForm').onsubmit=async e=>{
-      e.preventDefault();
-      try{ await api('PUT','/api/admin/settings',{orderExpiryMinutes:parseInt($('#sExpiry').value),archiveAfterMinutes:parseInt($('#sArchive').value)}); showError('Settings saved!'); }catch(e){ showError('Save failed'); }
+  form.querySelector('#mfCancel').onclick=()=>{ form.remove(); };
+  form.querySelector('#mfSubmit').onclick=async()=>{
+    const body = {
+      name: form.querySelector('#mfName').value.trim(),
+      category: form.querySelector('#mfCategory').value,
+      basePrice: +form.querySelector('#mfPrice').value,
+      sortOrder: +form.querySelector('#mfSort').value,
+      variants: currentVariants.filter(v=>v.name)
     };
-  }catch(e){ $('#settingsForm').innerHTML='<p>Failed to load settings</p>'; }
+    if(!body.name || !body.basePrice){ showError('Name and price are required'); return; }
+    try{
+      if(isEdit) await api('PUT',`/api/admin/menu/${item.menuItemId||item.id}`, body);
+      else await api('POST','/api/admin/menu', body);
+      loadMenu(container);
+    } catch(e){ showError('Save failed'); }
+  };
+}
+
+// --- Users Management ---
+async function loadUsers(container){
+  container.innerHTML = '<div class="loading">Loading users...</div>';
+  try{
+    const data = await api('GET','/api/pos/inventory');
+    const usersRes = await fetch(`${API_BASE}/api/admin/users`, { headers: authHeaders() });
+    let users = [];
+    if(usersRes.ok){ const d = await usersRes.json(); users = Array.isArray(d) ? d : d.users || []; }
+    renderUsersSection(container, users);
+  } catch(e){ renderUsersSection(container, []); }
+}
+
+function renderUsersSection(container, users){
+  let html = `<div class="admin-section">
+    <div class="admin-section-header">
+      <h2>Volunteers</h2>
+      <button class="pos-btn pos-btn-primary" id="btnAddUser">+ Add Volunteer</button>
+    </div>`;
+  if(!users.length){
+    html += '<div class="admin-empty"><p>No users loaded. Users are managed via the API.</p></div>';
+  } else {
+    users.forEach(u=>{
+      const badge = u.role === 'ADMIN' ? 'badge-admin' : 'badge-cashier';
+      html += `<div class="admin-card">
+        <div class="admin-card-header">
+          <div>
+            <div class="admin-card-title">${u.name||u.userId}</div>
+            <div class="admin-card-subtitle">${u.userId}</div>
+          </div>
+          <div class="admin-card-actions">
+            <span class="admin-card-badge ${badge}">${u.role}</span>
+            <span class="admin-card-badge ${u.isActive!==false?'badge-active':'badge-inactive'}">${u.isActive!==false?'Active':'Inactive'}</span>
+            <button class="pos-btn pos-btn-sm" data-edit-user="${u.userId}">Edit</button>
+            <button class="pos-btn pos-btn-sm pos-btn-danger" data-del-user="${u.userId}">Delete</button>
+          </div>
+        </div>
+      </div>`;
+    });
+  }
+  html += '</div>';
+  container.innerHTML = html;
+
+  $('#btnAddUser').onclick = ()=> openUserForm(container, null);
+  container.querySelectorAll('[data-edit-user]').forEach(btn=>{
+    btn.onclick=()=>{ const u=users.find(x=>x.userId===btn.dataset.editUser); openUserForm(container, u); };
+  });
+  container.querySelectorAll('[data-del-user]').forEach(btn=>{
+    btn.onclick=async()=>{
+      if(!confirm('Delete this user?')) return;
+      try{ await api('DELETE',`/api/admin/users/${btn.dataset.delUser}`); loadUsers(container); } catch(e){ showError('Delete failed'); }
+    };
+  });
+}
+
+function openUserForm(container, user){
+  const isEdit = !!user;
+  const form = document.createElement('div');
+  form.className = 'admin-form';
+  form.innerHTML = `<h3>${isEdit?'Edit':'Add'} Volunteer</h3>
+    <div class="admin-form-row">
+      <div class="admin-form-group"><label>Name</label><input id="ufName" class="pos-input" value="${user?.name||''}"></div>
+      <div class="admin-form-group"><label>Role</label><select id="ufRole" class="pos-input"><option value="CASHIER" ${user?.role==='CASHIER'?'selected':''}>Cashier</option><option value="ADMIN" ${user?.role==='ADMIN'?'selected':''}>Admin</option></select></div>
+    </div>
+    <div class="admin-form-row">
+      <div class="admin-form-group"><label>PIN ${isEdit?'(leave blank to keep)':''}</label><input id="ufPin" type="password" inputmode="numeric" maxlength="6" class="pos-input" placeholder="6-digit PIN"></div>
+      <div class="admin-form-group"><label>Active</label><select id="ufActive" class="pos-input"><option value="true" ${user?.isActive!==false?'selected':''}>Yes</option><option value="false" ${user?.isActive===false?'selected':''}>No</option></select></div>
+    </div>
+    <div class="admin-form-actions">
+      <button class="pos-btn pos-btn-primary" id="ufSubmit">${isEdit?'Save Changes':'Add Volunteer'}</button>
+      <button class="pos-btn" id="ufCancel">Cancel</button>
+    </div>`;
+
+  container.querySelector('.admin-section').prepend(form);
+  form.querySelector('#ufCancel').onclick=()=>form.remove();
+  form.querySelector('#ufSubmit').onclick=async()=>{
+    const name = form.querySelector('#ufName').value.trim();
+    const role = form.querySelector('#ufRole').value;
+    const pin = form.querySelector('#ufPin').value;
+    const isActive = form.querySelector('#ufActive').value === 'true';
+
+    if(!name){ showError('Name is required'); return; }
+    if(!isEdit && !pin){ showError('PIN is required for new users'); return; }
+
+    const body = { name, role, isActive };
+    if(pin) body.pin = pin;
+
+    try{
+      if(isEdit) await api('PUT',`/api/admin/users/${user.userId}`, body);
+      else await api('POST','/api/admin/users', body);
+      loadUsers(container);
+    } catch(e){ showError('Save failed'); }
+  };
+}
+
+// --- Ingredients ---
+async function loadIngredients(container){
+  container.innerHTML = '<div class="loading">Loading ingredients...</div>';
+  try{
+    const data = await api('GET','/api/pos/inventory');
+    const all = Array.isArray(data) ? data : data.ingredients || [];
+    const items = all.filter(i => i.PK && i.PK.startsWith('INGREDIENT#') && i.SK === 'META');
+    renderIngredientsSection(container, items);
+  } catch(e){ container.innerHTML = '<div class="admin-empty"><p>Failed to load ingredients</p></div>'; }
+}
+
+function renderIngredientsSection(container, items){
+  let html = `<div class="admin-section">
+    <div class="admin-section-header">
+      <h2>Ingredients</h2>
+      <button class="pos-btn pos-btn-primary" id="btnAddIngredient">+ Add Ingredient</button>
+    </div>`;
+  if(!items.length){
+    html += '<div class="admin-empty"><p>No ingredients added yet</p></div>';
+  } else {
+    items.forEach(ing=>{
+      const isLow = ing.currentStock <= (ing.lowStockThreshold||0);
+      const usageLabel = ing.usageUnit ? ` · recipe unit: ${ing.usageUnit}` : '';
+      html += `<div class="admin-card">
+        <div class="admin-card-header">
+          <div>
+            <div class="admin-card-title">${ing.name}</div>
+            <div class="admin-card-subtitle">${ing.currentStock} ${ing.unit} · ${ing.storageLocation||'—'}${usageLabel}</div>
+          </div>
+          <div class="admin-card-actions">
+            ${isLow ? '<span class="admin-card-badge badge-inactive">Low Stock</span>' : ''}
+            <button class="pos-btn pos-btn-sm" data-edit-ing="${ing.ingredientId}">Edit</button>
+          </div>
+        </div>
+      </div>`;
+    });
+  }
+  html += '</div>';
+  container.innerHTML = html;
+
+  $('#btnAddIngredient').onclick = ()=> openIngredientForm(container, null, items);
+  container.querySelectorAll('[data-edit-ing]').forEach(btn=>{
+    btn.onclick=()=>{ const ing=items.find(i=>i.ingredientId===btn.dataset.editIng); openIngredientForm(container, ing, items); };
+  });
+}
+
+function openIngredientForm(container, ing, allItems){
+  const isEdit = !!ing;
+  const form = document.createElement('div');
+  form.className = 'admin-form';
+  form.innerHTML = `<h3>${isEdit?'Edit':'Add'} Ingredient</h3>
+    <div class="admin-form-row">
+      <div class="admin-form-group"><label>Name</label><input id="ifName" class="pos-input" value="${ing?.name||''}"></div>
+      <div class="admin-form-group"><label>Stock Unit (how you count it)</label><select id="ifUnit" class="pos-input">
+        <option value="bottles" ${ing?.unit==='bottles'?'selected':''}>bottles</option>
+        <option value="bags" ${ing?.unit==='bags'?'selected':''}>bags</option>
+        <option value="box" ${ing?.unit==='box'?'selected':''}>box</option>
+        <option value="pieces" ${ing?.unit==='pieces'?'selected':''}>pieces</option>
+      </select></div>
+    </div>
+    <div class="admin-form-row">
+      <div class="admin-form-group"><label>Usage Unit (per drink recipe)</label><select id="ifUsageUnit" class="pos-input">
+        <option value="ml" ${ing?.usageUnit==='ml'?'selected':''}>ml</option>
+        <option value="g" ${ing?.usageUnit==='g'?'selected':''}>g</option>
+        <option value="spoons" ${ing?.usageUnit==='spoons'?'selected':''}>spoons</option>
+        <option value="pieces" ${ing?.usageUnit==='pieces'?'selected':''}>pieces</option>
+      </select></div>
+      <div class="admin-form-group"><label>Storage Location</label><select id="ifLocation" class="pos-input">
+        <option value="FRIDGE" ${ing?.storageLocation==='FRIDGE'?'selected':''}>Fridge</option>
+        <option value="STOREROOM" ${ing?.storageLocation==='STOREROOM'?'selected':''}>Storeroom</option>
+      </select></div>
+    </div>
+    <div class="admin-form-row">
+      <div class="admin-form-group"><label>Current Stock</label><input id="ifStock" type="number" step="0.1" class="pos-input" value="${ing?.currentStock||0}"></div>
+      <div class="admin-form-group"><label>Low Stock Threshold</label><input id="ifThreshold" type="number" step="0.1" class="pos-input" value="${ing?.lowStockThreshold||0}"></div>
+    </div>
+    <div class="admin-form-actions">
+      <button class="pos-btn pos-btn-primary" id="ifSubmit">${isEdit?'Save Changes':'Add Ingredient'}</button>
+      <button class="pos-btn" id="ifCancel">Cancel</button>
+    </div>`;
+
+  container.querySelector('.admin-section').prepend(form);
+  form.querySelector('#ifCancel').onclick=()=>form.remove();
+  form.querySelector('#ifSubmit').onclick=async()=>{
+    const body = {
+      name: form.querySelector('#ifName').value.trim(),
+      unit: form.querySelector('#ifUnit').value,
+      usageUnit: form.querySelector('#ifUsageUnit').value,
+      currentStock: +form.querySelector('#ifStock').value,
+      lowStockThreshold: +form.querySelector('#ifThreshold').value,
+      storageLocation: form.querySelector('#ifLocation').value
+    };
+    if(!body.name){ showError('Name is required'); return; }
+    try{
+      if(isEdit) await api('PUT',`/api/admin/ingredients/${ing.ingredientId}`, body);
+      else await api('POST','/api/admin/ingredients', body);
+      loadIngredients(container);
+    } catch(e){ showError('Save failed'); }
+  };
+}
+
+// --- Checklist ---
+async function loadChecklist(container){
+  container.innerHTML = '<div class="loading">Loading checklist config...</div>';
+  try{
+    const data = await api('GET','/api/admin/checklist/config');
+    renderChecklistAdmin(container, data);
+  } catch(e){ container.innerHTML = '<div class="admin-empty"><p>Failed to load checklist</p></div>'; }
+}
+
+function renderChecklistAdmin(container, config){
+  function renderPhase(phase, items){
+    return items.map((item, i)=>`<div class="admin-card" style="display:flex;align-items:center;gap:12px;padding:12px 16px">
+      <span style="min-width:24px;color:var(--text-light);font-weight:600">${i+1}.</span>
+      <input class="pos-input" style="flex:1;margin:0" value="${item.label}" data-phase="${phase}" data-idx="${i}" data-field="label">
+      <select class="pos-input" style="width:120px;margin:0" data-phase="${phase}" data-idx="${i}" data-field="type">
+        <option value="checkbox" ${item.type==='checkbox'?'selected':''}>Checkbox</option>
+        <option value="text" ${item.type==='text'?'selected':''}>Text input</option>
+        <option value="image" ${item.type==='image'?'selected':''}>Image upload</option>
+      </select>
+      <button class="pos-btn pos-btn-sm pos-btn-danger" data-remove-phase="${phase}" data-remove-idx="${i}" style="min-width:36px">✕</button>
+    </div>`).join('');
+  }
+
+  container.innerHTML = `<div class="admin-section">
+    <div class="admin-section-header"><h2>Checklist Configuration</h2></div>
+    <div class="admin-form">
+      <h3 style="margin-bottom:12px">☀️ Open Checklist</h3>
+      <div id="openItems">${renderPhase('open', config.open||[])}</div>
+      <button class="pos-btn pos-btn-sm" id="addOpenItem" style="margin-top:10px">+ Add item</button>
+    </div>
+    <div class="admin-form" style="margin-top:16px">
+      <h3 style="margin-bottom:12px">🌙 Close Checklist</h3>
+      <div id="closeItems">${renderPhase('close', config.close||[])}</div>
+      <button class="pos-btn pos-btn-sm" id="addCloseItem" style="margin-top:10px">+ Add item</button>
+    </div>
+    <div class="admin-form-actions" style="margin-top:20px">
+      <button class="pos-btn pos-btn-primary" id="saveChecklist">Save Checklist</button>
+    </div>
+  </div>`;
+
+  let openItems = [...(config.open||[])];
+  let closeItems = [...(config.close||[])];
+
+  container.querySelector('#addOpenItem').onclick=()=>{
+    openItems.push({id:`open-${Date.now()}`, label:'', type:'checkbox'});
+    renderChecklistAdmin(container, {open:openItems, close:closeItems});
+  };
+  container.querySelector('#addCloseItem').onclick=()=>{
+    closeItems.push({id:`close-${Date.now()}`, label:'', type:'checkbox'});
+    renderChecklistAdmin(container, {open:openItems, close:closeItems});
+  };
+
+  container.querySelectorAll('[data-remove-phase]').forEach(btn=>{
+    btn.onclick=()=>{
+      const phase = btn.dataset.removePhase;
+      const idx = +btn.dataset.removeIdx;
+      if(phase==='open') openItems.splice(idx,1);
+      else closeItems.splice(idx,1);
+      renderChecklistAdmin(container, {open:openItems, close:closeItems});
+    };
+  });
+
+  container.querySelectorAll('input[data-field="label"]').forEach(inp=>{
+    inp.oninput=()=>{
+      const phase = inp.dataset.phase;
+      const idx = +inp.dataset.idx;
+      if(phase==='open') openItems[idx].label = inp.value;
+      else closeItems[idx].label = inp.value;
+    };
+  });
+
+  container.querySelectorAll('select[data-field="type"]').forEach(sel=>{
+    sel.onchange=()=>{
+      const phase = sel.dataset.phase;
+      const idx = +sel.dataset.idx;
+      if(phase==='open') openItems[idx].type = sel.value;
+      else closeItems[idx].type = sel.value;
+    };
+  });
+
+  container.querySelector('#saveChecklist').onclick=async()=>{
+    const open = openItems.filter(i=>i.label.trim()).map((item,i)=>({...item, id:item.id||`open-${i+1}`, label:item.label.trim()}));
+    const close = closeItems.filter(i=>i.label.trim()).map((item,i)=>({...item, id:item.id||`close-${i+1}`, label:item.label.trim()}));
+    try{
+      await api('PUT','/api/admin/checklist/config', {open, close});
+      showSuccess('Checklist saved');
+    } catch(e){ showError('Failed to save checklist'); }
+  };
+}
+
+// --- Planogram ---
+async function loadPlanogram(container){
+  container.innerHTML = `<div class="admin-section">
+    <div class="admin-section-header"><h2>Planogram — Reference Photos</h2></div>
+    <p style="color:var(--text-light);margin-bottom:20px;font-size:.9rem">Upload photos of the ideal arrangement. AI compares against these to identify items.</p>
+    <div class="admin-form">
+      <h3 style="margin-bottom:12px">🧊 Fridge Reference</h3>
+      <div id="fridgeRefPreview" class="planogram-preview"></div>
+      <label class="upload-btn" for="fridgeRefInput" style="margin-top:12px;display:inline-block">📷 Upload Fridge Reference</label>
+      <input type="file" id="fridgeRefInput" accept="image/*" style="display:none">
+    </div>
+    <div class="admin-form" style="margin-top:16px">
+      <h3 style="margin-bottom:12px">🗄️ Storeroom Reference</h3>
+      <div id="storeroomRefPreview" class="planogram-preview"></div>
+      <label class="upload-btn" for="storeroomRefInput" style="margin-top:12px;display:inline-block">📷 Upload Storeroom Reference</label>
+      <input type="file" id="storeroomRefInput" accept="image/*" style="display:none">
+    </div>
+    <div class="admin-form" style="margin-top:16px">
+      <h3 style="margin-bottom:12px">📊 Run Stock Count Now</h3>
+      <p style="font-size:.85rem;color:var(--text-light);margin-bottom:12px">Take photos and let AI count your stock</p>
+      <div style="display:flex;gap:10px">
+        <button class="pos-btn pos-btn-primary" id="runFridgeCount">🧊 Count Fridge</button>
+        <button class="pos-btn pos-btn-primary" id="runStoreroomCount">🗄️ Count Storeroom</button>
+      </div>
+    </div>
+  </div>`;
+
+  // Load existing reference photos
+  loadRefPreview('fridge', container.querySelector('#fridgeRefPreview'));
+  loadRefPreview('storeroom', container.querySelector('#storeroomRefPreview'));
+
+  container.querySelector('#fridgeRefInput').onchange = (e)=> uploadReference('fridge', e.target.files[0], container);
+  container.querySelector('#storeroomRefInput').onchange = (e)=> uploadReference('storeroom', e.target.files[0], container);
+  container.querySelector('#runFridgeCount').onclick = ()=> openAdminStockCount('fridge');
+  container.querySelector('#runStoreroomCount').onclick = ()=> openAdminStockCount('storeroom');
+}
+
+async function loadRefPreview(location, el){
+  try{
+    const data = await api('GET',`/api/pos/planogram/reference/${location}`);
+    if(data.url) el.innerHTML = `<img src="${data.url}" style="max-width:100%;max-height:200px;border-radius:var(--radius);border:1px solid var(--cream-dark)"><p style="font-size:.75rem;color:var(--text-light);margin-top:4px">Uploaded: ${new Date(data.uploadedAt).toLocaleDateString()}</p>`;
+  } catch(e){ el.innerHTML = '<p style="color:var(--text-light);font-size:.85rem">No reference photo yet</p>'; }
+}
+
+async function uploadReference(location, file, container){
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = async()=>{
+    try{
+      await api('POST','/api/admin/planogram/reference',{ location, image: reader.result });
+      showSuccess(`${location} reference uploaded`);
+      loadPlanogram(container);
+    } catch(e){ showError('Upload failed'); }
+  };
+  reader.readAsDataURL(file);
+}
+
+function openAdminStockCount(location){
+  // Reuse the same stock count modal from POS
+  if(typeof openStockCount === 'function'){
+    openStockCount(location);
+  } else {
+    // Inline version for admin
+    const modal = document.createElement('div');
+    modal.className = 'pos-modal-overlay';
+    modal.innerHTML = `<div class="pos-modal" style="max-width:560px;text-align:center;padding:40px">
+      <p>Stock count is available from the POS panel.</p>
+      <a href="pos.html" class="pos-btn pos-btn-primary" style="margin-top:16px;display:inline-block;text-decoration:none">Open POS</a>
+    </div>`;
+    document.body.appendChild(modal);
+    modal.onclick=e=>{ if(e.target===modal) modal.remove(); };
+  }
+}
+
+// --- Settings ---
+async function loadSettings(container){
+  container.innerHTML = '<div class="loading">Loading settings...</div>';
+  try{
+    const settings = await api('GET','/api/admin/settings');
+    renderSettingsSection(container, settings);
+  } catch(e){ container.innerHTML = '<div class="admin-empty"><p>Failed to load settings</p></div>'; }
+}
+
+function renderSettingsSection(container, settings){
+  container.innerHTML = `<div class="admin-section">
+    <div class="admin-section-header"><h2>Settings</h2></div>
+    <div class="admin-form">
+      <div class="admin-setting-row">
+        <div class="admin-setting-info"><h4>Café Status</h4><p>Open or close the café for ordering</p></div>
+        <div class="admin-setting-control"><select id="setCafeStatus" class="pos-input"><option value="OPEN" ${settings.cafeStatus==='OPEN'?'selected':''}>Open</option><option value="CLOSED" ${settings.cafeStatus!=='OPEN'?'selected':''}>Closed</option></select></div>
+      </div>
+      <div class="admin-setting-row">
+        <div class="admin-setting-info"><h4>Celebration Mode</h4><p>All drinks at a flat price</p></div>
+        <div class="admin-setting-control">
+          <label class="pos-switch"><input type="checkbox" id="setCelebration" ${settings.celebrationMode?'checked':''}><span class="pos-slider"></span></label>
+        </div>
+      </div>
+      <div class="admin-setting-row">
+        <div class="admin-setting-info"><h4>Celebration Price (RM)</h4><p>Flat price when celebration mode is on</p></div>
+        <div class="admin-setting-control"><input id="setCelebrationPrice" type="number" step="1" value="${settings.celebrationPrice||5}"></div>
+      </div>
+      <div class="admin-setting-row">
+        <div class="admin-setting-info"><h4>Order Expiry (minutes)</h4><p>How long before unpaid orders expire</p></div>
+        <div class="admin-setting-control"><input id="setExpiry" type="number" value="${settings.orderExpiryMinutes||60}"></div>
+      </div>
+      <div class="admin-setting-row">
+        <div class="admin-setting-info"><h4>Archive After (minutes)</h4><p>How long ready orders stay visible</p></div>
+        <div class="admin-setting-control"><input id="setArchive" type="number" value="${settings.archiveAfterMinutes||15}"></div>
+      </div>
+      <div class="admin-form-actions" style="margin-top:24px;border-top:1px solid var(--cream-dark);padding-top:20px">
+        <button class="pos-btn pos-btn-primary" id="btnSaveSettings">Save Settings</button>
+      </div>
+    </div>
+  </div>`;
+
+  $('#btnSaveSettings').onclick = async()=>{
+    const body = {
+      cafeStatus: container.querySelector('#setCafeStatus').value,
+      celebrationMode: container.querySelector('#setCelebration').checked,
+      celebrationPrice: +container.querySelector('#setCelebrationPrice').value,
+      orderExpiryMinutes: +container.querySelector('#setExpiry').value,
+      archiveAfterMinutes: +container.querySelector('#setArchive').value
+    };
+    try{
+      await api('PUT','/api/admin/settings', body);
+      showSuccess('Settings saved');
+    } catch(e){ showError('Failed to save settings'); }
+  };
+}
+
+// --- Reports ---
+async function loadReports(container){
+  container.innerHTML = '<div class="loading">Loading reports...</div>';
+  try{
+    const [daily, inventory] = await Promise.all([
+      api('GET','/api/admin/reports/daily'),
+      api('GET','/api/admin/reports/inventory')
+    ]);
+    renderReportsSection(container, daily, inventory);
+  } catch(e){ container.innerHTML = '<div class="admin-empty"><p>Failed to load reports</p></div>'; }
+}
+
+function renderReportsSection(container, daily, inventory){
+  const lowStock = inventory.lowStock || [];
+  const orders = daily.orders || [];
+
+  // Item popularity
+  const itemCounts = {};
+  orders.forEach(o=>{
+    (o.items||[]).forEach(i=>{
+      const key = i.name + (i.variant ? ' ('+i.variant+')' : '');
+      itemCounts[key] = (itemCounts[key]||0) + (i.quantity||1);
+    });
+  });
+  const popular = Object.entries(itemCounts).sort((a,b)=>b[1]-a[1]).slice(0,10);
+
+  let html = `<div class="admin-section">
+    <div class="admin-section-header"><h2>Reports</h2></div>
+    <h3 style="margin-bottom:14px;color:var(--primary)">Today's Summary — ${daily.date||'—'}</h3>
+    <div class="admin-stats">
+      <div class="admin-stat-card"><div class="stat-value">${daily.totalOrders||0}</div><div class="stat-label">Total Orders</div></div>
+      <div class="admin-stat-card"><div class="stat-value">RM ${(daily.totalRevenue||0).toFixed(2)}</div><div class="stat-label">Gross Revenue</div></div>
+      <div class="admin-stat-card"><div class="stat-value">RM ${(daily.totalOffsets||0).toFixed(2)}</div><div class="stat-label">Discounts</div></div>
+      <div class="admin-stat-card"><div class="stat-value">RM ${(daily.netExpected||0).toFixed(2)}</div><div class="stat-label">Net Expected</div></div>
+    </div>`;
+
+  if(popular.length){
+    html += '<h3 style="margin:24px 0 14px;color:var(--primary)">Popular Items Today</h3>';
+    html += '<div class="admin-form"><table style="width:100%;border-collapse:collapse">';
+    html += '<tr style="border-bottom:2px solid var(--cream-dark)"><th style="text-align:left;padding:8px 0">Item</th><th style="text-align:right;padding:8px 0">Qty Sold</th></tr>';
+    popular.forEach(([name, count], i) => {
+      html += `<tr style="border-bottom:1px solid var(--cream-dark)"><td style="padding:8px 0">${i+1}. ${name}</td><td style="text-align:right;font-weight:700;padding:8px 0">${count}</td></tr>`;
+    });
+    html += '</table></div>';
+  }
+
+  if(lowStock.length){
+    html += '<h3 style="margin:24px 0 14px;color:var(--warning)">Low Stock Alerts</h3>';
+    lowStock.forEach(item=>{
+      html += `<div class="low-stock-item">
+        <span class="stock-name">${item.name}</span>
+        <span class="stock-level">${item.currentStock} ${item.unit} (threshold: ${item.lowStockThreshold})</span>
+      </div>`;
+    });
+  } else {
+    html += '<p style="color:var(--text-light);margin-top:20px">No low stock alerts</p>';
+  }
+
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+// --- Helpers ---
+function showSuccess(msg){
+  const b=$('#errorBanner');
+  b.textContent=msg;
+  b.style.background='var(--success)';
+  b.classList.add('show');
+  setTimeout(()=>{ b.classList.remove('show'); b.style.background=''; },3000);
 }
 
 // --- Init ---
-if(token) renderApp(); else renderLogin();
+token ? renderApp() : renderLogin();
 })();

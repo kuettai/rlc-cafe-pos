@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-<header><h1>☕ RLC Café</h1></header>
+<header><h1>☕ RLC Café</h1><p style="font-size:.85rem;opacity:.85;margin-top:4px;font-weight:400">Oasis of Care, Petaling Jaya</p></header>
 <div class="error-banner" id="errorBanner" role="alert"></div>
 <div class="container" id="app"><div class="loading">Loading...</div></div>
 
@@ -27,8 +27,32 @@
   </div>
 </div>
 
+<div class="install-banner hidden" id="installBanner">
+  <span>📱 Add to Home Screen for quick access</span>
+  <button id="installBtn" class="pos-btn pos-btn-sm pos-btn-primary">Install</button>
+  <button id="installDismiss" class="pos-btn pos-btn-sm" style="padding:6px 10px">✕</button>
+</div>
+
 <script src="js/config.js"></script>
 <script src="js/app.js"></script>
-<script>if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js');</script>
+<script>
+if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js');
+let deferredPrompt;
+window.addEventListener('beforeinstallprompt', e=>{
+  e.preventDefault();
+  deferredPrompt = e;
+  document.getElementById('installBanner').classList.remove('hidden');
+});
+document.getElementById('installBtn').onclick = async()=>{
+  if(!deferredPrompt) return;
+  deferredPrompt.prompt();
+  await deferredPrompt.userChoice;
+  deferredPrompt = null;
+  document.getElementById('installBanner').classList.add('hidden');
+};
+document.getElementById('installDismiss').onclick = ()=>{
+  document.getElementById('installBanner').classList.add('hidden');
+};
+</script>
 </body>
 </html>
