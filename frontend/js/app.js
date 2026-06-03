@@ -38,7 +38,7 @@ function renderMenu() {
   const grouped = {};
   categories.forEach(c => { grouped[c] = menu.filter(i => i.category === c); });
 
-  let html = `<header style="text-align:center;padding:8px 0 12px"><h1 style="font-size:1.3rem;margin:0;color:var(--primary,#6B4226)">☕ RLC Café</h1><p style="font-size:.8rem;color:var(--text-light,#7A6355);margin:2px 0 0">Order & Pay · Pickup at counter</p></header>`;
+  let html = '';
   html += `<section class="name-section"><label for="nameInput">Your Name</label><div style="display:flex;gap:8px;align-items:center"><input type="text" id="nameInput" value="${name}" placeholder="Enter your name" aria-required="true" style="flex:1"><a href="track" class="layout-toggle" aria-label="My Orders" title="My Orders" style="text-decoration:none">📋</a><button id="layoutToggle" class="layout-toggle" aria-label="Toggle view">${menuLayout === 'grid' ? '☰' : '⊞'}</button></div></section>`;
 
   if (celebrationMode) {
