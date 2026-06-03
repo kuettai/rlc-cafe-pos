@@ -67,8 +67,8 @@ cafepos/
 - API responses: `{ statusCode, headers: {}, body: JSON.stringify(...) }`
 - Path parameter extraction from `event.path` (not `event.pathParameters`) due to proxy integration
 
-## Current Status (as of 2026-06-02)
-### Completed
+## Current Status (as of 2026-06-03)
+### Completed (Foundation)
 - ✅ All backend routes (auth, cafe, menu, orders, pos, admin)
 - ✅ Customer ordering PWA (menu, cart, order submission)
 - ✅ Order tracking page (auto-polls status)
@@ -78,16 +78,61 @@ cafepos/
 - ✅ Variant pricing (e.g., Oat Milk +RM1)
 - ✅ Order expiry cron (5min check, 1hr timeout)
 
-### TODO
-- [ ] Admin dashboard page (admin.html) — menu CRUD, ingredients, recipes, users, reports, settings
+### Completed (2026-06-03 Sprint)
+- ✅ UI Redesign — warm café theme (browns/cream/caramel) across all pages
+- ✅ Admin dashboard page (admin.html) — menu CRUD, ingredients, users, reports, settings, checklist, planogram
+- ✅ Food item quantity management UI (POS → Menu panel, 20 food items seeded)
+- ✅ Celebration mode pricing reflected on customer menu (flat RM5, crossed-out original)
+- ✅ End-of-day close flow (auto-expire orders + reset food quantities)
+- ✅ Customer order cancel fix (correct API endpoint)
+- ✅ Pin/upsell items feature (POS toggle, customer page ⭐ highlight + sort-to-top)
+- ✅ Walk-up order filter (search input + category tabs All/Drinks/Food)
+- ✅ POS live stats bar (Pending/Making/Ready/Total/Revenue)
+- ✅ POS order history modal with reorder button
+- ✅ Order tracking progress stepper (3-step visual)
+- ✅ PWA install prompt, service worker v3, manifest shortcuts
+- ✅ Keyboard shortcuts for POS (W=Walk-up, M=Menu, H=History, /=Search)
+- ✅ Login by name (not just UUID) — backend auth updated
+- ✅ Ingredients seeded (18 items from stock-check.csv with usageUnit)
+- ✅ POS sound notifications (new order + receipt uploaded)
+- ✅ Urgent order highlighting (red pulse if pending >10 min)
+- ✅ Duplicate order detection for customers
+- ✅ Café Open/Close Checklist (blocking, logged, admin-editable, 3 item types)
+- ✅ Payment Receipt Upload (S3 + Bedrock AI extraction, auto-reject if amount mismatch)
+- ✅ Planogram Stock Count (multi-photo, AI vision, reference photo, editable results)
+- ✅ CDK: S3 buckets (receipts 1-day, planogram 4-week) + Bedrock permissions
+- ✅ Unit tests (auth, router) + Integration tests (21 tests against live API)
+- ✅ Backend compiles clean, all 33 tests passing
+
+### Completed (2026-06-03)
+- ✅ Admin dashboard page (admin.html) — menu CRUD, ingredients, users, reports, settings
+- ✅ Food item quantity management UI (POS → Menu panel)
+- ✅ Celebration mode pricing reflected on customer menu
+- ✅ End-of-day close flow (auto-expire remaining orders + reset food)
+- ✅ Customer order cancel fix
+- ✅ Pin/upsell items feature
+- ✅ Walk-up order filter (search + category tabs)
+- ✅ POS live stats, order history, reorder
+- ✅ Order tracking progress stepper
+- ✅ PWA install prompt, service worker v2, manifest shortcuts
+- ✅ Keyboard shortcuts for POS
+- ✅ Login by name (not just UUID)
+
+### TODO — Easy
+- [ ] Café Open/Close Checklist — configurable list of tasks for cashier to tick off before opening (e.g., "turn on machine", "fill ice", "check milk") and after closing (e.g., "wipe counter", "empty grounds", "lock fridge"). Editable by Admin in settings.
+
+### TODO — Medium
+- [ ] Payment Receipt Upload — customer uploads DuitNow screenshot on track page, backend invokes Bedrock Claude to extract payment amount, auto-attaches to order with badge + distinct sound on POS card. Cashier still manually approves. Requires: S3 bucket for receipts, Bedrock API call, new field `receiptUrl` + `receiptAmount` on order.
 - [ ] Recipe-based ingredient deduction on order approval
 - [ ] Email notifications (low stock, end-of-day summary)
+
+### TODO — Complex
+- [ ] Planogram Stock Count — upload multiple fridge/shelf photos from POS or Admin, invoke Bedrock Claude Vision to count bottles/items by type, suggest stock levels. S3 storage with 1-day lifecycle policy. Requires: S3 bucket, Bedrock multimodal API, UI for photo capture + review of AI suggestions before committing stock.
+
+### TODO — Polish
 - [ ] PWA icons (192x192, 512x512)
-- [ ] Food item quantity management UI
-- [ ] Celebration mode pricing reflected on customer menu
-- [ ] End-of-day close flow (auto-expire remaining orders)
-- [ ] Customer order cancel/modify UI
-- [ ] Polish: better error handling, loading states, animations
+- [ ] Customer order modify UI
+- [ ] Better error handling, loading states
 
 ## Important Context
 - Church café operates Sundays only: 10:15-11:30 and 12:45-13:30

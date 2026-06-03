@@ -12,7 +12,8 @@ export async function handleAuth(event: APIGatewayProxyEvent): Promise<APIGatewa
 
     const result = await docClient.send(new ScanCommand({
       TableName: USERS_TABLE,
-      FilterExpression: 'userId = :uid AND isActive = :active',
+      FilterExpression: '(userId = :uid OR #n = :uid) AND isActive = :active',
+      ExpressionAttributeNames: { '#n': 'name' },
       ExpressionAttributeValues: { ':uid': userId, ':active': true },
     }));
 

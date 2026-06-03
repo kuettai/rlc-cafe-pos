@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Seed Ingredients</title>
+<script src="js/config.js"></script>
+</head>
+<body>
+<h2>Seed Ingredients from Stock Check CSV</h2>
+<p>Login first, then click Seed to populate ingredients.</p>
+<input id="userId" placeholder="User ID (e.g. admin-001)" value="admin-001">
+<input id="pin" type="password" placeholder="PIN" value="">
+<button id="btnLogin">Login</button>
+<button id="btnSeed" disabled>Seed Ingredients</button>
+<pre id="log"></pre>
+<script>
+const ingredients = [
+  { name: "Milk (Fresh)", unit: "bottles", usageUnit: "ml", currentStock: 2, lowStockThreshold: 3, storageLocation: "FRIDGE" },
+  { name: "Oat Milk", unit: "bottles", usageUnit: "ml", currentStock: 4, lowStockThreshold: 2, storageLocation: "STOREROOM" },
+  { name: "Sprite", unit: "bottles", usageUnit: "ml", currentStock: 19, lowStockThreshold: 4, storageLocation: "STOREROOM" },
+  { name: "Sparkling Water", unit: "bottles", usageUnit: "ml", currentStock: 7, lowStockThreshold: 3, storageLocation: "STOREROOM" },
+  { name: "Tonic Water", unit: "bottles", usageUnit: "ml", currentStock: 3, lowStockThreshold: 2, storageLocation: "STOREROOM" },
+  { name: "Nata de Coco", unit: "box", usageUnit: "spoons", currentStock: 2, lowStockThreshold: 1, storageLocation: "STOREROOM" },
+  { name: "Lemon Juice (Liotti)", unit: "bottles", usageUnit: "ml", currentStock: 1, lowStockThreshold: 1, storageLocation: "FRIDGE" },
+  { name: "Monin Passion Fruit Syrup", unit: "bottles", usageUnit: "ml", currentStock: 2, lowStockThreshold: 1, storageLocation: "STOREROOM" },
+  { name: "Monin Lemon Syrup", unit: "bottles", usageUnit: "ml", currentStock: 4, lowStockThreshold: 1, storageLocation: "STOREROOM" },
+  { name: "Monin Orange Fruitmix", unit: "bottles", usageUnit: "ml", currentStock: 1, lowStockThreshold: 1, storageLocation: "STOREROOM" },
+  { name: "Butterfly Pea Tea", unit: "pieces", usageUnit: "g", currentStock: 0, lowStockThreshold: 1, storageLocation: "STOREROOM" },
+  { name: "Sugar Syrup", unit: "bottles", usageUnit: "ml", currentStock: 1, lowStockThreshold: 1, storageLocation: "STOREROOM" },
+  { name: "Ice", unit: "bags", usageUnit: "pieces", currentStock: 0, lowStockThreshold: 1, storageLocation: "FRIDGE" },
+  { name: "Coffee Beans", unit: "bags", usageUnit: "g", currentStock: 4, lowStockThreshold: 2, storageLocation: "STOREROOM" },
+  { name: "Decaf Coffee Beans", unit: "bags", usageUnit: "g", currentStock: 0, lowStockThreshold: 1, storageLocation: "STOREROOM" },
+  { name: "Chocolate Powder (63% Tiger)", unit: "bags", usageUnit: "g", currentStock: 2, lowStockThreshold: 1, storageLocation: "STOREROOM" },
+  { name: "Chocolate Powder (50% Unicorn)", unit: "bags", usageUnit: "g", currentStock: 0, lowStockThreshold: 1, storageLocation: "STOREROOM" },
+  { name: "Matcha Powder", unit: "bags", usageUnit: "g", currentStock: 0, lowStockThreshold: 1, storageLocation: "STOREROOM" },
+];
+
+let token = null;
+const log = document.getElementById('log');
+
+document.getElementById('btnLogin').onclick = async () => {
+  const res = await fetch(`${API_BASE}/api/auth/login`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ userId: document.getElementById('userId').value, pin: document.getElementById('pin').value })
+  });
+  if (!res.ok) { log.textContent = 'Login failed'; return; }
+  const data = await res.json();
+  token = data.token;
+  log.textContent = `Logged in as ${data.name} (${data.role})\n`;
+  document.getElementById('btnSeed').disabled = false;
+};
+
+document.getElementById('btnSeed').onclick = async () => {
+  log.textContent += '\nSeeding ingredients...\n';
+  for (const ing of ingredients) {
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/ingredients`, {
+        method: 'POST',
+        headers: { 'Content-Type':'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(ing)
+      });
+      const data = await res.json();
+      log.textContent += `✓ ${ing.name} (${data.ingredientId})\n`;
+    } catch(e) {
+      log.textContent += `✗ ${ing.name}: ${e.message}\n`;
+    }
+  }
+  log.textContent += '\nDone! You can now view them in the Admin panel.';
+};
+</script>
+</body>
+</html>

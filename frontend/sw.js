@@ -1,5 +1,9 @@
-const CACHE_NAME = 'rlc-cafe-v1';
-const SHELL = ['./index.html', './track.html', './pos.html', './css/style.css', './js/config.js', './js/app.js', './js/track.js', './js/pos.js'];
+const CACHE_NAME = 'rlc-cafe-v3';
+const SHELL = [
+  './', './index.html', './track.html', './pos.html', './admin.html',
+  './css/style.css', './css/admin.css',
+  './js/config.js', './js/app.js', './js/track.js', './js/pos.js', './js/admin.js'
+];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(SHELL)));

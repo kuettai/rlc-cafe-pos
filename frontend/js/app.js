@@ -11,6 +11,8 @@ const errorBanner = document.getElementById('errorBanner');
 let menu = [];
 let cart = [];
 let queueSize = 0;
+let celebrationMode = false;
+let celebrationPrice = 5;
 
 function showError(msg) {
   errorBanner.textContent = msg;
@@ -36,20 +38,27 @@ function renderMenu() {
 
   let html = `<section class="name-section"><label for="nameInput">Your Name</label><input type="text" id="nameInput" value="${name}" placeholder="Enter your name" aria-required="true"></section>`;
 
+  if (celebrationMode) {
+    html += `<div class="celebration-banner" aria-live="polite">🎉 Celebration Day! All drinks at <strong>RM ${celebrationPrice.toFixed(2)}</strong></div>`;
+  }
+
   if (queueSize > 0) {
-    html += `<div class="queue-info" aria-live="polite">${queueSize} drink${queueSize > 1 ? 's' : ''} ahead of you, expect slight delay</div>`;
+    const estMin = Math.max(3, queueSize * 3);
+    html += `<div class="queue-info" aria-live="polite">☕ ${queueSize} order${queueSize > 1 ? 's' : ''} ahead · est. wait ~${estMin} min</div>`;
   }
 
   categories.forEach(cat => {
     if (!grouped[cat].length) return;
+    grouped[cat].sort((a, b) => (b.isPinned ? 1 : 0) - (a.isPinned ? 1 : 0));
     html += `<h2 class="category-title">${cat === 'DRINK' ? '🥤 Drinks' : '🍔 Food'}</h2>`;
     grouped[cat].forEach(item => {
       const avail = getAvailable(item);
       const cartItem = cart.find(c => c.id === item.id && c.variant === (item.variants ? item.variants[0] : null));
       const qty = cart.filter(c => c.id === item.id).reduce((s, c) => s + c.qty, 0);
 
-      html += `<div class="menu-item" data-id="${item.id}">`;
-      html += `<div class="item-header"><span class="item-name">${item.name}</span><span class="item-price">RM ${item.basePrice.toFixed(2)}</span></div>`;
+      const displayPrice = (celebrationMode && item.category === 'DRINK') ? celebrationPrice : item.basePrice;
+      html += `<div class="menu-item${item.isPinned ? ' menu-item-pinned' : ''}" data-id="${item.id}">`;
+      html += `<div class="item-header"><span class="item-name">${item.isPinned ? '⭐ ' : ''}${item.name}</span><span class="item-price">${celebrationMode && item.category === 'DRINK' ? '<s style="opacity:.5;font-size:.8em">RM '+item.basePrice.toFixed(2)+'</s> ' : ''}RM ${displayPrice.toFixed(2)}</span></div>`;
 
       if (item.category === 'FOOD' && avail !== Infinity) {
         html += `<div class="item-stock">${avail > 0 ? avail + ' left' : 'Sold out'}</div>`;
@@ -111,7 +120,8 @@ function bindMenuEvents() {
         const totalQty = cart.filter(c => c.id === id).reduce((s, c) => s + c.qty, 0);
         if (item.category === 'FOOD' && totalQty >= getAvailable(item)) return;
         const variantObj = item.variants?.find(v => v.id === variant);
-        const price = item.basePrice + (variantObj?.priceModifier || 0);
+        const basePrice = (celebrationMode && item.category === 'DRINK') ? celebrationPrice : item.basePrice;
+        const price = basePrice + ((celebrationMode && item.category === 'DRINK') ? 0 : (variantObj?.priceModifier || 0));
         if (existing) { existing.qty++; } else { cart.push({ id, name: item.name, variant, price, qty: 1 }); }
       } else {
         const existing = cart.find(c => c.id === id && c.variant === variant);
@@ -167,6 +177,22 @@ cartSubmit.addEventListener('click', async () => {
   if (!name) { showError('Please enter your name first'); cartOverlay.classList.remove('open'); document.getElementById('nameInput')?.focus(); return; }
   if (!cart.length) return;
 
+  const existingOrderId = localStorage.getItem('lastOrderId');
+  if (existingOrderId) {
+    try {
+      const check = await fetch(`${API_BASE}/api/orders/${existingOrderId}`);
+      if (check.ok) {
+        const existing = await check.json();
+        if (['PENDING', 'PREPARING'].includes(existing.status)) {
+          if (!confirm('You have an active order. Place another one?')) {
+            window.location.href = `track.html?id=${existingOrderId}`;
+            return;
+          }
+        }
+      }
+    } catch(e) {}
+  }
+
   cartSubmit.disabled = true;
   cartSubmit.textContent = 'Placing order...';
 
@@ -180,7 +206,10 @@ cartSubmit.addEventListener('click', async () => {
     const data = await res.json();
     if (!res.ok) { showError(data.message || 'Order failed, please try again'); await loadMenu(); renderMenu(); return; }
     cart = [];
-    window.location.href = `track.html?id=${data.orderId}`;
+    localStorage.setItem('lastOrderId', data.orderId);
+    cartOverlay.classList.remove('open');
+    app.innerHTML = `<div class="order-success"><div class="success-icon">✓</div><h2>Order Placed!</h2><p>Redirecting to tracking...</p></div>`;
+    setTimeout(() => { window.location.href = `track.html?id=${data.orderId}`; }, 1200);
   } catch (e) {
     showError('Connection error, please try again');
   } finally {
@@ -198,8 +227,16 @@ async function init() {
   try {
     const status = await apiFetch('/api/cafe/status');
     queueSize = status.queueSize || 0;
+    celebrationMode = status.celebrationMode || false;
+    celebrationPrice = status.celebrationPrice || 5;
     if (status.cafeStatus === 'CLOSED') {
-      app.innerHTML = `<div class="closed-msg"><h2>Café is closed</h2><p>See you next Sunday! ☕</p><p style="margin-top:12px;font-size:.9rem">📍 Lot 5, Jalan 51A/221, 46100 PJ</p></div>`;
+      app.innerHTML = `<div class="closed-msg">
+        <h2>Café is closed</h2>
+        <p>See you next Sunday! ☕</p>
+        <p style="margin-top:16px;font-size:.9rem;color:var(--text-light)">⏰ Opens 10:15 AM & 12:45 PM</p>
+        <p style="margin-top:8px;font-size:.85rem">📍 Lot 5, Jalan 51A/221, 46100 PJ</p>
+        <p style="margin-top:20px"><a href="track.html" style="color:var(--primary,#6B4226);font-weight:600;text-decoration:underline">Track an existing order →</a></p>
+      </div>`;
       return;
     }
     await loadMenu();

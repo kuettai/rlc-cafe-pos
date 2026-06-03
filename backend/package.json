@@ -4,11 +4,16 @@
   "description": "CafePOS backend Lambda handlers",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc"
+    "build": "tsc",
+    "test": "jest",
+    "test:watch": "jest --watch"
   },
   "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.1060.0",
     "@aws-sdk/client-dynamodb": "3.654.0",
+    "@aws-sdk/client-s3": "^3.1060.0",
     "@aws-sdk/lib-dynamodb": "3.654.0",
+    "@aws-sdk/s3-request-presigner": "^3.1060.0",
     "bcryptjs": "2.4.3",
     "jsonwebtoken": "9.0.2",
     "uuid": "10.0.0"
@@ -16,8 +21,11 @@
   "devDependencies": {
     "@types/aws-lambda": "8.10.145",
     "@types/bcryptjs": "2.4.6",
+    "@types/jest": "^30.0.0",
     "@types/jsonwebtoken": "9.0.7",
     "@types/uuid": "10.0.0",
+    "jest": "^30.4.2",
+    "ts-jest": "^29.4.11",
     "typescript": "5.5.4"
   }
 }

@@ -18,8 +18,10 @@ export async function handleCafe(event: APIGatewayProxyEvent): Promise<APIGatewa
     }));
 
     const cafeStatus = settings.Item?.cafeStatus || 'CLOSED';
+    const celebrationMode = settings.Item?.celebrationMode || false;
+    const celebrationPrice = settings.Item?.celebrationPrice || 5;
     const queueSize = orders.Count || 0;
-    return { statusCode: 200, headers: {}, body: JSON.stringify({ cafeStatus, queueSize }) };
+    return { statusCode: 200, headers: {}, body: JSON.stringify({ cafeStatus, queueSize, celebrationMode, celebrationPrice }) };
   }
 
   return { statusCode: 404, headers: {}, body: JSON.stringify({ error: 'Not found' }) };

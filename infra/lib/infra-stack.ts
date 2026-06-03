@@ -6,6 +6,8 @@ import * as lambdaBase from 'aws-cdk-lib/aws-lambda';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
+import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import * as path from 'path';
 
 export class InfraStack extends cdk.Stack {
@@ -61,6 +63,37 @@ export class InfraStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
+    // ─── S3 Buckets ────────────────────────────────────────────────────
+
+    const receiptsBucket = new s3.Bucket(this, 'ReceiptsBucket', {
+      bucketName: `rlc-cafe-receipts-${this.account}`,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+      lifecycleRules: [{
+        expiration: cdk.Duration.days(1),
+      }],
+      cors: [{
+        allowedMethods: [s3.HttpMethods.PUT, s3.HttpMethods.POST, s3.HttpMethods.GET],
+        allowedOrigins: ['*'],
+        allowedHeaders: ['*'],
+      }],
+    });
+
+    const planogramBucket = new s3.Bucket(this, 'PlanogramBucket', {
+      bucketName: `rlc-cafe-planogram-${this.account}`,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+      lifecycleRules: [{
+        id: 'expire-after-4-weeks',
+        expiration: cdk.Duration.days(28),
+      }],
+      cors: [{
+        allowedMethods: [s3.HttpMethods.PUT, s3.HttpMethods.POST, s3.HttpMethods.GET],
+        allowedOrigins: ['*'],
+        allowedHeaders: ['*'],
+      }],
+    });
+
     // ─── Lambda Functions (bundled with esbuild) ───────────────────────
 
     const backendPath = path.join(__dirname, '../../backend/src');
@@ -85,6 +118,8 @@ export class InfraStack extends cdk.Stack {
         INGREDIENTS_TABLE: ingredientsTable.tableName,
         USERS_TABLE: usersTable.tableName,
         SETTINGS_TABLE: settingsTable.tableName,
+        RECEIPTS_BUCKET: receiptsBucket.bucketName,
+        PLANOGRAM_BUCKET: planogramBucket.bucketName,
         JWT_SECRET: 'CHANGE_ME_BEFORE_DEPLOY',
       },
     });
@@ -94,6 +129,14 @@ export class InfraStack extends cdk.Stack {
     ingredientsTable.grantReadWriteData(apiHandler);
     usersTable.grantReadWriteData(apiHandler);
     settingsTable.grantReadWriteData(apiHandler);
+    receiptsBucket.grantReadWrite(apiHandler);
+    planogramBucket.grantReadWrite(apiHandler);
+
+    apiHandler.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['bedrock:InvokeModel'],
+      resources: ['arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-4-5-v1*'],
+    }));
 
     // ─── Order Expiry Cron ─────────────────────────────────────────────
 

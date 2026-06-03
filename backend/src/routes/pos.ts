@@ -239,7 +239,46 @@ async function closeCafe(): Promise<APIGatewayProxyResult> {
     UpdateExpression: 'SET cafeStatus = :s',
     ExpressionAttributeValues: { ':s': 'CLOSED' },
   }));
-  return res(200, { cafeStatus: 'CLOSED' });
+
+  // Auto-expire all active orders on close
+  const statuses = ['PENDING', 'PREPARING'];
+  let expired = 0;
+  for (const status of statuses) {
+    const r = await docClient.send(new QueryCommand({
+      TableName: ORDERS_TABLE,
+      IndexName: 'status-createdAt-index',
+      KeyConditionExpression: '#s = :s',
+      ExpressionAttributeNames: { '#s': 'status' },
+      ExpressionAttributeValues: { ':s': status },
+    }));
+    for (const order of r.Items || []) {
+      await docClient.send(new UpdateCommand({
+        TableName: ORDERS_TABLE,
+        Key: { PK: order.PK, SK: order.SK },
+        UpdateExpression: 'SET #s = :expired, updatedAt = :now',
+        ExpressionAttributeNames: { '#s': 'status' },
+        ExpressionAttributeValues: { ':expired': 'EXPIRED', ':now': new Date().toISOString() },
+      }));
+      expired++;
+    }
+  }
+
+  // Reset all food quantities for the day
+  const menuItems = await docClient.send(new ScanCommand({
+    TableName: MENU_TABLE,
+    FilterExpression: 'category = :food',
+    ExpressionAttributeValues: { ':food': 'FOOD' },
+  }));
+  for (const item of menuItems.Items || []) {
+    await docClient.send(new UpdateCommand({
+      TableName: MENU_TABLE,
+      Key: { PK: item.PK, SK: item.SK },
+      UpdateExpression: 'SET foodQuantityToday = :z, foodReserved = :z, isEnabledToday = :f',
+      ExpressionAttributeValues: { ':z': 0, ':f': false },
+    }));
+  }
+
+  return res(200, { cafeStatus: 'CLOSED', expiredOrders: expired });
 }
 
 async function toggleCelebration(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
@@ -295,6 +334,42 @@ async function toggleMenuItem(event: APIGatewayProxyEvent): Promise<APIGatewayPr
   return res(200, { menuItemId: id, isEnabledToday: newEnabled });
 }
 
+async function setFoodQuantity(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+  const id = event.pathParameters?.id;
+  if (!id) return res(400, { error: 'Missing menu item id' });
+
+  const body = JSON.parse(event.body || '{}');
+  const qty = typeof body.foodQuantityToday === 'number' ? body.foodQuantityToday : null;
+  if (qty === null || qty < 0) return res(400, { error: 'Invalid quantity' });
+
+  await docClient.send(new UpdateCommand({
+    TableName: MENU_TABLE,
+    Key: { PK: `MENU#${id}`, SK: 'META' },
+    UpdateExpression: 'SET foodQuantityToday = :q',
+    ExpressionAttributeValues: { ':q': qty },
+  }));
+
+  return res(200, { menuItemId: id, foodQuantityToday: qty });
+}
+
+async function togglePin(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+  const id = event.pathParameters?.id;
+  if (!id) return res(400, { error: 'Missing menu item id' });
+
+  const item = await getMenuItem(id);
+  if (!item) return res(404, { error: 'Menu item not found' });
+
+  const newPinned = !item.isPinned;
+  await docClient.send(new UpdateCommand({
+    TableName: MENU_TABLE,
+    Key: { PK: `MENU#${id}`, SK: 'META' },
+    UpdateExpression: 'SET isPinned = :p',
+    ExpressionAttributeValues: { ':p': newPinned },
+  }));
+
+  return res(200, { menuItemId: id, isPinned: newPinned });
+}
+
 async function getInventory(): Promise<APIGatewayProxyResult> {
   const r = await docClient.send(new ScanCommand({ TableName: INGREDIENTS_TABLE }));
   return res(200, { ingredients: r.Items || [] });
@@ -348,6 +423,14 @@ export async function handlePos(event: APIGatewayProxyEvent): Promise<APIGateway
   if (method === 'PUT' && path.match(/\/api\/pos\/menu\/[^/]+\/toggle$/)) {
     const id = extractSegment(path, /\/api\/pos\/menu\/([^/]+)\/toggle/, 1);
     if (id) { event.pathParameters = { id }; return toggleMenuItem(event); }
+  }
+  if (method === 'PUT' && path.match(/\/api\/pos\/menu\/[^/]+\/quantity$/)) {
+    const id = extractSegment(path, /\/api\/pos\/menu\/([^/]+)\/quantity/, 1);
+    if (id) { event.pathParameters = { id }; return setFoodQuantity(event); }
+  }
+  if (method === 'PUT' && path.match(/\/api\/pos\/menu\/[^/]+\/pin$/)) {
+    const id = extractSegment(path, /\/api\/pos\/menu\/([^/]+)\/pin/, 1);
+    if (id) { event.pathParameters = { id }; return togglePin(event); }
   }
   if (method === 'GET' && path === '/api/pos/inventory') return getInventory();
   if (method === 'PUT' && path.match(/\/api\/pos\/inventory\/[^/]+$/)) {

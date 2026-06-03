@@ -6,6 +6,9 @@ import { handleCafe } from './routes/cafe';
 import { handleOrders } from './routes/orders';
 import { handlePos } from './routes/pos';
 import { handleAdmin } from './routes/admin';
+import { handleChecklist } from './routes/checklist';
+import { handleReceipt } from './routes/receipt';
+import { handlePlanogram } from './routes/planogram';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -47,6 +50,11 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
     res.headers = { ...CORS_HEADERS, ...res.headers };
     return res;
   }
+  if (path.match(/\/api\/orders\/[^/]+\/receipt/)) {
+    const res = await handleReceipt(event);
+    res.headers = { ...CORS_HEADERS, ...res.headers };
+    return res;
+  }
   if (path.startsWith('/api/orders')) {
     const res = await handleOrders(event);
     res.headers = { ...CORS_HEADERS, ...res.headers };
@@ -57,9 +65,35 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
   const user = getToken(event);
   if (!user) return respond(401, { error: 'Unauthorized' });
 
+  if (path.startsWith('/api/admin/checklist')) {
+    if (user.role !== 'ADMIN') return respond(403, { error: 'Forbidden' });
+    const res = await handleChecklist(event);
+    res.headers = { ...CORS_HEADERS, ...res.headers };
+    return res;
+  }
+
+  if (path.startsWith('/api/admin/planogram')) {
+    if (user.role !== 'ADMIN') return respond(403, { error: 'Forbidden' });
+    const res = await handlePlanogram(event);
+    res.headers = { ...CORS_HEADERS, ...res.headers };
+    return res;
+  }
+
   if (path.startsWith('/api/admin')) {
     if (user.role !== 'ADMIN') return respond(403, { error: 'Forbidden' });
     const res = await handleAdmin(event);
+    res.headers = { ...CORS_HEADERS, ...res.headers };
+    return res;
+  }
+
+  if (path.startsWith('/api/pos/checklist')) {
+    const res = await handleChecklist(event);
+    res.headers = { ...CORS_HEADERS, ...res.headers };
+    return res;
+  }
+
+  if (path.startsWith('/api/pos/planogram')) {
+    const res = await handlePlanogram(event);
     res.headers = { ...CORS_HEADERS, ...res.headers };
     return res;
   }
