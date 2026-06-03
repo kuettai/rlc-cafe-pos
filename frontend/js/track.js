@@ -22,6 +22,7 @@ const STATUS_MAP = {
   PENDING: { text: 'Waiting for payment confirmation', icon: '⏳', step: 1 },
   PREPARING: { text: 'Your order is being prepared', icon: '☕', step: 2 },
   READY: { text: 'Your order is ready!', icon: '🎉', step: 3 },
+  ARCHIVED: { text: 'Order collected — thank you!', icon: '✅', step: 3 },
   CANCELLED: { text: 'Order was cancelled', icon: '❌', step: 0 },
   EXPIRED: { text: 'Order has expired', icon: '⏰', step: 0 }
 };
@@ -106,7 +107,7 @@ function renderOrder(order) {
     html += `<button class="cancel-btn" id="cancelBtn">Cancel Order</button>`;
   }
 
-  if (['READY', 'CANCELLED', 'EXPIRED'].includes(order.status)) {
+  if (['READY', 'ARCHIVED', 'CANCELLED', 'EXPIRED'].includes(order.status)) {
     html += `<a href="index" style="display:inline-block;margin-top:20px;color:var(--primary,#6B4226);font-weight:600;text-decoration:underline">← Back to Menu</a>`;
   }
 
@@ -138,7 +139,7 @@ function renderOrder(order) {
     } catch { showError('Failed to cancel, try again'); }
   });
 
-  if (['READY', 'CANCELLED', 'EXPIRED'].includes(order.status)) {
+  if (['READY', 'ARCHIVED', 'CANCELLED', 'EXPIRED'].includes(order.status)) {
     clearInterval(pollTimer);
   }
 }
