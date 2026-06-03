@@ -15,6 +15,8 @@ let queueSize = 0;
 let celebrationMode = false;
 let celebrationPrice = 5;
 let menuLayout = localStorage.getItem('menuLayout') || 'list';
+let menuFilter = '';
+let menuCategory = 'ALL';
 
 function showError(msg) {
   errorBanner.textContent = msg;
@@ -41,6 +43,8 @@ function renderMenu() {
   let html = '';
   html += `<section class="name-section"><label for="nameInput">Your Name</label><div style="display:flex;gap:8px;align-items:center"><input type="text" id="nameInput" value="${name}" placeholder="Enter your name" aria-required="true" style="flex:1"><a href="track" class="layout-toggle" aria-label="My Orders" title="My Orders" style="text-decoration:none">📋</a><button id="layoutToggle" class="layout-toggle" aria-label="Toggle view">${menuLayout === 'grid' ? '☰' : '⊞'}</button></div></section>`;
 
+  html += `<div class="menu-filter"><input type="text" id="menuSearch" placeholder="🔍 Search menu..." value="${menuFilter}" class="menu-search-input"><div class="menu-filter-tabs"><button class="menu-filter-tab${menuCategory==='ALL'?' active':''}" data-cat="ALL">All</button><button class="menu-filter-tab${menuCategory==='DRINK'?' active':''}" data-cat="DRINK">🥤 Drinks</button><button class="menu-filter-tab${menuCategory==='FOOD'?' active':''}" data-cat="FOOD">🍔 Food</button></div></div>`;
+
   if (celebrationMode) {
     html += `<div class="celebration-banner" aria-live="polite">🎉 Celebration Day! All drinks at <strong>RM ${celebrationPrice.toFixed(2)}</strong></div>`;
   }
@@ -50,12 +54,20 @@ function renderMenu() {
     html += `<div class="queue-info" aria-live="polite">☕ ${queueSize} order${queueSize > 1 ? 's' : ''} ahead · est. wait ~${estMin} min</div>`;
   }
 
+  const filteredMenu = menu.filter(i => {
+    if (menuCategory !== 'ALL' && i.category !== menuCategory) return false;
+    if (menuFilter && !i.name.toLowerCase().includes(menuFilter.toLowerCase())) return false;
+    return true;
+  });
+  const filteredGrouped = {};
+  categories.forEach(c => { filteredGrouped[c] = filteredMenu.filter(i => i.category === c); });
+
   categories.forEach(cat => {
-    if (!grouped[cat].length) return;
-    grouped[cat].sort((a, b) => (b.isPinned ? 1 : 0) - (a.isPinned ? 1 : 0));
+    if (!filteredGrouped[cat].length) return;
+    filteredGrouped[cat].sort((a, b) => (b.isPinned ? 1 : 0) - (a.isPinned ? 1 : 0));
     html += `<h2 class="category-title">${cat === 'DRINK' ? '🥤 Drinks' : '🍔 Food'}</h2>`;
     html += `<div class="${menuLayout === 'grid' ? 'menu-grid' : ''}">`;
-    grouped[cat].forEach(item => {
+    filteredGrouped[cat].forEach(item => {
       const avail = getAvailable(item);
       const soldOut = item.category === 'FOOD' && avail <= 0;
       const cartItem = cart.find(c => c.id === item.id && c.variant === (item.variants ? item.variants[0] : null));
@@ -106,6 +118,19 @@ function getSelectedVariant(itemId) {
 function bindMenuEvents() {
   document.getElementById('nameInput')?.addEventListener('input', e => {
     localStorage.setItem('customerName', e.target.value.trim());
+  });
+
+  document.getElementById('menuSearch')?.addEventListener('input', e => {
+    menuFilter = e.target.value;
+    renderMenu();
+    document.getElementById('menuSearch')?.focus();
+  });
+
+  document.querySelectorAll('.menu-filter-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      menuCategory = btn.dataset.cat;
+      renderMenu();
+    });
   });
 
   document.getElementById('layoutToggle')?.addEventListener('click', () => {
