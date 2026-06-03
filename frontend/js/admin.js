@@ -3,7 +3,22 @@ const $ = s => document.querySelector(s);
 const app = $('#app');
 let token = sessionStorage.getItem('pos_token');
 let currentUser = sessionStorage.getItem('pos_user') || '';
-let currentTab = 'menu';
+
+function showFormModal(form){
+  const overlay = document.createElement('div');
+  overlay.className = 'pos-modal-overlay';
+  const modal = document.createElement('div');
+  modal.className = 'pos-modal';
+  modal.style.maxWidth = '600px';
+  modal.style.maxHeight = '85vh';
+  modal.style.overflowY = 'auto';
+  modal.appendChild(form);
+  overlay.appendChild(modal);
+  overlay.onclick = e => { if(e.target===overlay) overlay.remove(); };
+  document.body.appendChild(overlay);
+  form._overlay = overlay;
+}
+let currentTab = 'dashboard';
 
 function authHeaders(){ return { 'Content-Type':'application/json', Authorization:`Bearer ${token}` }; }
 
@@ -50,14 +65,15 @@ function logout(){ token=null; sessionStorage.removeItem('pos_token'); sessionSt
 function renderApp(){
   app.innerHTML = `<nav class="admin-nav">
     <span class="admin-nav-user">👤 ${currentUser}</span>
-    <button data-tab="menu" class="active">Menu</button>
+    <button data-tab="dashboard" class="active">Dashboard</button>
+    <button data-tab="menu">Menu</button>
     <button data-tab="users">Users</button>
     <button data-tab="ingredients">Ingredients</button>
     <button data-tab="checklist">Checklist</button>
     <button data-tab="planogram">Planogram</button>
     <button data-tab="settings">Settings</button>
     <button data-tab="reports">Reports</button>
-    <a href="pos.html" class="pos-btn pos-btn-sm" style="text-decoration:none;margin-left:auto">POS</a>
+    <a href="pos" class="pos-btn pos-btn-sm" style="text-decoration:none;margin-left:auto">POS</a>
     <button class="nav-logout">Logout</button>
   </nav>
   <div id="adminContent"></div>`;
@@ -76,6 +92,7 @@ function renderApp(){
 function loadTab(){
   const c = $('#adminContent');
   switch(currentTab){
+    case 'dashboard': loadDashboard(c); break;
     case 'menu': loadMenu(c); break;
     case 'users': loadUsers(c); break;
     case 'ingredients': loadIngredients(c); break;
@@ -84,6 +101,51 @@ function loadTab(){
     case 'settings': loadSettings(c); break;
     case 'reports': loadReports(c); break;
   }
+}
+
+// --- Dashboard ---
+async function loadDashboard(container){
+  container.innerHTML = '<div class="loading">Loading dashboard...</div>';
+  try{
+    const [settings, daily, inventory] = await Promise.all([
+      api('GET','/api/admin/settings'),
+      api('GET','/api/admin/reports/daily'),
+      api('GET','/api/admin/reports/inventory')
+    ]);
+    const orders = daily.orders || [];
+    const pending = orders.filter(o=>o.status==='PENDING'||o.status==='CONFIRMED').length;
+    const active = orders.filter(o=>o.status==='PREPARING').length;
+    const lowStock = inventory.lowStock || [];
+    const recent = orders.slice(-5).reverse();
+
+    let html = `<div class="admin-section"><div class="admin-section-header"><h2>At a Glance</h2></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px">
+        <div class="admin-card"><div class="admin-card-header"><div>
+          <div class="admin-card-title">Café Status</div>
+          <div class="admin-card-subtitle" style="margin-top:8px">
+            <span class="admin-card-badge ${settings.cafeStatus==='OPEN'?'badge-active':'badge-inactive'}">${settings.cafeStatus||'CLOSED'}</span>
+            ${settings.celebrationMode?'<span class="admin-card-badge badge-drink" style="margin-left:8px">🎉 Celebration Mode</span>':''}
+          </div>
+        </div></div></div>
+        <div class="admin-card"><div class="admin-card-header"><div>
+          <div class="admin-card-title">Today's Stats</div>
+          <div class="admin-card-subtitle" style="margin-top:8px">
+            Orders: <strong>${daily.totalOrders||0}</strong> · Revenue: <strong>RM ${(daily.totalRevenue||0).toFixed(2)}</strong><br>
+            Pending: <strong>${pending}</strong> · Preparing: <strong>${active}</strong>
+          </div>
+        </div></div></div>
+        <div class="admin-card"><div class="admin-card-header"><div>
+          <div class="admin-card-title">Low Stock Alerts</div>
+          <div class="admin-card-subtitle" style="margin-top:8px">${lowStock.length ? lowStock.map(i=>`<div>${i.name}: <strong>${i.currentStock}</strong> ${i.unit} (threshold: ${i.lowStockThreshold})</div>`).join('') : '<span style="color:var(--success)">All stocked ✓</span>'}</div>
+        </div></div></div>
+        <div class="admin-card"><div class="admin-card-header"><div>
+          <div class="admin-card-title">Recent Activity</div>
+          <div class="admin-card-subtitle" style="margin-top:8px">${recent.length ? recent.map(o=>`<div>${o.customerName||'Guest'} · <span class="admin-card-badge">${o.status}</span> · ${new Date(o.createdAt||o.orderTime).toLocaleTimeString()}</div>`).join('') : 'No orders yet today'}</div>
+        </div></div></div>
+      </div>
+    </div>`;
+    container.innerHTML = html;
+  } catch(e){ container.innerHTML = '<div class="admin-empty"><p>Failed to load dashboard</p></div>'; }
 }
 
 // --- Menu Management ---
@@ -101,6 +163,12 @@ function renderMenuSection(container, items){
     <div class="admin-section-header">
       <h2>Menu Items</h2>
       <button class="pos-btn pos-btn-primary" id="btnAddMenu">+ Add Item</button>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+      <button class="pos-btn pos-btn-sm" id="btnEnableDrinks">✅ Enable All Drinks</button>
+      <button class="pos-btn pos-btn-sm" id="btnEnableFood">✅ Enable All Food</button>
+      <button class="pos-btn pos-btn-sm pos-btn-danger" id="btnDisableAll">❌ Disable All</button>
+      <button class="pos-btn pos-btn-sm" id="btnRepeatFood">📋 Repeat Last Food</button>
     </div>`;
   if(!items.length){
     html += '<div class="admin-empty"><p>No menu items yet</p></div>';
@@ -127,6 +195,10 @@ function renderMenuSection(container, items){
   container.innerHTML = html;
 
   $('#btnAddMenu').onclick = ()=> openMenuForm(container, null, items);
+  $('#btnEnableDrinks').onclick = async()=>{ try{ await api('PUT','/api/admin/menu/bulk-toggle',{enable:true,category:'DRINK'}); loadMenu(container); }catch(e){ showError('Failed'); } };
+  $('#btnEnableFood').onclick = async()=>{ try{ await api('PUT','/api/admin/menu/bulk-toggle',{enable:true,category:'FOOD'}); loadMenu(container); }catch(e){ showError('Failed'); } };
+  $('#btnDisableAll').onclick = async()=>{ try{ await api('PUT','/api/admin/menu/bulk-toggle',{enable:false}); loadMenu(container); }catch(e){ showError('Failed'); } };
+  $('#btnRepeatFood').onclick = async()=>{ try{ const r=await api('POST','/api/admin/menu/duplicate-food',{}); showSuccess(`Repeated ${r.duplicated} food items`); loadMenu(container); }catch(e){ showError('Failed'); } };
   container.querySelectorAll('[data-edit-menu]').forEach(btn=>{
     btn.onclick=()=>{ const item=items.find(i=>(i.menuItemId||i.id)===btn.dataset.editMenu); openMenuForm(container, item, items); };
   });
@@ -153,6 +225,7 @@ function openMenuForm(container, item, allItems){
       <div class="admin-form-group"><label>Name</label><input id="mfName" class="pos-input" value="${item?.name||''}"></div>
       <div class="admin-form-group"><label>Category</label><select id="mfCategory" class="pos-input"><option value="DRINK" ${item?.category==='DRINK'?'selected':''}>Drink</option><option value="FOOD" ${item?.category==='FOOD'?'selected':''}>Food</option></select></div>
     </div>
+    <div class="admin-form-group"><label>Description</label><input id="mfDesc" class="pos-input" value="${item?.description||''}" placeholder="Short description (optional)"></div>
     <div class="admin-form-row">
       <div class="admin-form-group"><label>Base Price (RM)</label><input id="mfPrice" type="number" step="0.5" class="pos-input" value="${item?.basePrice||''}"></div>
       <div class="admin-form-group"><label>Sort Order</label><input id="mfSort" type="number" class="pos-input" value="${item?.sortOrder||0}"></div>
@@ -164,7 +237,7 @@ function openMenuForm(container, item, allItems){
       <button class="pos-btn" id="mfCancel">Cancel</button>
     </div>`;
 
-  container.querySelector('.admin-section').prepend(form);
+  showFormModal(form);
   let currentVariants = [...variants];
 
   form.querySelector('#btnAddVariant').onclick=()=>{
@@ -190,10 +263,11 @@ function openMenuForm(container, item, allItems){
   }
   refreshVariants();
 
-  form.querySelector('#mfCancel').onclick=()=>{ form.remove(); };
+  form.querySelector('#mfCancel').onclick=()=>{ form._overlay.remove(); };
   form.querySelector('#mfSubmit').onclick=async()=>{
     const body = {
       name: form.querySelector('#mfName').value.trim(),
+      description: form.querySelector('#mfDesc').value.trim(),
       category: form.querySelector('#mfCategory').value,
       basePrice: +form.querySelector('#mfPrice').value,
       sortOrder: +form.querySelector('#mfSort').value,
@@ -203,6 +277,7 @@ function openMenuForm(container, item, allItems){
     try{
       if(isEdit) await api('PUT',`/api/admin/menu/${item.menuItemId||item.id}`, body);
       else await api('POST','/api/admin/menu', body);
+      form._overlay.remove();
       loadMenu(container);
     } catch(e){ showError('Save failed'); }
   };
@@ -280,8 +355,8 @@ function openUserForm(container, user){
       <button class="pos-btn" id="ufCancel">Cancel</button>
     </div>`;
 
-  container.querySelector('.admin-section').prepend(form);
-  form.querySelector('#ufCancel').onclick=()=>form.remove();
+  showFormModal(form);
+  form.querySelector('#ufCancel').onclick=()=>form._overlay.remove();
   form.querySelector('#ufSubmit').onclick=async()=>{
     const name = form.querySelector('#ufName').value.trim();
     const role = form.querySelector('#ufRole').value;
@@ -297,6 +372,7 @@ function openUserForm(container, user){
     try{
       if(isEdit) await api('PUT',`/api/admin/users/${user.userId}`, body);
       else await api('POST','/api/admin/users', body);
+      form._overlay.remove();
       loadUsers(container);
     } catch(e){ showError('Save failed'); }
   };
@@ -306,14 +382,20 @@ function openUserForm(container, user){
 async function loadIngredients(container){
   container.innerHTML = '<div class="loading">Loading ingredients...</div>';
   try{
-    const data = await api('GET','/api/pos/inventory');
+    const [data, menuData, recipeData] = await Promise.all([
+      api('GET','/api/pos/inventory'),
+      api('GET','/api/menu'),
+      api('GET','/api/admin/recipes')
+    ]);
     const all = Array.isArray(data) ? data : data.ingredients || [];
     const items = all.filter(i => i.PK && i.PK.startsWith('INGREDIENT#') && i.SK === 'META');
-    renderIngredientsSection(container, items);
+    const menuItems = Array.isArray(menuData) ? menuData : menuData.items || [];
+    const recipes = recipeData.recipes || [];
+    renderIngredientsSection(container, items, menuItems, recipes);
   } catch(e){ container.innerHTML = '<div class="admin-empty"><p>Failed to load ingredients</p></div>'; }
 }
 
-function renderIngredientsSection(container, items){
+function renderIngredientsSection(container, items, menuItems, recipes){
   let html = `<div class="admin-section">
     <div class="admin-section-header">
       <h2>Ingredients</h2>
@@ -334,7 +416,37 @@ function renderIngredientsSection(container, items){
           <div class="admin-card-actions">
             ${isLow ? '<span class="admin-card-badge badge-inactive">Low Stock</span>' : ''}
             <button class="pos-btn pos-btn-sm" data-edit-ing="${ing.ingredientId}">Edit</button>
+            <button class="pos-btn pos-btn-sm pos-btn-danger" data-del-ing="${ing.ingredientId}">Delete</button>
           </div>
+        </div>
+      </div>`;
+    });
+  }
+  html += '</div>';
+
+  // Recipes section — one line per menu item
+  html += `<div class="admin-section" style="margin-top:24px">
+    <div class="admin-section-header"><h2>Recipes</h2></div>
+    <p style="color:var(--text-light);font-size:.85rem;margin-bottom:14px">Define base ingredients + variant overrides per menu item</p>`;
+  if(!menuItems.length || !items.length){
+    html += '<div class="admin-empty"><p>Add menu items and ingredients first</p></div>';
+  } else {
+    menuItems.forEach(mi=>{
+      const id = mi.menuItemId||mi.id;
+      const baseRecipe = recipes.filter(r=>r.PK===`RECIPE#${id}#default`);
+      const variantRecipes = recipes.filter(r=>r.PK.startsWith(`RECIPE#${id}#`) && r.PK!==`RECIPE#${id}#default`);
+      const baseStr = baseRecipe.map(r=>{
+        const ing = items.find(i=>i.ingredientId===r.ingredientId);
+        return `${r.quantity}${ing?.usageUnit||''} ${ing?.name||'?'}`;
+      }).join(', ') || '<em style="color:var(--text-light)">not set</em>';
+      const overrideCount = variantRecipes.length;
+      html += `<div class="admin-card" style="padding:12px 16px">
+        <div class="admin-card-header">
+          <div>
+            <div class="admin-card-title" style="font-size:.95rem">${mi.name}</div>
+            <div class="admin-card-subtitle">Base: ${baseStr}${overrideCount ? ` · ${overrideCount} variant override(s)` : ''}</div>
+          </div>
+          <button class="pos-btn pos-btn-sm" data-edit-recipe="${id}">Edit</button>
         </div>
       </div>`;
     });
@@ -346,6 +458,113 @@ function renderIngredientsSection(container, items){
   container.querySelectorAll('[data-edit-ing]').forEach(btn=>{
     btn.onclick=()=>{ const ing=items.find(i=>i.ingredientId===btn.dataset.editIng); openIngredientForm(container, ing, items); };
   });
+  container.querySelectorAll('[data-del-ing]').forEach(btn=>{
+    btn.onclick=async()=>{
+      if(!confirm('Delete this ingredient?')) return;
+      try{ await api('DELETE',`/api/admin/ingredients/${btn.dataset.delIng}`); loadIngredients(container); } catch(e){ showError('Delete failed'); }
+    };
+  });
+  container.querySelectorAll('[data-edit-recipe]').forEach(btn=>{
+    btn.onclick=()=>{
+      const mi = menuItems.find(m=>(m.menuItemId||m.id)===btn.dataset.editRecipe);
+      openRecipeForm(container, mi, items, recipes, menuItems);
+    };
+  });
+}
+
+function openRecipeForm(container, menuItem, ingredients, allRecipes, menuItems){
+  const id = menuItem.menuItemId||menuItem.id;
+  const variants = menuItem.variants||[];
+  const baseExisting = allRecipes.filter(r=>r.PK===`RECIPE#${id}#default`);
+  let baseRows = baseExisting.map(r=>({ingredientId:r.ingredientId, quantity:r.quantity}));
+  if(!baseRows.length) baseRows.push({ingredientId:'', quantity:0});
+
+  // Variant overrides: {variantId: [{ingredientId, quantity, action:'add'|'replace'}]}
+  let variantOverrides = {};
+  variants.forEach(v=>{
+    const vid = v.id||v.name||v;
+    const existing = allRecipes.filter(r=>r.PK===`RECIPE#${id}#${vid}`);
+    variantOverrides[vid] = existing.map(r=>({ingredientId:r.ingredientId, quantity:r.quantity}));
+  });
+
+  const form = document.createElement('div');
+  form.className = 'admin-form';
+
+  function ingSelect(row, idx, prefix){
+    return `<select class="pos-input" data-prefix="${prefix}" data-ri="${idx}" data-rf="ingredientId" style="flex:2">
+      <option value="">-- Select --</option>
+      ${ingredients.map(ing=>`<option value="${ing.ingredientId}" ${ing.ingredientId===row.ingredientId?'selected':''}>${ing.name} (${ing.usageUnit||ing.unit})</option>`).join('')}
+    </select>`;
+  }
+
+  function renderRows(rows, prefix){
+    return rows.map((r,i)=>`<div style="display:flex;gap:8px;margin-bottom:6px;align-items:center">
+      ${ingSelect(r,i,prefix)}
+      <input type="number" step="0.1" class="pos-input" data-prefix="${prefix}" data-ri="${i}" data-rf="quantity" value="${r.quantity||''}" placeholder="Qty" style="flex:1">
+      <button class="pos-btn pos-btn-sm pos-btn-danger" data-prefix="${prefix}" data-rr="${i}" style="min-width:32px">✕</button>
+    </div>`).join('');
+  }
+
+  function render(){
+    let variantHtml = '';
+    if(variants.length){
+      variantHtml = `<h4 style="margin-top:16px;margin-bottom:8px">Variant Overrides <span style="font-size:.8rem;color:var(--text-light)">(leave empty = use base only)</span></h4>`;
+      variants.forEach(v=>{
+        const vid = v.id||v.name||v;
+        const vname = v.name||v;
+        const rows = variantOverrides[vid]||[];
+        variantHtml += `<div style="margin-bottom:12px;padding:10px;background:var(--cream,#f9f5f0);border-radius:8px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><strong style="font-size:.9rem">${vname}</strong><button class="pos-btn pos-btn-sm" data-add-override="${vid}">+ Add</button></div>
+          <div data-override-list="${vid}">${rows.length ? renderRows(rows, `v_${vid}`) : '<span style="font-size:.8rem;color:var(--text-light)">No override — uses base recipe</span>'}</div>
+        </div>`;
+      });
+    }
+
+    form.innerHTML = `<h3>Recipe: ${menuItem.name}</h3>
+      <h4 style="margin-bottom:8px">Base Ingredients</h4>
+      <div id="baseRows">${renderRows(baseRows, 'base')}</div>
+      <button class="pos-btn pos-btn-sm" id="addBaseRow" style="margin-top:6px">+ Add Ingredient</button>
+      ${variantHtml}
+      <div class="admin-form-actions" style="margin-top:16px">
+        <button class="pos-btn pos-btn-primary" id="saveRecipe">Save Recipe</button>
+        <button class="pos-btn" id="cancelRecipe">Cancel</button>
+      </div>`;
+
+    // Bind base
+    form.querySelectorAll('[data-prefix="base"][data-rf="ingredientId"]').forEach(s=>s.onchange=()=>{ baseRows[+s.dataset.ri].ingredientId=s.value; });
+    form.querySelectorAll('[data-prefix="base"][data-rf="quantity"]').forEach(inp=>inp.oninput=()=>{ baseRows[+inp.dataset.ri].quantity=+inp.value; });
+    form.querySelectorAll('[data-prefix="base"][data-rr]').forEach(btn=>btn.onclick=()=>{ baseRows.splice(+btn.dataset.rr,1); if(!baseRows.length) baseRows.push({ingredientId:'',quantity:0}); render(); });
+    form.querySelector('#addBaseRow').onclick=()=>{ baseRows.push({ingredientId:'',quantity:0}); render(); };
+
+    // Bind variant overrides
+    variants.forEach(v=>{
+      const vid = v.id||v.name||v;
+      const prefix = `v_${vid}`;
+      form.querySelectorAll(`[data-prefix="${prefix}"][data-rf="ingredientId"]`).forEach(s=>s.onchange=()=>{ variantOverrides[vid][+s.dataset.ri].ingredientId=s.value; });
+      form.querySelectorAll(`[data-prefix="${prefix}"][data-rf="quantity"]`).forEach(inp=>inp.oninput=()=>{ variantOverrides[vid][+inp.dataset.ri].quantity=+inp.value; });
+      form.querySelectorAll(`[data-prefix="${prefix}"][data-rr]`).forEach(btn=>btn.onclick=()=>{ variantOverrides[vid].splice(+btn.dataset.rr,1); render(); });
+      form.querySelector(`[data-add-override="${vid}"]`).onclick=()=>{ if(!variantOverrides[vid]) variantOverrides[vid]=[]; variantOverrides[vid].push({ingredientId:'',quantity:0}); render(); };
+    });
+
+    form.querySelector('#cancelRecipe').onclick=()=>form._overlay.remove();
+    form.querySelector('#saveRecipe').onclick=async()=>{
+      try{
+        // Save base
+        const baseValid = baseRows.filter(r=>r.ingredientId && r.quantity>0);
+        await api('POST','/api/admin/recipes',{ menuItemId:id, variantId:null, ingredients:baseValid });
+        // Save variant overrides
+        for(const v of variants){
+          const vid = v.id||v.name||v;
+          const rows = (variantOverrides[vid]||[]).filter(r=>r.ingredientId && r.quantity>0);
+          await api('POST','/api/admin/recipes',{ menuItemId:id, variantId:vid, ingredients:rows });
+        }
+        form._overlay.remove();
+        loadIngredients(container);
+      } catch(e){ showError('Failed to save recipe'); }
+    };
+  }
+  render();
+  showFormModal(form);
 }
 
 function openIngredientForm(container, ing, allItems){
@@ -383,8 +602,8 @@ function openIngredientForm(container, ing, allItems){
       <button class="pos-btn" id="ifCancel">Cancel</button>
     </div>`;
 
-  container.querySelector('.admin-section').prepend(form);
-  form.querySelector('#ifCancel').onclick=()=>form.remove();
+  showFormModal(form);
+  form.querySelector('#ifCancel').onclick=()=>form._overlay.remove();
   form.querySelector('#ifSubmit').onclick=async()=>{
     const body = {
       name: form.querySelector('#ifName').value.trim(),
@@ -398,6 +617,7 @@ function openIngredientForm(container, ing, allItems){
     try{
       if(isEdit) await api('PUT',`/api/admin/ingredients/${ing.ingredientId}`, body);
       else await api('POST','/api/admin/ingredients', body);
+      form._overlay.remove();
       loadIngredients(container);
     } catch(e){ showError('Save failed'); }
   };
@@ -560,7 +780,7 @@ function openAdminStockCount(location){
     modal.className = 'pos-modal-overlay';
     modal.innerHTML = `<div class="pos-modal" style="max-width:560px;text-align:center;padding:40px">
       <p>Stock count is available from the POS panel.</p>
-      <a href="pos.html" class="pos-btn pos-btn-primary" style="margin-top:16px;display:inline-block;text-decoration:none">Open POS</a>
+      <a href="pos" class="pos-btn pos-btn-primary" style="margin-top:16px;display:inline-block;text-decoration:none">Open POS</a>
     </div>`;
     document.body.appendChild(modal);
     modal.onclick=e=>{ if(e.target===modal) modal.remove(); };
@@ -627,17 +847,19 @@ function renderSettingsSection(container, settings){
 async function loadReports(container){
   container.innerHTML = '<div class="loading">Loading reports...</div>';
   try{
-    const [daily, inventory] = await Promise.all([
+    const [daily, inventory, weekly] = await Promise.all([
       api('GET','/api/admin/reports/daily'),
-      api('GET','/api/admin/reports/inventory')
+      api('GET','/api/admin/reports/inventory'),
+      api('GET','/api/admin/reports/weekly')
     ]);
-    renderReportsSection(container, daily, inventory);
+    renderReportsSection(container, daily, inventory, weekly);
   } catch(e){ container.innerHTML = '<div class="admin-empty"><p>Failed to load reports</p></div>'; }
 }
 
-function renderReportsSection(container, daily, inventory){
+function renderReportsSection(container, daily, inventory, weekly){
   const lowStock = inventory.lowStock || [];
   const orders = daily.orders || [];
+  const fmtDate = d => { const p = d.split('-'); const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; return `${+p[2]} ${months[+p[1]-1]}`; };
 
   // Item popularity
   const itemCounts = {};
@@ -669,6 +891,31 @@ function renderReportsSection(container, daily, inventory){
     html += '</table></div>';
   }
 
+  // Weekly Report
+  if(weekly && weekly.totals){
+    const t = weekly.totals;
+    html += `<h3 style="margin:32px 0 14px;color:var(--primary)">Weekly Report — ${fmtDate(weekly.startDate)} to ${fmtDate(weekly.endDate)}</h3>
+    <div class="admin-stats">
+      <div class="admin-stat-card"><div class="stat-value">${t.totalOrders}</div><div class="stat-label">Total Orders</div></div>
+      <div class="admin-stat-card"><div class="stat-value">RM ${t.totalRevenue.toFixed(2)}</div><div class="stat-label">Total Revenue</div></div>
+      <div class="admin-stat-card"><div class="stat-value">${t.avgPerDay}</div><div class="stat-label">Avg / Day</div></div>
+    </div>`;
+    if(weekly.days && weekly.days.length){
+      html += '<h4 style="margin:20px 0 10px">Daily Breakdown</h4><div class="admin-form"><table style="width:100%;border-collapse:collapse">';
+      html += '<tr style="border-bottom:2px solid var(--cream-dark)"><th style="text-align:left;padding:8px 0">Date</th><th style="text-align:right;padding:8px 0">Orders</th><th style="text-align:right;padding:8px 0">Revenue</th><th style="text-align:right;padding:8px 0">Offsets</th></tr>';
+      weekly.days.forEach(d=>{
+        html += `<tr style="border-bottom:1px solid var(--cream-dark)"><td style="padding:8px 0">${d.date}</td><td style="text-align:right">${d.orderCount}</td><td style="text-align:right">RM ${d.revenue.toFixed(2)}</td><td style="text-align:right">RM ${d.offsets.toFixed(2)}</td></tr>`;
+      });
+      html += '</table></div>';
+    }
+    if(weekly.topItems && weekly.topItems.length){
+      html += '<h4 style="margin:20px 0 10px">Top 5 Items This Week</h4><div class="admin-form">';
+      weekly.topItems.forEach((item,i)=>{ html += `<div style="padding:6px 0;border-bottom:1px solid var(--cream-dark)">${i+1}. ${item.name} — <strong>${item.count}</strong></div>`; });
+      html += '</div>';
+    }
+    html += `<button class="pos-btn pos-btn-primary" id="btnCopyWeeklyReport" style="margin-top:16px">📋 Copy Report</button>`;
+  }
+
   if(lowStock.length){
     html += '<h3 style="margin:24px 0 14px;color:var(--warning)">Low Stock Alerts</h3>';
     lowStock.forEach(item=>{
@@ -681,8 +928,46 @@ function renderReportsSection(container, daily, inventory){
     html += '<p style="color:var(--text-light);margin-top:20px">No low stock alerts</p>';
   }
 
+  // Restock Shopping List
+  html += `<h3 style="margin:24px 0 14px;color:var(--primary)">🛒 Restock Shopping List</h3>
+    <button class="pos-btn pos-btn-primary" id="btnLoadRestock">Load Restock List</button>
+    <div id="restockResult"></div>`;
+
   html += '</div>';
   container.innerHTML = html;
+
+  // Copy weekly report handler
+  if(weekly && weekly.totals){
+    const btn = container.querySelector('#btnCopyWeeklyReport');
+    if(btn) btn.onclick = ()=>{
+      const t = weekly.totals;
+      const topStr = (weekly.topItems||[]).map(i=>`${i.name} (${i.count})`).join(', ');
+      const text = `📊 Weekly Report (${fmtDate(weekly.startDate)} - ${fmtDate(weekly.endDate)})\nTotal Orders: ${t.totalOrders} | Revenue: RM ${t.totalRevenue.toFixed(0)}\nTop Items: ${topStr}`;
+      navigator.clipboard.writeText(text).then(()=>showSuccess('Report copied to clipboard'));
+    };
+  }
+
+  container.querySelector('#btnLoadRestock').onclick = async()=>{
+    const div = container.querySelector('#restockResult');
+    div.innerHTML = '<div class="loading">Loading...</div>';
+    try{
+      const data = await api('GET','/api/admin/reports/restock');
+      const items = data.items||[];
+      if(!items.length){ div.innerHTML='<p style="color:var(--text-light);margin-top:12px">All stocked up! Nothing to restock.</p>'; return; }
+      let t='<table style="width:100%;border-collapse:collapse;margin-top:12px"><tr style="border-bottom:2px solid var(--cream-dark)"><th style="text-align:left;padding:8px 0">Item</th><th style="text-align:right;padding:8px 0">Current</th><th style="text-align:right;padding:8px 0">Need</th><th style="text-align:right;padding:8px 0">Location</th></tr>';
+      items.forEach(i=>{
+        t+=`<tr style="border-bottom:1px solid var(--cream-dark)"><td style="padding:8px 0">${i.name}</td><td style="text-align:right">${i.currentStock} ${i.unit}</td><td style="text-align:right;font-weight:700">${i.suggestedRestock} ${i.unit}</td><td style="text-align:right">${i.storageLocation||'—'}</td></tr>`;
+      });
+      t+='</table><button class="pos-btn pos-btn-sm" id="btnCopyRestock" style="margin-top:12px">📋 Copy to Clipboard</button>';
+      div.innerHTML=t;
+      div.querySelector('#btnCopyRestock').onclick=()=>{
+        const today=new Date().toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
+        let text=`🛒 Restock List (${today})\n`;
+        items.forEach(i=>{ text+=`- ${i.name}: need ${i.suggestedRestock}${i.unit} (currently ${i.currentStock}${i.unit})\n`; });
+        navigator.clipboard.writeText(text).then(()=>showSuccess('Copied to clipboard'));
+      };
+    } catch(e){ div.innerHTML='<p style="color:var(--warning)">Failed to load restock list</p>'; }
+  };
 }
 
 // --- Helpers ---

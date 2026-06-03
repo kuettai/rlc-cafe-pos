@@ -35,6 +35,38 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
       return res(201, item);
     }
 
+    if (method === 'PUT' && path.endsWith('/admin/menu/bulk-toggle')) {
+      const { enable, category } = body;
+      const scan = await docClient.send(new ScanCommand({ TableName: MENU_TABLE }));
+      const items = (scan.Items || []).filter(i => i.SK === 'META' && (!category || i.category === category));
+      for (const item of items) {
+        await docClient.send(new UpdateCommand({
+          TableName: MENU_TABLE, Key: { PK: item.PK, SK: 'META' },
+          UpdateExpression: 'SET #e = :e',
+          ExpressionAttributeNames: { '#e': 'isEnabledToday' },
+          ExpressionAttributeValues: { ':e': !!enable }
+        }));
+      }
+      return res(200, { updated: items.length });
+    }
+
+    if (method === 'POST' && path.endsWith('/admin/menu/duplicate-food')) {
+      const scan = await docClient.send(new ScanCommand({ TableName: MENU_TABLE }));
+      const foods = (scan.Items || []).filter(i => i.SK === 'META' && i.category === 'FOOD');
+      const duplicated: { name: string; foodQuantityToday: number }[] = [];
+      for (const item of foods) {
+        const qty = item.foodQuantityToday || 0;
+        await docClient.send(new UpdateCommand({
+          TableName: MENU_TABLE, Key: { PK: item.PK, SK: 'META' },
+          UpdateExpression: 'SET #e = :e, #r = :r',
+          ExpressionAttributeNames: { '#e': 'isEnabledToday', '#r': 'foodReserved' },
+          ExpressionAttributeValues: { ':e': true, ':r': 0 }
+        }));
+        duplicated.push({ name: item.name, foodQuantityToday: qty });
+      }
+      return res(200, { duplicated: duplicated.length, items: duplicated });
+    }
+
     if (method === 'PUT' && /\/admin\/menu\/[^/]+$/.test(path)) {
       const id = extractId(path, 'menu');
       const fields: string[] = [];
@@ -90,10 +122,32 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
       return res(200, { ingredientId: id, updated: Object.keys(body) });
     }
 
+    if (method === 'DELETE' && /\/admin\/ingredients\/[^/]+$/.test(path)) {
+      const id = extractId(path, 'ingredients');
+      await docClient.send(new DeleteCommand({ TableName: INGREDIENTS_TABLE, Key: { PK: `INGREDIENT#${id}`, SK: 'META' } }));
+      return res(200, { deleted: id });
+    }
+
     // Recipes
+    if (method === 'GET' && path.endsWith('/admin/recipes')) {
+      const r = await docClient.send(new ScanCommand({ TableName: INGREDIENTS_TABLE }));
+      const recipes = (r.Items || []).filter(i => i.PK?.startsWith('RECIPE#'));
+      return res(200, { recipes });
+    }
+
     if (method === 'POST' && path.endsWith('/admin/recipes')) {
       const { menuItemId, variantId, ingredients } = body;
       const recipeKey = `RECIPE#${menuItemId}#${variantId || 'default'}`;
+      // Delete existing recipe entries first
+      const existing = await docClient.send(new QueryCommand({
+        TableName: INGREDIENTS_TABLE,
+        KeyConditionExpression: 'PK = :pk',
+        ExpressionAttributeValues: { ':pk': recipeKey },
+      }));
+      for (const item of (existing.Items || [])) {
+        await docClient.send(new DeleteCommand({ TableName: INGREDIENTS_TABLE, Key: { PK: item.PK, SK: item.SK } }));
+      }
+      // Write new entries
       for (const ing of ingredients) {
         await docClient.send(new PutCommand({
           TableName: INGREDIENTS_TABLE,
@@ -151,7 +205,7 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
 
     // Settings
     if (method === 'GET' && path.endsWith('/admin/settings')) {
-      const result = await docClient.send(new GetCommand({ TableName: SETTINGS_TABLE, Key: { PK: 'SETTINGS', SK: 'META' } }));
+      const result = await docClient.send(new GetCommand({ TableName: SETTINGS_TABLE, Key: { PK: 'SETTINGS', SK: 'CONFIG' } }));
       return res(200, result.Item || {});
     }
 
@@ -165,7 +219,7 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
         values[`:${k}`] = v;
       }
       await docClient.send(new UpdateCommand({
-        TableName: SETTINGS_TABLE, Key: { PK: 'SETTINGS', SK: 'META' },
+        TableName: SETTINGS_TABLE, Key: { PK: 'SETTINGS', SK: 'CONFIG' },
         UpdateExpression: `SET ${fields.join(', ')}`,
         ExpressionAttributeNames: names, ExpressionAttributeValues: values
       }));
@@ -189,7 +243,57 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
     }
 
     if (method === 'GET' && path.endsWith('/admin/reports/weekly')) {
-      return res(200, { message: 'Coming soon' });
+      const now = new Date();
+      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const startDate = sevenDaysAgo.toISOString().split('T')[0];
+      const endDate = now.toISOString().split('T')[0];
+      const result = await docClient.send(new ScanCommand({
+        TableName: ORDERS_TABLE,
+        FilterExpression: 'createdAt >= :start',
+        ExpressionAttributeValues: { ':start': sevenDaysAgo.toISOString() },
+      }));
+      const orders = (result.Items || []).filter(o => o.PK?.startsWith('ORDER#'));
+      const dayMap: Record<string, { orderCount: number; revenue: number; offsets: number }> = {};
+      const itemCounts: Record<string, number> = {};
+      for (const o of orders) {
+        const date = (o.createdAt as string).split('T')[0];
+        if (!dayMap[date]) dayMap[date] = { orderCount: 0, revenue: 0, offsets: 0 };
+        dayMap[date].orderCount++;
+        dayMap[date].revenue += o.totalAmount || 0;
+        dayMap[date].offsets += o.discountOffset || 0;
+        for (const item of (o.items || [])) {
+          itemCounts[item.name] = (itemCounts[item.name] || 0) + (item.quantity || 1);
+        }
+      }
+      const days = Object.entries(dayMap)
+        .map(([date, d]) => ({ date, ...d }))
+        .sort((a, b) => a.date.localeCompare(b.date));
+      const totalOrders = orders.length;
+      const totalRevenue = orders.reduce((s, o) => s + (o.totalAmount || 0), 0);
+      const totalOffsets = orders.reduce((s, o) => s + (o.discountOffset || 0), 0);
+      const avgPerDay = days.length ? Math.round(totalOrders / days.length) : 0;
+      const topItems = Object.entries(itemCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([name, count]) => ({ name, count }));
+      return res(200, { startDate, endDate, days, totals: { totalOrders, totalRevenue, totalOffsets, avgPerDay }, topItems });
+    }
+
+    if (method === 'GET' && path.endsWith('/admin/reports/restock')) {
+      const result = await docClient.send(new ScanCommand({
+        TableName: INGREDIENTS_TABLE,
+        FilterExpression: 'begins_with(PK, :prefix) AND SK = :sk',
+        ExpressionAttributeValues: { ':prefix': 'INGREDIENT#', ':sk': 'META' }
+      }));
+      const items = (result.Items || [])
+        .filter(i => i.currentStock <= i.lowStockThreshold * 1.5)
+        .map(i => ({
+          name: i.name, unit: i.unit, currentStock: i.currentStock,
+          lowStockThreshold: i.lowStockThreshold,
+          suggestedRestock: i.lowStockThreshold * 2 - i.currentStock,
+          storageLocation: i.storageLocation
+        }));
+      return res(200, { items });
     }
 
     if (method === 'GET' && path.endsWith('/admin/reports/inventory')) {
