@@ -135,7 +135,10 @@ export class InfraStack extends cdk.Stack {
     apiHandler.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: ['bedrock:InvokeModel'],
-      resources: ['arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-4-5-v1*'],
+      resources: [
+        `arn:aws:bedrock:ap-southeast-5:${this.account}:inference-profile/global.anthropic.claude-sonnet-4-6`,
+        'arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-4-6',
+      ],
     }));
 
     // ─── Order Expiry Cron ─────────────────────────────────────────────

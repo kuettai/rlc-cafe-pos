@@ -208,11 +208,13 @@ export async function handlePlanogram(event: APIGatewayProxyEvent): Promise<APIG
 async function analyzeStock(imageContents: any[], ingredientList: string, location: string) {
   const prompt = `You are a stock counting assistant for a church café. Analyze the ${location} photos and count the items visible.
 
+These are multiple views of the SAME ${location}. Combine counts across all images but DO NOT double-count items visible in overlapping views.
+
 Known items that should be in this ${location}:
 ${ingredientList}
 
 Instructions:
-1. Count each distinct item visible in the photos
+1. Count each distinct item visible across all photos (avoid double-counting from overlapping angles)
 2. For transparent containers, estimate fill level as a decimal (e.g., 0.7 for 70% full)
 3. For sealed non-transparent bags (like coffee beans), just count whole units
 4. If an item from the list is NOT visible, set count to 0

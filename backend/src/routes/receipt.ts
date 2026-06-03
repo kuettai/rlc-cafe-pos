@@ -180,7 +180,7 @@ Do not include any other text, just the JSON.`,
   };
 
   const response = await bedrock.send(new InvokeModelCommand({
-    modelId: 'anthropic.claude-sonnet-4-5-v1',
+    modelId: 'global.anthropic.claude-sonnet-4-6',
     body: JSON.stringify(payload),
     contentType: 'application/json',
   }));

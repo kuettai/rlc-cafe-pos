@@ -9,10 +9,12 @@ const cartSubmit = document.getElementById('cartSubmit');
 const errorBanner = document.getElementById('errorBanner');
 
 let menu = [];
-let cart = [];
+let cart = JSON.parse(localStorage.getItem('cart') || '[]');
+function saveCart(){ localStorage.setItem('cart', JSON.stringify(cart)); }
 let queueSize = 0;
 let celebrationMode = false;
 let celebrationPrice = 5;
+let menuLayout = localStorage.getItem('menuLayout') || 'list';
 
 function showError(msg) {
   errorBanner.textContent = msg;
@@ -36,7 +38,8 @@ function renderMenu() {
   const grouped = {};
   categories.forEach(c => { grouped[c] = menu.filter(i => i.category === c); });
 
-  let html = `<section class="name-section"><label for="nameInput">Your Name</label><input type="text" id="nameInput" value="${name}" placeholder="Enter your name" aria-required="true"></section>`;
+  let html = `<header style="text-align:center;padding:8px 0 12px"><h1 style="font-size:1.3rem;margin:0;color:var(--primary,#6B4226)">☕ RLC Café</h1><p style="font-size:.8rem;color:var(--text-light,#7A6355);margin:2px 0 0">Order & Pay · Pickup at counter</p></header>`;
+  html += `<section class="name-section"><label for="nameInput">Your Name</label><div style="display:flex;gap:8px;align-items:center"><input type="text" id="nameInput" value="${name}" placeholder="Enter your name" aria-required="true" style="flex:1"><a href="track" class="layout-toggle" aria-label="My Orders" title="My Orders" style="text-decoration:none">📋</a><button id="layoutToggle" class="layout-toggle" aria-label="Toggle view">${menuLayout === 'grid' ? '☰' : '⊞'}</button></div></section>`;
 
   if (celebrationMode) {
     html += `<div class="celebration-banner" aria-live="polite">🎉 Celebration Day! All drinks at <strong>RM ${celebrationPrice.toFixed(2)}</strong></div>`;
@@ -51,23 +54,28 @@ function renderMenu() {
     if (!grouped[cat].length) return;
     grouped[cat].sort((a, b) => (b.isPinned ? 1 : 0) - (a.isPinned ? 1 : 0));
     html += `<h2 class="category-title">${cat === 'DRINK' ? '🥤 Drinks' : '🍔 Food'}</h2>`;
+    html += `<div class="${menuLayout === 'grid' ? 'menu-grid' : ''}">`;
     grouped[cat].forEach(item => {
       const avail = getAvailable(item);
+      const soldOut = item.category === 'FOOD' && avail <= 0;
       const cartItem = cart.find(c => c.id === item.id && c.variant === (item.variants ? item.variants[0] : null));
       const qty = cart.filter(c => c.id === item.id).reduce((s, c) => s + c.qty, 0);
 
       const displayPrice = (celebrationMode && item.category === 'DRINK') ? celebrationPrice : item.basePrice;
-      html += `<div class="menu-item${item.isPinned ? ' menu-item-pinned' : ''}" data-id="${item.id}">`;
+      html += `<div class="menu-item${item.isPinned ? ' menu-item-pinned' : ''}${soldOut ? ' sold-out' : ''}" data-id="${item.id}">`;
       html += `<div class="item-header"><span class="item-name">${item.isPinned ? '⭐ ' : ''}${item.name}</span><span class="item-price">${celebrationMode && item.category === 'DRINK' ? '<s style="opacity:.5;font-size:.8em">RM '+item.basePrice.toFixed(2)+'</s> ' : ''}RM ${displayPrice.toFixed(2)}</span></div>`;
+      if (item.description) {
+        html += `<div style="font-size:.82rem;color:var(--text-light,#7A6355);margin-bottom:8px">${item.description}</div>`;
+      }
 
       if (item.category === 'FOOD' && avail !== Infinity) {
-        html += `<div class="item-stock">${avail > 0 ? avail + ' left' : 'Sold out'}</div>`;
+        html += `<div class="item-stock">${soldOut ? 'Sold out' : avail + ' left'}</div>`;
       }
 
       if (item.variants && item.variants.length) {
         html += `<div class="variants" data-item-id="${item.id}">`;
         item.variants.forEach((v, i) => {
-          const isActive = cart.some(c => c.id === item.id && c.variant === v.id);
+          const isActive = cart.some(c => c.id === item.id && c.variant === v.id) || (i === 0 && !cart.some(c => c.id === item.id));
           const priceTag = v.priceModifier ? ` (+RM${v.priceModifier})` : '';
           html += `<button class="${isActive ? 'active' : ''}" data-variant="${v.id}" aria-pressed="${isActive}">${v.name}${priceTag}</button>`;
         });
@@ -77,9 +85,10 @@ function renderMenu() {
       html += `<div class="qty-controls">`;
       html += `<button aria-label="Decrease ${item.name}" data-action="dec" data-id="${item.id}">−</button>`;
       html += `<span aria-live="polite">${qty}</span>`;
-      html += `<button aria-label="Increase ${item.name}" data-action="inc" data-id="${item.id}" ${avail <= qty && item.category === 'FOOD' ? 'disabled' : ''}>+</button>`;
+      html += `<button aria-label="Increase ${item.name}" data-action="inc" data-id="${item.id}" ${soldOut || (avail <= qty && item.category === 'FOOD') ? 'disabled' : ''}>+</button>`;
       html += `</div></div>`;
     });
+    html += `</div>`;
   });
 
   app.innerHTML = html;
@@ -99,12 +108,25 @@ function bindMenuEvents() {
     localStorage.setItem('customerName', e.target.value.trim());
   });
 
+  document.getElementById('layoutToggle')?.addEventListener('click', () => {
+    menuLayout = menuLayout === 'list' ? 'grid' : 'list';
+    localStorage.setItem('menuLayout', menuLayout);
+    renderMenu();
+  });
+
   document.querySelectorAll('.variants button').forEach(btn => {
     btn.addEventListener('click', () => {
       const container = btn.closest('.variants');
       container.querySelectorAll('button').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-pressed', 'false'); });
       btn.classList.add('active');
       btn.setAttribute('aria-pressed', 'true');
+      const itemId = container.dataset.itemId;
+      const item = menu.find(m => m.id === itemId);
+      const variantObj = item.variants?.find(v => v.id === btn.dataset.variant);
+      const basePrice = (celebrationMode && item.category === 'DRINK') ? celebrationPrice : item.basePrice;
+      const price = basePrice + ((celebrationMode && item.category === 'DRINK') ? 0 : (variantObj?.priceModifier || 0));
+      const priceSpan = container.closest('.menu-item').querySelector('.item-price');
+      priceSpan.innerHTML = `${celebrationMode && item.category === 'DRINK' ? '<s style="opacity:.5;font-size:.8em">RM '+item.basePrice.toFixed(2)+'</s> ' : ''}RM ${price.toFixed(2)}`;
     });
   });
 
@@ -122,10 +144,12 @@ function bindMenuEvents() {
         const variantObj = item.variants?.find(v => v.id === variant);
         const basePrice = (celebrationMode && item.category === 'DRINK') ? celebrationPrice : item.basePrice;
         const price = basePrice + ((celebrationMode && item.category === 'DRINK') ? 0 : (variantObj?.priceModifier || 0));
-        if (existing) { existing.qty++; } else { cart.push({ id, name: item.name, variant, price, qty: 1 }); }
+        if (existing) { existing.qty++; } else { cart.push({ id, name: item.name, variant, variantName: variantObj?.name || variant, price, qty: 1 }); }
+        saveCart();
       } else {
         const existing = cart.find(c => c.id === id && c.variant === variant);
         if (existing) { existing.qty--; if (existing.qty <= 0) cart = cart.filter(c => c !== existing); }
+        saveCart();
       }
       renderMenu();
     });
@@ -144,16 +168,18 @@ function updateCartBar() {
 function renderCartPanel() {
   if (!cart.length) { cartItems.innerHTML = '<p>Cart is empty</p>'; cartSubmit.disabled = true; return; }
   cartSubmit.disabled = false;
-  cartItems.innerHTML = cart.map((c, i) => `
-    <div class="cart-item">
-      <div class="cart-item-info"><div class="cart-item-name">${c.name}</div>${c.variant ? `<div class="cart-item-variant">${c.variant}</div>` : ''}</div>
+  cartItems.innerHTML = cart.map((c, i) => {
+    const variantLabel = c.variantName || c.variant || '';
+    return `<div class="cart-item">
+      <div class="cart-item-info"><div class="cart-item-name">${c.name}</div>${variantLabel ? `<div class="cart-item-variant">${variantLabel}</div>` : ''}</div>
       <div class="cart-item-actions">
         <button aria-label="Decrease" data-cart-idx="${i}" data-cart-action="dec">−</button>
         <span>${c.qty}</span>
         <button aria-label="Increase" data-cart-idx="${i}" data-cart-action="inc">+</button>
         <button class="remove-btn" aria-label="Remove" data-cart-idx="${i}" data-cart-action="remove">✕</button>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('') + `<textarea id="orderNotes" placeholder="Special requests (e.g. less sugar, extra hot)" style="width:100%;margin-top:12px;padding:10px;border:1px solid var(--cream-dark,#ddd);border-radius:8px;font-size:.9rem;resize:none;font-family:inherit" rows="2">${localStorage.getItem('orderNotes') || ''}</textarea><p style="font-size:.82rem;color:var(--text-light,#7A6355);margin-top:12px;text-align:center">💳 Payment via DuitNow QR after ordering</p>`;
 
   cartItems.querySelectorAll('button').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -162,15 +188,20 @@ function renderCartPanel() {
       if (action === 'inc') cart[idx].qty++;
       else if (action === 'dec') { cart[idx].qty--; if (cart[idx].qty <= 0) cart.splice(idx, 1); }
       else cart.splice(idx, 1);
+      saveCart();
       renderCartPanel();
       updateCartBar();
       renderMenu();
     });
   });
+  document.getElementById('orderNotes')?.addEventListener('input', e => {
+    localStorage.setItem('orderNotes', e.target.value);
+  });
 }
 
 cartBar.addEventListener('click', () => { cartOverlay.classList.add('open'); renderCartPanel(); });
 cartOverlay.addEventListener('click', e => { if (e.target === cartOverlay) cartOverlay.classList.remove('open'); });
+document.getElementById('cartClose')?.addEventListener('click', () => { cartOverlay.classList.remove('open'); });
 
 cartSubmit.addEventListener('click', async () => {
   const name = localStorage.getItem('customerName')?.trim();
@@ -185,7 +216,7 @@ cartSubmit.addEventListener('click', async () => {
         const existing = await check.json();
         if (['PENDING', 'PREPARING'].includes(existing.status)) {
           if (!confirm('You have an active order. Place another one?')) {
-            window.location.href = `track.html?id=${existingOrderId}`;
+            window.location.href = `track?id=${existingOrderId}`;
             return;
           }
         }
@@ -201,15 +232,19 @@ cartSubmit.addEventListener('click', async () => {
     const res = await fetch(`${API_BASE}/api/orders`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ customerName: name, items })
+      body: JSON.stringify({ customerName: name, items, notes: document.getElementById('orderNotes')?.value?.trim() || '' })
     });
     const data = await res.json();
     if (!res.ok) { showError(data.message || 'Order failed, please try again'); await loadMenu(); renderMenu(); return; }
     cart = [];
+    saveCart();
+    localStorage.removeItem('orderNotes');
+    const orderHistory = JSON.parse(localStorage.getItem('orderHistory') || '[]');
+    orderHistory.unshift({ orderId: data.orderId, date: new Date().toISOString(), total: data.totalAmount });
+    localStorage.setItem('orderHistory', JSON.stringify(orderHistory.slice(0, 50)));
     localStorage.setItem('lastOrderId', data.orderId);
     cartOverlay.classList.remove('open');
-    app.innerHTML = `<div class="order-success"><div class="success-icon">✓</div><h2>Order Placed!</h2><p>Redirecting to tracking...</p></div>`;
-    setTimeout(() => { window.location.href = `track.html?id=${data.orderId}`; }, 1200);
+    window.location.href = `track?id=${data.orderId}`;
   } catch (e) {
     showError('Connection error, please try again');
   } finally {
@@ -235,11 +270,14 @@ async function init() {
         <p>See you next Sunday! ☕</p>
         <p style="margin-top:16px;font-size:.9rem;color:var(--text-light)">⏰ Opens 10:15 AM & 12:45 PM</p>
         <p style="margin-top:8px;font-size:.85rem">📍 Lot 5, Jalan 51A/221, 46100 PJ</p>
-        <p style="margin-top:20px"><a href="track.html" style="color:var(--primary,#6B4226);font-weight:600;text-decoration:underline">Track an existing order →</a></p>
+        <p style="margin-top:20px"><a href="track" style="color:var(--primary,#6B4226);font-weight:600;text-decoration:underline">Track an existing order →</a></p>
       </div>`;
       return;
     }
     await loadMenu();
+    const prevLen = cart.length;
+    cart = cart.filter(c => { const m = menu.find(i => i.id === c.id); return m && m.isActive && m.isEnabledToday; });
+    if (cart.length !== prevLen) saveCart();
     renderMenu();
   } catch (e) {
     showError('Connection error, retrying...');

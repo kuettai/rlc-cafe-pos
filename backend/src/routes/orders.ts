@@ -31,7 +31,7 @@ async function releaseFood(items: { menuItemId: string; quantity: number; catego
 
 async function createOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
   const body = JSON.parse(event.body || '{}');
-  const { customerName, items } = body;
+  const { customerName, items, notes } = body;
   if (!customerName || !items?.length) return res(400, { error: 'customerName and items required' });
 
   const settings = await getSettings();
@@ -79,6 +79,7 @@ async function createOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
     Item: {
       PK: `ORDER#${orderId}`, SK: 'META', orderId, customerName,
       items: orderItems, totalAmount, status: 'PENDING',
+      notes: notes || '',
       discountType: 'NONE', discountOffset: 0,
       createdAt: now, updatedAt: now, expiresAt,
       isWalkUp: false, flaggedItems: [],
@@ -96,7 +97,7 @@ async function getOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxyRes
   if (!r.Item) return res(404, { error: 'Order not found' });
 
   const o = r.Item;
-  return res(200, { orderId: o.orderId, customerName: o.customerName, items: o.items, totalAmount: o.totalAmount, status: o.status, flaggedItems: o.flaggedItems, createdAt: o.createdAt });
+  return res(200, { orderId: o.orderId, customerName: o.customerName, items: o.items, totalAmount: o.totalAmount, status: o.status, notes: o.notes || '', flaggedItems: o.flaggedItems, createdAt: o.createdAt, receiptUrl: o.receiptUrl, receiptAmount: o.receiptAmount });
 }
 
 async function modifyOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {

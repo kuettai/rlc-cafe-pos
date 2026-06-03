@@ -13,14 +13,14 @@
 <div class="error-banner" id="errorBanner" role="alert"></div>
 <div class="container" id="app"><div class="loading">Loading...</div></div>
 
-<div class="cart-bar hidden" id="cartBar" role="button" aria-label="View cart" tabindex="0">
+<div class="cart-bar hidden" id="cartBar" role="button" aria-label="View cart" aria-live="polite" aria-atomic="true" tabindex="0">
   <span class="cart-count" id="cartCount">0 items</span>
   <span class="cart-total" id="cartTotal">RM 0.00</span>
 </div>
 
 <div class="cart-overlay" id="cartOverlay" aria-modal="true" role="dialog" aria-label="Shopping cart">
   <div class="cart-panel" id="cartPanel">
-    <h2>Your Order</h2>
+    <div style="display:flex;justify-content:space-between;align-items:center"><h2>Your Order</h2><button id="cartClose" style="background:none;border:none;font-size:1.5rem;cursor:pointer;padding:4px 8px;color:var(--text-light,#7A6355)">✕</button></div>
     <div id="cartItems"></div>
     <div class="order-total" id="cartTotalExpanded">Total: RM 0.00</div>
     <button class="cart-submit" id="cartSubmit">Place Order</button>
