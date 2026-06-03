@@ -2,8 +2,8 @@
   "name": "RLC Café - Oasis of Care",
   "short_name": "RLC Café",
   "description": "Order your favourite drinks and food from RLC Café",
-  "start_url": "/rlc-cafe-pos/",
-  "scope": "/rlc-cafe-pos/",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
   "theme_color": "#6B4226",
@@ -24,17 +24,17 @@
   "shortcuts": [
     {
       "name": "Track Order",
-      "url": "/rlc-cafe-pos/track.html",
+      "url": ./track.html",
       "description": "Check your order status"
     },
     {
       "name": "POS",
-      "url": "/rlc-cafe-pos/pos.html",
+      "url": ./pos.html",
       "description": "Cashier point of sale"
     },
     {
       "name": "Admin",
-      "url": "/rlc-cafe-pos/admin.html",
+      "url": ./admin.html",
       "description": "Admin panel"
     }
   ]
