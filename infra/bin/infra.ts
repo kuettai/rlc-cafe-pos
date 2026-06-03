@@ -4,7 +4,7 @@ import { InfraStack } from '../lib/infra-stack';
 
 const app = new cdk.App();
 const stack = new InfraStack(app, 'RlcCafeStack', {
-  env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
+  env: { account: '956288449190', region: 'ap-southeast-5' },
 });
 
 cdk.Tags.of(stack).add('Project', 'POS');

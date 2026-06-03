@@ -12,9 +12,12 @@ A Progressive Web App (PWA) for a church café at Oasis of Care (RLC), Petaling 
 - **Repo:** https://github.com/kuettai/rlc-cafe-pos
 
 ## Live URLs
-- Frontend: https://kuettai.github.io/rlc-cafe-pos/
+- Frontend (custom domain): https://153.oasisofcare.org/
+- Frontend (GitHub Pages): https://kuettai.github.io/rlc-cafe-pos/
 - API: https://hcydppml1a.execute-api.ap-southeast-5.amazonaws.com/prod/
-- POS: https://kuettai.github.io/rlc-cafe-pos/pos.html
+- POS: https://153.oasisofcare.org/pos.html
+- Admin: https://153.oasisofcare.org/admin.html
+- Customer: https://153.oasisofcare.org/
 
 ## Test Credentials
 - Admin: userId=`admin-001`, PIN=`123456`
@@ -24,24 +27,28 @@ A Progressive Web App (PWA) for a church café at Oasis of Care (RLC), Petaling 
 ```
 cafepos/
 ├── .kiro/              # Project context & steering
-├── .ref/               # Reference data (stock-check.csv, questionnaire)
+├── .ref/               # Reference data (stock-check.csv, questionnaires)
 ├── .github/workflows/  # CI/CD (deploy-pages.yml)
 ├── backend/src/        # Lambda handlers (TypeScript)
 │   ├── index.ts        # Main router with auth middleware
 │   ├── expiry.ts       # Order expiry cron (EventBridge, every 5min)
 │   ├── lib/            # db.ts (DynamoDB client), auth.ts (JWT/PIN)
-│   └── routes/         # auth, cafe, menu, orders, pos, admin
+│   ├── routes/         # auth, cafe, menu, orders, pos, admin, checklist, receipt, planogram
+│   └── tests/          # Jest unit + integration tests
 ├── frontend/           # PWA (vanilla JS, served via GitHub Pages)
 │   ├── index.html      # Customer ordering
-│   ├── track.html      # Order tracking (polls every 7s)
+│   ├── track.html      # Order tracking (polls every 7s) + receipt upload
 │   ├── pos.html        # Cashier POS
-│   ├── js/             # app.js, track.js, pos.js, config.js
-│   ├── css/style.css   # All styles
+│   ├── admin.html      # Admin dashboard
+│   ├── js/             # app.js, track.js, pos.js, admin.js, config.js
+│   ├── css/            # style.css, admin.css
+│   ├── img/            # QR payment image
 │   ├── manifest.json   # PWA manifest
-│   └── sw.js           # Service worker
+│   ├── sw.js           # Service worker (v4)
+│   └── CNAME           # Custom domain: 153.oasisofcare.org
 ├── infra/              # CDK stack
-│   └── lib/infra-stack.ts  # All AWS resources
-└── docs/               # Requirements, architecture, user journey
+│   └── lib/infra-stack.ts  # DynamoDB, Lambda, API GW, S3, Bedrock perms
+└── docs/               # Requirements, architecture, user journey, problem statement
 ```
 
 ## Key Design Decisions
@@ -54,11 +61,12 @@ cafepos/
 7. **PWA paths:** GitHub Pages serves from `/rlc-cafe-pos/` prefix
 
 ## Development Workflow
-- **Local frontend test:** `npm run dev` → http://localhost:3000 (uses live API)
-- **Build backend:** `npm run build:backend`
-- **Deploy backend:** `npm run deploy:backend` (or `cd infra && npx cdk deploy`)
-- **Deploy frontend:** Push to master with changes in `frontend/` → auto-deploys via GitHub Actions
+- **Local frontend test:** `npx http-server frontend -p 3001` → http://localhost:3001 (uses live API)
+- **Run tests:** `cd backend && npm test`
+- **Deploy backend:** `cd infra && npx cdk deploy` (requires AWS credentials, region: ap-southeast-5)
+- **Deploy frontend:** Push to master with changes in `frontend/` → auto-deploys via GitHub Actions to 153.oasisofcare.org
 - **Always test locally before pushing frontend changes**
+- **CDK account/region:** 956288449190 / ap-southeast-5 (hardcoded in bin/infra.ts)
 
 ## Coding Conventions
 - Backend: TypeScript, async/await, minimal error messages in responses
