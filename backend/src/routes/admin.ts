@@ -227,6 +227,101 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
     }
 
     // Reports
+    if (method === 'GET' && path.endsWith('/admin/reports/discounts')) {
+      const result = await docClient.send(new ScanCommand({ TableName: ORDERS_TABLE }));
+      const orders = (result.Items || []).filter(o => o.discountType && o.discountType !== 'NONE');
+      const summary: Record<string, { count: number; totalOffset: number }> = {};
+      for (const o of orders) {
+        if (!summary[o.discountType]) summary[o.discountType] = { count: 0, totalOffset: 0 };
+        summary[o.discountType].count++;
+        summary[o.discountType].totalOffset += o.discountOffset || 0;
+      }
+      const totalDiscountedOrders = orders.length;
+      const totalOffset = orders.reduce((s, o) => s + (o.discountOffset || 0), 0);
+      return res(200, { summary, totalDiscountedOrders, totalOffset });
+    }
+
+    if (method === 'GET' && path.endsWith('/admin/reports/sessions')) {
+      const today = new Date().toISOString().split('T')[0];
+      const result = await docClient.send(new ScanCommand({
+        TableName: ORDERS_TABLE,
+        FilterExpression: 'begins_with(createdAt, :today)',
+        ExpressionAttributeValues: { ':today': today },
+      }));
+      const orders = result.Items || [];
+      const s1: any[] = [];
+      const s2: any[] = [];
+      for (const order of orders) {
+        const hour = parseInt(order.createdAt.split('T')[1].split(':')[0]);
+        if (hour < 12) s1.push(order);
+        else s2.push(order);
+      }
+      function computeSession(sessionOrders: any[]) {
+        const orderCount = sessionOrders.length;
+        const revenue = sessionOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+        const avgOrderValue = orderCount ? Math.round((revenue / orderCount) * 100) / 100 : 0;
+        const itemCounts: Record<string, number> = {};
+        for (const o of sessionOrders) {
+          for (const item of (o.items || [])) {
+            itemCounts[item.name] = (itemCounts[item.name] || 0) + (item.quantity || 1);
+          }
+        }
+        const topItems = Object.entries(itemCounts)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 3)
+          .map(([name, count]) => ({ name, count }));
+        return { orderCount, revenue, avgOrderValue, topItems };
+      }
+      return res(200, { date: today, session1: computeSession(s1), session2: computeSession(s2) });
+    }
+
+    if (method === 'GET' && path.endsWith('/admin/reports/monthly')) {
+      const now = new Date();
+      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      const result = await docClient.send(new ScanCommand({
+        TableName: ORDERS_TABLE,
+        FilterExpression: 'createdAt >= :start',
+        ExpressionAttributeValues: { ':start': thirtyDaysAgo.toISOString() },
+      }));
+      const orders = (result.Items || []).filter(o => o.PK?.startsWith('ORDER#'));
+      const totalOrders = orders.length;
+      const totalRevenue = orders.reduce((s, o) => s + (o.totalAmount || 0), 0);
+      const totalOffsets = orders.reduce((s, o) => s + (o.discountOffset || 0), 0);
+      const netCollection = totalRevenue - totalOffsets;
+      const newcomersServed = orders.filter(o => o.discountType === 'NEWCOMER').length;
+      const dateSet = new Set(orders.map(o => (o.createdAt as string).split('T')[0]));
+      const serviceDays = dateSet.size;
+      const avgOrdersPerServiceDay = serviceDays ? Math.round(totalOrders / serviceDays) : 0;
+      const itemCounts: Record<string, number> = {};
+      for (const o of orders) {
+        for (const item of (o.items || [])) {
+          itemCounts[item.name] = (itemCounts[item.name] || 0) + (item.quantity || 1);
+        }
+      }
+      const topItems = Object.entries(itemCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([name, count]) => ({ name, count }));
+      const weekMap: Record<string, { orders: number; revenue: number }> = {};
+      for (const o of orders) {
+        const d = new Date(o.createdAt as string);
+        const jan4 = new Date(d.getFullYear(), 0, 4);
+        const weekNum = Math.ceil(((d.getTime() - jan4.getTime()) / 86400000 + jan4.getDay() + 1) / 7);
+        const week = `${d.getFullYear()}-W${String(weekNum).padStart(2, '0')}`;
+        if (!weekMap[week]) weekMap[week] = { orders: 0, revenue: 0 };
+        weekMap[week].orders++;
+        weekMap[week].revenue += o.totalAmount || 0;
+      }
+      const weeklyBreakdown = Object.entries(weekMap)
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([week, d]) => ({ week, orders: d.orders, revenue: d.revenue }));
+      const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+      const period = `${months[now.getMonth()]} ${now.getFullYear()}`;
+      return res(200, { period, totalOrders, totalRevenue, totalOffsets, netCollection, newcomersServed, serviceDays, avgOrdersPerServiceDay, topItems, weeklyBreakdown });
+    }
+
+
+
     if (method === 'GET' && path.endsWith('/admin/reports/daily')) {
       const today = new Date().toISOString().split('T')[0];
       const result = await docClient.send(new ScanCommand({

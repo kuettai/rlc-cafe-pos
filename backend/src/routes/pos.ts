@@ -29,6 +29,37 @@ async function releaseFood(items: { menuItemId: string; quantity: number; catego
   }
 }
 
+async function getShiftSummary(): Promise<APIGatewayProxyResult> {
+  const today = new Date().toISOString().slice(0, 10);
+  const statuses = ['PENDING', 'PREPARING', 'READY', 'ARCHIVED'];
+  let allOrders: any[] = [];
+
+  for (const status of statuses) {
+    const r = await docClient.send(new QueryCommand({
+      TableName: ORDERS_TABLE,
+      IndexName: 'status-createdAt-index',
+      KeyConditionExpression: '#s = :s AND createdAt >= :today',
+      ExpressionAttributeNames: { '#s': 'status' },
+      ExpressionAttributeValues: { ':s': status, ':today': today },
+    }));
+    allOrders.push(...(r.Items || []));
+  }
+
+  const totalOrders = allOrders.length;
+  const totalRevenue = allOrders.reduce((s, o) => s + (o.totalAmount || 0), 0);
+  const newcomersServed = allOrders.filter(o => o.discountType === 'NEWCOMER').length;
+
+  const itemCount: Record<string, number> = {};
+  for (const o of allOrders) {
+    for (const i of o.items || []) {
+      itemCount[i.name] = (itemCount[i.name] || 0) + (i.quantity || 1);
+    }
+  }
+  const peakItem = Object.entries(itemCount).sort((a, b) => b[1] - a[1])[0]?.[0] || '—';
+
+  return res(200, { totalOrders, totalRevenue, newcomersServed, peakItem, closedAt: new Date().toISOString() });
+}
+
 async function listOrders(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
   const search = event.queryStringParameters?.search?.toLowerCase();
   const statuses = ['PENDING', 'PREPARING', 'READY'];
@@ -127,6 +158,22 @@ async function undoToPending(event: APIGatewayProxyEvent): Promise<APIGatewayPro
   return res(200, { orderId: id, status: 'PENDING' });
 }
 
+async function archiveOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+  const id = event.pathParameters?.id;
+  if (!id) return res(400, { error: 'Missing order id' });
+
+  await docClient.send(new UpdateCommand({
+    TableName: ORDERS_TABLE,
+    Key: { PK: `ORDER#${id}`, SK: 'META' },
+    UpdateExpression: 'SET #s = :s, updatedAt = :u',
+    ExpressionAttributeNames: { '#s': 'status' },
+    ExpressionAttributeValues: { ':s': 'ARCHIVED', ':u': new Date().toISOString(), ':prev': 'READY' },
+    ConditionExpression: '#s = :prev',
+  }));
+
+  return res(200, { orderId: id, status: 'ARCHIVED' });
+}
+
 async function rejectOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
   const id = event.pathParameters?.id;
   if (!id) return res(400, { error: 'Missing order id' });
@@ -151,7 +198,7 @@ async function rejectOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
 
 async function createWalkUp(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
   const body = JSON.parse(event.body || '{}');
-  const { customerName, items, discountType } = body;
+  const { customerName, items, discountType, notes } = body;
   if (!customerName || !items?.length) return res(400, { error: 'customerName and items required' });
 
   const settings = await getSettings();
@@ -201,6 +248,7 @@ async function createWalkUp(event: APIGatewayProxyEvent): Promise<APIGatewayProx
         UpdateExpression: 'SET foodReserved = foodReserved + :q',
         ExpressionAttributeValues: { ':q': oi.quantity },
       }));
+      await checkSoldOut(oi.menuItemId);
     }
   }
 
@@ -214,6 +262,7 @@ async function createWalkUp(event: APIGatewayProxyEvent): Promise<APIGatewayProx
       PK: `ORDER#${orderId}`, SK: 'META', orderId, customerName,
       items: orderItems, totalAmount, status: 'PREPARING',
       discountType: discountType || 'NONE', discountOffset,
+      notes: notes || '',
       createdAt: now, updatedAt: now, expiresAt,
       isWalkUp: true, flaggedItems: [],
     },
@@ -334,6 +383,20 @@ async function toggleMenuItem(event: APIGatewayProxyEvent): Promise<APIGatewayPr
   return res(200, { menuItemId: id, isEnabledToday: newEnabled });
 }
 
+async function checkSoldOut(menuItemId: string) {
+  const item = await getMenuItem(menuItemId);
+  if (!item) return;
+  const available = (item.foodQuantityToday || 0) - (item.foodReserved || 0);
+  if (available <= 0 && !item.soldOutAt) {
+    await docClient.send(new UpdateCommand({
+      TableName: MENU_TABLE,
+      Key: { PK: `MENU#${menuItemId}`, SK: 'META' },
+      UpdateExpression: 'SET soldOutAt = :now',
+      ExpressionAttributeValues: { ':now': new Date().toISOString() },
+    }));
+  }
+}
+
 async function setFoodQuantity(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
   const id = event.pathParameters?.id;
   if (!id) return res(400, { error: 'Missing menu item id' });
@@ -349,6 +412,7 @@ async function setFoodQuantity(event: APIGatewayProxyEvent): Promise<APIGatewayP
     ExpressionAttributeValues: { ':q': qty },
   }));
 
+  await checkSoldOut(id);
   return res(200, { menuItemId: id, foodQuantityToday: qty });
 }
 
@@ -399,6 +463,7 @@ export async function handlePos(event: APIGatewayProxyEvent): Promise<APIGateway
   const method = event.httpMethod;
   const path = event.path;
 
+  if (method === 'GET' && path.endsWith('/pos/shift-summary')) return getShiftSummary();
   if (method === 'GET' && path === '/api/pos/orders') return listOrders(event);
   if (method === 'POST' && path === '/api/pos/orders') return createWalkUp(event);
   if (method === 'PUT' && path.endsWith('/approve')) {
@@ -412,6 +477,10 @@ export async function handlePos(event: APIGatewayProxyEvent): Promise<APIGateway
   if (method === 'PUT' && path.endsWith('/undo')) {
     const id = extractSegment(path, /\/api\/pos\/orders\/([^/]+)\/undo/, 1);
     if (id) { event.pathParameters = { id }; return undoToPending(event); }
+  }
+  if (method === 'PUT' && path.endsWith('/archive')) {
+    const id = extractSegment(path, /\/api\/pos\/orders\/([^/]+)\/archive/, 1);
+    if (id) { event.pathParameters = { id }; return archiveOrder(event); }
   }
   if (method === 'PUT' && path.endsWith('/reject')) {
     const id = extractSegment(path, /\/api\/pos\/orders\/([^/]+)\/reject/, 1);

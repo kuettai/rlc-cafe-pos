@@ -10,6 +10,7 @@ let viewMode = 'kanban';
 let cafeOpen = false;
 let celebrationMode = false;
 let searchFilter = '';
+let prevUrgentIds = [];
 
 // --- Auth helpers ---
 function authHeaders(){ return { 'Content-Type':'application/json', Authorization:`Bearer ${token}` }; }
@@ -64,7 +65,8 @@ function renderMain(){
     <button id="btnCelebration" class="pos-btn pos-btn-sm ${celebrationMode?'active':''}">🎉 Celebration</button>
     <button id="btnWalkup" class="pos-btn pos-btn-sm pos-btn-primary">+ Walk-up</button>
     <button id="btnMenu" class="pos-btn pos-btn-sm">Menu</button>
-    <a href="admin.html" class="pos-btn pos-btn-sm" style="text-decoration:none">Admin</a>
+    <button id="btnPrep" class="pos-btn pos-btn-sm">Prep</button>
+    <a href="admin" class="pos-btn pos-btn-sm" style="text-decoration:none">Admin</a>
     <button id="btnLogout" class="pos-btn pos-btn-sm pos-btn-danger">Logout</button>
   </div>
   <div id="posStats" class="pos-stats-bar"></div>
@@ -85,6 +87,7 @@ function renderMain(){
   };
   $('#btnWalkup').onclick = openWalkup;
   $('#btnMenu').onclick = openMenuToggle;
+  $('#btnPrep').onclick = openPrepView;
   $('#btnLogout').onclick = logout;
   $('#btnHistory').onclick = openHistory;
   $('#btnView').onclick = ()=>{ viewMode = viewMode==='kanban'?'list':'kanban'; renderBoard(); $('#btnView').textContent = viewMode==='kanban'?'List View':'Kanban View'; };
@@ -120,6 +123,10 @@ async function fetchOrders(){
     if(receiptCount > prevReceiptCount && prevReceiptCount > 0) playReceiptSound();
     prevReceiptCount = receiptCount;
     prevOrderCount = list.length;
+    const urgentIds = list.filter(o=>o.status==='PENDING'&&(Date.now()-new Date(o.createdAt))>600000).map(o=>o.orderId||o.id);
+    const newUrgent = urgentIds.filter(id=>!prevUrgentIds.includes(id));
+    if(newUrgent.length) playUrgentSound();
+    prevUrgentIds = urgentIds;
     orders = list;
     renderBoard();
     updateLastRefresh();
@@ -171,6 +178,42 @@ function playReceiptSound(){
   } catch(e){}
 }
 
+function playUrgentSound(){
+  try{
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    const osc = ctx.createOscillator(); const gain = ctx.createGain();
+    osc.type='square'; osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.setValueAtTime(440,ctx.currentTime);
+    osc.frequency.setValueAtTime(880,ctx.currentTime+0.15);
+    osc.frequency.setValueAtTime(440,ctx.currentTime+0.3);
+    gain.gain.setValueAtTime(0.2,ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01,ctx.currentTime+0.5);
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime+0.5);
+  } catch(e){}
+}
+
+function playReadySound(){
+  try{
+    const ctx=new (window.AudioContext||window.webkitAudioContext)();
+    const osc=ctx.createOscillator();const gain=ctx.createGain();
+    osc.connect(gain);gain.connect(ctx.destination);
+    osc.frequency.setValueAtTime(660,ctx.currentTime);
+    osc.frequency.setValueAtTime(880,ctx.currentTime+0.15);
+    osc.frequency.setValueAtTime(1047,ctx.currentTime+0.3);
+    gain.gain.setValueAtTime(0.3,ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01,ctx.currentTime+0.6);
+    osc.start(ctx.currentTime);osc.stop(ctx.currentTime+0.6);
+  }catch(e){}
+}
+
+function showNameFlash(name){
+  const el=document.createElement('div');
+  el.style.cssText='position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(45,138,78,.9);color:#fff;font-size:2.5rem;font-weight:800;z-index:999;animation:fadeIn .2s ease';
+  el.textContent='🎉 '+name+' — READY!';
+  document.body.appendChild(el);
+  setTimeout(()=>el.remove(),2000);
+}
+
 function filtered(){ return searchFilter ? orders.filter(o=>(o.customerName||'').toLowerCase().includes(searchFilter)) : orders; }
 
 function renderStats(){
@@ -179,12 +222,101 @@ function renderStats(){
   const ready = orders.filter(o=>o.status==='READY').length;
   const total = orders.length;
   const revenue = orders.reduce((s,o)=>s+(o.total||o.totalAmount||0),0);
+  const drinkItems = orders.filter(o=>o.status==='PREPARING'||o.status==='PENDING').reduce((s,o)=>s+(o.items||[]).filter(i=>i.category==='DRINK').reduce((ss,i)=>ss+(i.quantity||i.qty||1),0),0);
   const statsEl = $('#posStats');
   if(statsEl) statsEl.innerHTML = `<div class="pos-stat"><span class="pos-stat-num">${pending}</span><span class="pos-stat-lbl">Pending</span></div>
     <div class="pos-stat"><span class="pos-stat-num">${preparing}</span><span class="pos-stat-lbl">Making</span></div>
     <div class="pos-stat"><span class="pos-stat-num">${ready}</span><span class="pos-stat-lbl">Ready</span></div>
     <div class="pos-stat"><span class="pos-stat-num">${total}</span><span class="pos-stat-lbl">Total</span></div>
-    <div class="pos-stat"><span class="pos-stat-num">RM${revenue.toFixed(0)}</span><span class="pos-stat-lbl">Revenue</span></div>`;
+    <div class="pos-stat"><span class="pos-stat-num">RM${revenue.toFixed(0)}</span><span class="pos-stat-lbl">Revenue</span></div>
+    <div class="pos-stat"><span class="pos-stat-num">${drinkItems}</span><span class="pos-stat-lbl">Drinks</span></div>
+    <div class="pos-stat pos-stat-btn" id="btnIngUsed" style="cursor:pointer"><span class="pos-stat-num">📦</span><span class="pos-stat-lbl">Usage</span></div>`;
+  $('#btnIngUsed')?.addEventListener('click', showIngredientUsage);
+}
+
+async function getRecipesAndIngredients(){
+  const today = new Date().toISOString().slice(0,10);
+  const cached = JSON.parse(localStorage.getItem('recipeCache') || '{}');
+  if(cached.date === today && cached.recipes && cached.ingredients){
+    return { recipes: cached.recipes, ingredients: cached.ingredients };
+  }
+  const invRes = await api('GET','/api/pos/inventory');
+  const allItems = invRes.ingredients || [];
+  const recipes = allItems.filter(i=>i.PK?.startsWith('RECIPE#'));
+  const ingredients = allItems.filter(i=>i.PK?.startsWith('INGREDIENT#') && i.SK==='META');
+  localStorage.setItem('recipeCache', JSON.stringify({ date: today, recipes, ingredients }));
+  return { recipes, ingredients };
+}
+
+async function showIngredientUsage(){
+  let recipes = [];
+  let ingredients = [];
+  let allOrders = [...orders];
+  try{
+    const cached = await getRecipesAndIngredients();
+    recipes = cached.recipes;
+    ingredients = cached.ingredients;
+    // Try to get all today's orders (admin only), fall back to current POS orders
+    try{
+      const reportRes = await api('GET','/api/admin/reports/daily');
+      const reportOrders = reportRes.orders || [];
+      const activeIds = new Set(orders.map(o=>o.orderId));
+      reportOrders.forEach(o=>{ if(!activeIds.has(o.orderId)) allOrders.push(o); });
+    } catch(e){}
+  } catch(e){}
+
+  const ingMap = {};
+  ingredients.forEach(i=>{ ingMap[i.ingredientId] = i; });
+
+  // Build recipe lookup: menuItemId#variant -> [{ingredientId, quantity}]
+  const recipeMap = {};
+  recipes.forEach(r=>{
+    const key = r.PK; // RECIPE#menuItemId#variant
+    if(!recipeMap[key]) recipeMap[key] = [];
+    recipeMap[key].push({ ingredientId: r.ingredientId, quantity: r.quantity });
+  });
+
+  // Calculate ingredient usage from orders (base + variant override)
+  const usage = {};
+  allOrders.forEach(o=>{
+    (o.items||[]).forEach(i=>{
+      const qty = i.quantity||i.qty||1;
+      const menuId = i.menuItemId||i.id;
+      const variant = i.variant||'default';
+      const baseKey = `RECIPE#${menuId}#default`;
+      const variantKey = `RECIPE#${menuId}#${variant}`;
+      const baseRecipe = recipeMap[baseKey] || [];
+      const variantRecipe = variant !== 'default' ? (recipeMap[variantKey] || []) : [];
+      // Merge: start with base, then override with variant (variant replaces same ingredient, adds new ones)
+      const merged = {};
+      baseRecipe.forEach(r=>{ merged[r.ingredientId] = r.quantity; });
+      variantRecipe.forEach(r=>{ merged[r.ingredientId] = r.quantity; });
+      Object.entries(merged).forEach(([ingId, amount])=>{
+        usage[ingId] = (usage[ingId]||0) + amount * qty;
+      });
+    });
+  });
+
+  const sorted = Object.entries(usage).sort((a,b)=>b[1]-a[1]);
+  const modal = document.createElement('div');
+  modal.className = 'pos-modal-overlay';
+  modal.innerHTML = `<div class="pos-modal" style="max-width:400px;position:relative">
+    <button class="pos-modal-close">✕</button>
+    <h3>📦 Ingredients Used Today</h3>
+    <button class="pos-btn pos-btn-sm" id="refreshRecipeCache" style="position:absolute;top:16px;right:16px">🔄 Refresh</button>
+    <div style="margin-top:14px;max-height:60vh;overflow-y:auto">
+      ${sorted.length ? sorted.map(([id,qty])=>{
+        const ing = ingMap[id];
+        const name = ing?.name || id;
+        const unit = ing?.usageUnit || ing?.unit || '';
+        return `<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--cream-dark,#eee)"><span>${name}</span><strong>${qty} ${unit}</strong></div>`;
+      }).join('') : `<p style="color:var(--text-light)">${recipes.length ? 'No active orders with recipe data' : 'No recipe data yet. Set up recipes in Admin → Ingredients.'}</p>`}
+    </div>
+  </div>`;
+  modal.querySelector('.pos-modal-close').onclick=()=>modal.remove();
+  modal.querySelector('#refreshRecipeCache').onclick=()=>{ localStorage.removeItem('recipeCache'); modal.remove(); showIngredientUsage(); };
+  modal.onclick=e=>{ if(e.target===modal) modal.remove(); };
+  document.body.appendChild(modal);
 }
 
 function renderBoard(){
@@ -232,13 +364,24 @@ function cardHtml(o){
   const urgent = mins > 10 && o.status === 'PENDING';
   const hasReceipt = !!o.receiptUrl;
   return `<div class="pos-card pos-card-${o.status.toLowerCase()} ${urgent?'pos-card-urgent':''} ${hasReceipt?'pos-card-receipt':''}" data-id="${o.id||o.orderId}">
-    ${hasReceipt ? '<div class="pos-receipt-badge">💰 Receipt: RM'+((o.receiptAmount||0).toFixed(2))+'</div>' : ''}
+    ${hasReceipt ? `<div class="pos-receipt-badge${Math.abs((o.receiptAmount||0)-(o.total||o.totalAmount||0))>0.01?' pos-receipt-mismatch':''}">💰 Receipt: RM${(o.receiptAmount||0).toFixed(2)}${Math.abs((o.receiptAmount||0)-(o.total||o.totalAmount||0))>0.01?' ⚠️ expected RM'+(o.total||o.totalAmount||0).toFixed(2):''}</div>` : ''}
     <div class="pos-card-name">${o.customerName||'Guest'}${o.isWalkUp?' <span style="font-size:.7rem;opacity:.6">walk-up</span>':''}</div>
     <div class="pos-card-items">${items||'—'}</div>
-    <div class="pos-card-footer"><span>RM ${(o.total||o.totalAmount||0).toFixed(2)}</span><span>${urgent?'⚠️ ':''}${timeAgo(o.createdAt)}</span></div></div>`;
+    ${o.notes ? '<div style="font-size:.75rem;color:#7C3AED;margin-top:2px">📝 '+o.notes+'</div>' : ''}
+    <div class="pos-card-footer"><span>RM ${(o.total||o.totalAmount||0).toFixed(2)}</span><span>${urgent?'⚠️ ':''}${timeAgo(o.createdAt)}</span></div>
+    ${o.status==='PENDING' ? `<button class="pos-btn pos-btn-sm pos-btn-primary pos-card-quick-approve" data-quick-id="${o.id||o.orderId}" onclick="event.stopPropagation()">✓ Approve</button>` : ''}
+  </div>`;
 }
 
-function bindCards(){ document.querySelectorAll('.pos-card').forEach(c=>c.onclick=()=>openDetail(c.dataset.id)); }
+function bindCards(){
+  document.querySelectorAll('.pos-card').forEach(c=>c.onclick=()=>openDetail(c.dataset.id));
+  document.querySelectorAll('.pos-card-quick-approve').forEach(btn=>btn.onclick=async(e)=>{
+    e.stopPropagation();
+    btn.disabled=true; btn.textContent='...';
+    try{ await api('PUT',`/api/pos/orders/${btn.dataset.quickId}/approve`,{approvedBy:currentUser}); fetchOrders(); }
+    catch(err){ btn.disabled=false; btn.textContent='✓ Approve'; showError('Approve failed'); }
+  });
+}
 
 // --- Order Detail ---
 function openDetail(id){
@@ -246,11 +389,12 @@ function openDetail(id){
   if(!o) return;
   const items = (o.items||[]).map(i=>`<li>${i.quantity||i.qty||1}x ${i.name}${i.variant?' ('+i.variant+')':''} <span style="color:var(--text-light,#7A6355);float:right">RM${((i.price||i.unitPrice||0)*(i.quantity||i.qty||1)).toFixed(2)}</span></li>`).join('');
   let actions = '';
-  if(o.status==='PENDING') actions=`<button class="pos-btn pos-btn-primary pos-btn-lg" id="btnApprove">✓ Approve</button>
+  if(o.status==='PENDING') actions=`<button class="pos-btn pos-btn-primary pos-btn-lg" id="btnApprove">✓ Payment Confirmed</button>
     <button class="pos-btn pos-btn-lg" id="btnNewcomer" style="background:#8b5cf6;color:#fff">🎁 Newcomer</button>
     <button class="pos-btn pos-btn-danger pos-btn-lg" id="btnReject">✗ Reject</button>`;
   else if(o.status==='PREPARING') actions=`<button class="pos-btn pos-btn-primary pos-btn-lg" id="btnReady">✓ Ready</button>
     <button class="pos-btn pos-btn-lg" id="btnUndo" style="background:#6b7280;color:#fff">↩ Undo</button>`;
+  else if(o.status==='READY') actions=`<button class="pos-btn pos-btn-primary pos-btn-lg" id="btnCollected">✓ Collected</button>`;
 
   const orderTime = new Date(o.createdAt).toLocaleTimeString('en-MY',{hour:'2-digit',minute:'2-digit'});
 
@@ -261,6 +405,7 @@ function openDetail(id){
     <h3>${o.customerName||'Guest'}</h3>
     <p style="font-size:.82rem;color:var(--text-light,#7A6355);margin-top:4px">Ordered at ${orderTime} · ${timeAgo(o.createdAt)}${o.isWalkUp?' · Walk-up':''}</p>
     <ul class="pos-detail-items">${items}</ul>
+    ${o.notes ? `<div style="background:var(--cream,#f9f5f0);padding:10px 12px;border-radius:8px;font-size:.85rem;margin-bottom:10px">📝 ${o.notes}</div>` : ''}
     <div class="pos-detail-total">Total: RM ${(o.total||o.totalAmount||0).toFixed(2)}</div>
     ${o.discountType && o.discountType!=='NONE' ? `<div style="font-size:.85rem;color:#7C3AED;margin-bottom:8px">Discount: ${o.discountType}</div>` : ''}
     <div class="pos-detail-actions">${actions}</div></div>`;
@@ -273,8 +418,10 @@ function openDetail(id){
     modal.querySelector('#btnNewcomer').onclick=async()=>{ await api('PUT',`/api/pos/orders/${id}/approve`,{approvedBy:currentUser,discountType:'NEWCOMER'}); modal.remove(); fetchOrders(); };
     modal.querySelector('#btnReject').onclick=()=>showRejectDialog(id, modal);
   } else if(o.status==='PREPARING'){
-    modal.querySelector('#btnReady').onclick=async()=>{ await api('PUT',`/api/pos/orders/${id}/ready`); modal.remove(); fetchOrders(); };
+    modal.querySelector('#btnReady').onclick=async()=>{ await api('PUT',`/api/pos/orders/${id}/ready`); modal.remove(); playReadySound(); showNameFlash(o.customerName); fetchOrders(); };
     modal.querySelector('#btnUndo').onclick=async()=>{ await api('PUT',`/api/pos/orders/${id}/undo`); modal.remove(); fetchOrders(); };
+  } else if(o.status==='READY'){
+    modal.querySelector('#btnCollected').onclick=async()=>{ await api('PUT',`/api/pos/orders/${id}/archive`); modal.remove(); fetchOrders(); };
   }
 }
 
@@ -294,6 +441,28 @@ function showRejectDialog(id, parentModal){
 async function toggleCafe(){
   const phase = cafeOpen ? 'close' : 'open';
   openChecklist(phase);
+}
+
+async function showShiftSummary(){
+  try{
+    const data = await api('GET','/api/pos/shift-summary');
+    const modal = document.createElement('div');
+    modal.className = 'pos-modal-overlay';
+    modal.innerHTML = `<div class="pos-modal" style="max-width:360px;text-align:center">
+      <h3 style="font-size:1.5rem;margin-bottom:8px">🎉 Great shift!</h3>
+      <div style="border-top:2px solid var(--cream-dark,#eee);border-bottom:2px solid var(--cream-dark,#eee);padding:16px 0;margin:12px 0;text-align:left;font-size:1rem;line-height:2">
+        <div>Orders processed: <strong>${data.totalOrders}</strong></div>
+        <div>Revenue: <strong>RM ${data.totalRevenue}</strong></div>
+        <div>Newcomers served: <strong>${data.newcomersServed}</strong> 🙏</div>
+        <div>Most popular: <strong>☕ ${data.peakItem}</strong></div>
+      </div>
+      <p style="color:var(--text-light,#7A6355);margin-bottom:16px">See you next Sunday!</p>
+      <button class="pos-btn pos-btn-primary" id="shiftSummaryClose">Close</button>
+    </div>`;
+    document.body.appendChild(modal);
+    modal.querySelector('#shiftSummaryClose').onclick=()=>modal.remove();
+    modal.onclick=e=>{ if(e.target===modal) modal.remove(); };
+  } catch(e){}
 }
 
 async function openChecklist(phase){
@@ -349,18 +518,22 @@ async function openChecklist(phase){
         if(cb.checked){
           if(item.type === 'image'){
             cb.checked = false;
-            const location = item.label.toLowerCase().includes('fridge') ? 'fridge' : 'storeroom';
-            modal.style.display = 'none';
-            openStockCount(location);
-            const checkWhenDone = setInterval(()=>{
-              if(!document.querySelector('.pos-modal-overlay:not([style*="display: none"])')){
-                clearInterval(checkWhenDone);
-                modal.style.display = '';
-                checked[itemId] = { checked: true, completedBy: currentUser, completedAt: new Date().toISOString() };
-                api('PUT','/api/pos/checklist/check',{ phase, itemId, completedBy: currentUser }).catch(()=>{});
-                renderChecklistModal();
-              }
-            }, 500);
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.accept = 'image/*';
+            fileInput.capture = 'environment';
+            fileInput.onchange = async () => {
+              if(!fileInput.files?.length) return;
+              checked[itemId] = { checked: true, completedBy: currentUser, completedAt: new Date().toISOString() };
+              api('PUT','/api/pos/checklist/check',{ phase, itemId, completedBy: currentUser }).catch(()=>{});
+              cb.checked = true;
+              const row = cb.closest('.checklist-row');
+              row.classList.add('done');
+              const allChecked = items.every(i => checked[i.id]?.checked);
+              const submitBtn = modal.querySelector('#clSubmit');
+              if(submitBtn) submitBtn.disabled = !allChecked;
+            };
+            fileInput.click();
             return;
           }
           try{
@@ -373,7 +546,11 @@ async function openChecklist(phase){
             delete checked[itemId];
           } catch(e){ cb.checked = true; showError('Failed to save'); return; }
         }
-        renderChecklistModal();
+        const allChecked = items.every(i => checked[i.id]?.checked);
+        const submitBtn = modal.querySelector('#clSubmit');
+        if(submitBtn) submitBtn.disabled = !allChecked;
+        const row = cb.closest('.checklist-row');
+        if(cb.checked){ row.classList.add('done'); } else { row.classList.remove('done'); }
       };
     });
 
@@ -387,6 +564,7 @@ async function openChecklist(phase){
         cafeOpen = phase === 'open';
         await api('PUT',`/api/pos/cafe/${phase}`);
         modal.remove();
+        if(phase === 'close') await showShiftSummary();
         renderMain();
       } catch(e){ cafeOpen = !cafeOpen; showError('Failed to toggle café'); }
     };
@@ -436,6 +614,7 @@ async function openWalkup(){
         return `<div class="pos-walkup-item"><span>${m.name}${price ? ' - RM'+price.toFixed(2) : ''}</span>${variants}<button class="pos-add-btn" data-mid="${m.menuItemId||m.id}" data-mname="${m.name}" data-mp="${price}">+</button></div>`;
       }).join('') : '<div style="padding:16px;text-align:center;color:var(--text-light,#7A6355)">No items match</div>'}</div>
       <div class="pos-walkup-cart"><h4>Cart${cart.length ? ' — RM'+cartTotal.toFixed(2) : ''}</h4><ul>${cartHtml||'<li>Empty</li>'}</ul></div>
+      <input id="wkNotes" class="pos-input" placeholder="Special requests (less sugar, extra hot)" style="margin-bottom:12px">
       <select id="wkDiscount" class="pos-input"><option value="">No Discount</option><option value="STAFF">Staff (RM5)</option><option value="PASTOR">Pastor (Free)</option><option value="NEWCOMER">Newcomer (Free)</option></select>
       <button id="wkSubmit" class="pos-btn pos-btn-primary pos-btn-lg" ${cart.length?'':'disabled'}>Submit Order</button></div>`;
 
@@ -478,8 +657,9 @@ async function openWalkup(){
     if(submitBtn) submitBtn.onclick=async()=>{
       const name=modal.querySelector('#wkName').value||'Walk-up';
       const disc=modal.querySelector('#wkDiscount').value||undefined;
+      const notes=modal.querySelector('#wkNotes')?.value||'';
       try{
-        await api('POST','/api/pos/orders',{customerName:name, items:cart.map(c=>({menuItemId:c.menuItemId,name:c.name,variant:c.variant,qty:c.qty,price:c.price})), discountType:disc});
+        await api('POST','/api/pos/orders',{customerName:name, items:cart.map(c=>({menuItemId:c.menuItemId,name:c.name,variant:c.variant,qty:c.qty,price:c.price})), discountType:disc, notes});
         modal.remove(); fetchOrders();
       } catch(e){ showError('Failed to submit order'); }
     };
@@ -524,7 +704,7 @@ async function openMenuToggle(){
               <button class="pos-pin-btn ${m.isPinned?'pinned':''}" data-pin-id="${m.menuItemId||m.id}" title="${m.isPinned?'Unpin':'Pin to top'}">📌</button>
               <label class="pos-switch"><input type="checkbox" data-id="${m.menuItemId||m.id}" data-type="toggle" ${enabled?'checked':''}><span class="pos-slider"></span></label>
               <button class="pos-btn pos-btn-sm" data-food-dec="${m.menuItemId||m.id}" style="width:36px;height:36px;border-radius:50%;padding:0">−</button>
-              <span data-food-qty="${m.menuItemId||m.id}" style="min-width:28px;text-align:center;font-weight:700">${qty}</span>
+              <input type="number" min="0" data-food-qty="${m.menuItemId||m.id}" value="${qty}" style="width:50px;text-align:center;font-weight:700;border:1px solid var(--cream-dark,#ddd);border-radius:6px;padding:4px;font-size:1rem" class="pos-food-qty-input">
               <button class="pos-btn pos-btn-sm" data-food-inc="${m.menuItemId||m.id}" style="width:36px;height:36px;border-radius:50%;padding:0">+</button>
               ${reserved > 0 ? `<span style="font-size:.75rem;color:#9CA3AF">(${reserved} reserved)</span>` : ''}
             </div>
@@ -557,7 +737,7 @@ async function openMenuToggle(){
       item.foodQuantityToday = (item.foodQuantityToday||0) + 1;
       try{
         await updateFoodQty(id, item.foodQuantityToday);
-        modal.querySelector(`[data-food-qty="${id}"]`).textContent = item.foodQuantityToday;
+        modal.querySelector(`[data-food-qty="${id}"]`).value = item.foodQuantityToday;
       } catch(e){ item.foodQuantityToday--; showError('Update failed'); }
     });
 
@@ -568,8 +748,17 @@ async function openMenuToggle(){
       item.foodQuantityToday--;
       try{
         await updateFoodQty(id, item.foodQuantityToday);
-        modal.querySelector(`[data-food-qty="${id}"]`).textContent = item.foodQuantityToday;
+        modal.querySelector(`[data-food-qty="${id}"]`).value = item.foodQuantityToday;
       } catch(e){ item.foodQuantityToday++; showError('Update failed'); }
+    });
+
+    modal.querySelectorAll('.pos-food-qty-input').forEach(inp=>inp.onchange=async()=>{
+      const id=inp.dataset.foodQty;
+      const item=menu.find(m=>(m.menuItemId||m.id)===id);
+      const newQty=Math.max(0,parseInt(inp.value)||0);
+      inp.value=newQty;
+      try{ await updateFoodQty(id, newQty); item.foodQuantityToday=newQty; }
+      catch(e){ inp.value=item.foodQuantityToday||0; showError('Update failed'); }
     });
   }
 
@@ -629,6 +818,32 @@ async function openHistory(){
       } catch(e){ showError('Reorder failed'); }
     });
   } catch(e){ showError('Failed to load history'); modal.remove(); }
+}
+
+// --- Prep View ---
+function openPrepView(){
+  const preparing = orders.filter(o=>o.status==='PREPARING');
+  const items = [];
+  preparing.forEach(o=>{
+    (o.items||[]).forEach(i=>{
+      for(let n=0;n<(i.quantity||i.qty||1);n++) items.push({name:i.name,variant:i.variant,customer:o.customerName,notes:o.notes});
+    });
+  });
+  const modal=document.createElement('div');
+  modal.className='pos-modal-overlay';
+  modal.innerHTML=`<div class="pos-modal" style="max-width:500px">
+    <button class="pos-modal-close">✕</button>
+    <h3>☕ Prep Queue (${items.length} drinks)</h3>
+    <div style="margin-top:16px;max-height:60vh;overflow-y:auto">
+      ${items.length ? items.map((it,i)=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--cream-dark,#eee)">
+        <div><strong>${it.name}</strong>${it.variant?' <span style="color:var(--text-light,#7A6355)">('+it.variant+')</span>':''}</div>
+        <div style="text-align:right;font-size:.85rem"><span style="color:var(--primary,#6B4226)">${it.customer}</span>${it.notes?'<br><span style="color:#7C3AED;font-size:.75rem">📝 '+it.notes+'</span>':''}</div>
+      </div>`).join('') : '<p style="color:var(--text-light);text-align:center;padding:24px">No orders being prepared</p>'}
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+  modal.querySelector('.pos-modal-close').onclick=()=>modal.remove();
+  modal.onclick=e=>{ if(e.target===modal) modal.remove(); };
 }
 
 // --- Planogram Stock Count ---
@@ -735,6 +950,8 @@ document.addEventListener('keydown', e=>{
   if(e.key==='w'||e.key==='W'){ e.preventDefault(); openWalkup(); }
   if(e.key==='m'||e.key==='M'){ e.preventDefault(); openMenuToggle(); }
   if(e.key==='h'||e.key==='H'){ e.preventDefault(); openHistory(); }
+  if(e.key==='p'||e.key==='P'){ e.preventDefault(); openPrepView(); }
+  if(e.key==='s'||e.key==='S'){ e.preventDefault(); openStockCount('fridge'); }
   if(e.key==='/'){ e.preventDefault(); const s=$('#orderSearch'); if(s) s.focus(); }
 });
 

@@ -847,16 +847,19 @@ function renderSettingsSection(container, settings){
 async function loadReports(container){
   container.innerHTML = '<div class="loading">Loading reports...</div>';
   try{
-    const [daily, inventory, weekly] = await Promise.all([
+    const [daily, inventory, weekly, discounts, sessions, monthly] = await Promise.all([
       api('GET','/api/admin/reports/daily'),
       api('GET','/api/admin/reports/inventory'),
-      api('GET','/api/admin/reports/weekly')
+      api('GET','/api/admin/reports/weekly'),
+      api('GET','/api/admin/reports/discounts'),
+      api('GET','/api/admin/reports/sessions'),
+      api('GET','/api/admin/reports/monthly')
     ]);
-    renderReportsSection(container, daily, inventory, weekly);
+    renderReportsSection(container, daily, inventory, weekly, discounts, sessions, monthly);
   } catch(e){ container.innerHTML = '<div class="admin-empty"><p>Failed to load reports</p></div>'; }
 }
 
-function renderReportsSection(container, daily, inventory, weekly){
+function renderReportsSection(container, daily, inventory, weekly, discounts, sessions, monthly){
   const lowStock = inventory.lowStock || [];
   const orders = daily.orders || [];
   const fmtDate = d => { const p = d.split('-'); const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; return `${+p[2]} ${months[+p[1]-1]}`; };
@@ -880,6 +883,28 @@ function renderReportsSection(container, daily, inventory, weekly){
       <div class="admin-stat-card"><div class="stat-value">RM ${(daily.totalOffsets||0).toFixed(2)}</div><div class="stat-label">Discounts</div></div>
       <div class="admin-stat-card"><div class="stat-value">RM ${(daily.netExpected||0).toFixed(2)}</div><div class="stat-label">Net Expected</div></div>
     </div>`;
+
+  if(sessions){
+    const s1 = sessions.session1 || {};
+    const s2 = sessions.session2 || {};
+    const s1Better = s1.revenue > s2.revenue;
+    const s2Better = s2.revenue > s1.revenue;
+    function sessionCard(label, s, isBetter){
+      const bold = isBetter ? 'font-weight:700;color:var(--success)' : '';
+      const topStr = (s.topItems||[]).map(i=>`${i.name} (${i.count})`).join(', ') || '—';
+      return `<div class="admin-card" style="flex:1;min-width:240px;${isBetter?'border:2px solid var(--success)':''}">
+        <div class="admin-card-header"><div><div class="admin-card-title">${label}</div></div></div>
+        <div style="padding:0 16px 16px">
+          <div style="${bold}">Orders: ${s.orderCount||0}</div>
+          <div style="${bold}">Revenue: RM ${(s.revenue||0).toFixed(2)}</div>
+          <div>Avg: RM ${(s.avgOrderValue||0).toFixed(2)}</div>
+          <div style="margin-top:8px;font-size:.85rem;color:var(--text-light)">Top: ${topStr}</div>
+        </div>
+      </div>`;
+    }
+    html += '<h3 style="margin:24px 0 14px;color:var(--primary)">Session Comparison</h3>';
+    html += `<div style="display:flex;gap:16px;flex-wrap:wrap">${sessionCard('Session 1 (10:15-11:30)',s1,s1Better)}${sessionCard('Session 2 (12:45-13:30)',s2,s2Better)}</div>`;
+  }
 
   if(popular.length){
     html += '<h3 style="margin:24px 0 14px;color:var(--primary)">Popular Items Today</h3>';
@@ -928,10 +953,47 @@ function renderReportsSection(container, daily, inventory, weekly){
     html += '<p style="color:var(--text-light);margin-top:20px">No low stock alerts</p>';
   }
 
+  // Monthly Summary
+  if(monthly){
+    html += `<h3 style="margin:32px 0 14px;color:var(--primary)">📊 Monthly Summary — ${monthly.period}</h3>
+    <div class="admin-stats">
+      <div class="admin-stat-card"><div class="stat-value">${monthly.totalOrders}</div><div class="stat-label">Total Orders</div></div>
+      <div class="admin-stat-card"><div class="stat-value">RM ${monthly.totalRevenue.toLocaleString()}</div><div class="stat-label">Revenue</div></div>
+      <div class="admin-stat-card"><div class="stat-value">RM ${monthly.netCollection.toLocaleString()}</div><div class="stat-label">Net Collection</div></div>
+      <div class="admin-stat-card"><div class="stat-value">${monthly.newcomersServed}</div><div class="stat-label">Newcomers Served</div></div>
+      <div class="admin-stat-card"><div class="stat-value">${monthly.serviceDays}</div><div class="stat-label">Service Days</div></div>
+    </div>`;
+    if(monthly.weeklyBreakdown && monthly.weeklyBreakdown.length){
+      html += '<h4 style="margin:20px 0 10px">Weekly Breakdown</h4><div class="admin-form"><table style="width:100%;border-collapse:collapse">';
+      html += '<tr style="border-bottom:2px solid var(--cream-dark)"><th style="text-align:left;padding:8px 0">Week</th><th style="text-align:right;padding:8px 0">Orders</th><th style="text-align:right;padding:8px 0">Revenue</th></tr>';
+      monthly.weeklyBreakdown.forEach(w=>{
+        html += `<tr style="border-bottom:1px solid var(--cream-dark)"><td style="padding:8px 0">${w.week}</td><td style="text-align:right">${w.orders}</td><td style="text-align:right">RM ${w.revenue.toLocaleString()}</td></tr>`;
+      });
+      html += '</table></div>';
+    }
+    html += `<button class="pos-btn pos-btn-primary" id="btnCopyMonthlyReport" style="margin-top:16px">📋 Copy Monthly Report</button>`;
+  }
+
   // Restock Shopping List
   html += `<h3 style="margin:24px 0 14px;color:var(--primary)">🛒 Restock Shopping List</h3>
     <button class="pos-btn pos-btn-primary" id="btnLoadRestock">Load Restock List</button>
     <div id="restockResult"></div>`;
+
+  // Discount & Offset Summary
+  if(discounts){
+    const types = ['NEWCOMER','STAFF','PASTOR','CELEBRATION'];
+    const summary = discounts.summary || {};
+    html += `<h3 style="margin:32px 0 14px;color:var(--primary)">💰 Discount & Offset Summary</h3>`;
+    html += '<div class="admin-form"><table style="width:100%;border-collapse:collapse">';
+    html += '<tr style="border-bottom:2px solid var(--cream-dark)"><th style="text-align:left;padding:8px 0">Type</th><th style="text-align:right;padding:8px 0">Orders</th><th style="text-align:right;padding:8px 0">Total Offset (RM)</th></tr>';
+    types.forEach(t=>{
+      const d = summary[t] || {count:0, totalOffset:0};
+      html += `<tr style="border-bottom:1px solid var(--cream-dark)"><td style="padding:8px 0">${t.charAt(0)+t.slice(1).toLowerCase()}</td><td style="text-align:right">${d.count}</td><td style="text-align:right">${d.totalOffset}</td></tr>`;
+    });
+    html += `<tr style="border-top:2px solid var(--cream-dark);font-weight:700"><td style="padding:8px 0">Total</td><td style="text-align:right">${discounts.totalDiscountedOrders||0}</td><td style="text-align:right">${discounts.totalOffset||0}</td></tr>`;
+    html += '</table></div>';
+    html += `<button class="pos-btn pos-btn-sm" id="btnCopyDiscounts" style="margin-top:12px">📋 Copy</button>`;
+  }
 
   html += '</div>';
   container.innerHTML = html;
@@ -944,6 +1006,15 @@ function renderReportsSection(container, daily, inventory, weekly){
       const topStr = (weekly.topItems||[]).map(i=>`${i.name} (${i.count})`).join(', ');
       const text = `📊 Weekly Report (${fmtDate(weekly.startDate)} - ${fmtDate(weekly.endDate)})\nTotal Orders: ${t.totalOrders} | Revenue: RM ${t.totalRevenue.toFixed(0)}\nTop Items: ${topStr}`;
       navigator.clipboard.writeText(text).then(()=>showSuccess('Report copied to clipboard'));
+    };
+  }
+
+  if(monthly){
+    const btn = container.querySelector('#btnCopyMonthlyReport');
+    if(btn) btn.onclick = ()=>{
+      const topStr = (monthly.topItems||[]).map(i=>`${i.name} (${i.count})`).join(', ');
+      const text = `📊 RLC Café Monthly Report (${monthly.period})\n━━━━━━━━━━━━━━━━━━━━━━\nOrders: ${monthly.totalOrders} | Revenue: RM ${monthly.totalRevenue.toLocaleString()}\nNet Collection: RM ${monthly.netCollection.toLocaleString()} (offsets: RM ${monthly.totalOffsets.toLocaleString()})\nNewcomers Served: ${monthly.newcomersServed} 🎉\nService Days: ${monthly.serviceDays} | Avg: ${monthly.avgOrdersPerServiceDay} orders/day\n\nTop Items: ${topStr}`;
+      navigator.clipboard.writeText(text).then(()=>showSuccess('Monthly report copied to clipboard'));
     };
   }
 
@@ -968,6 +1039,21 @@ function renderReportsSection(container, daily, inventory, weekly){
       };
     } catch(e){ div.innerHTML='<p style="color:var(--warning)">Failed to load restock list</p>'; }
   };
+
+  // Copy discount summary handler
+  if(discounts && container.querySelector('#btnCopyDiscounts')){
+    const types = ['NEWCOMER','STAFF','PASTOR','CELEBRATION'];
+    const summary = discounts.summary || {};
+    container.querySelector('#btnCopyDiscounts').onclick=()=>{
+      let text = '💰 Discount Summary\n';
+      types.forEach(t=>{
+        const d = summary[t] || {count:0, totalOffset:0};
+        text += `${t.charAt(0)+t.slice(1).toLowerCase()}: ${d.count} orders, RM ${d.totalOffset} offset\n`;
+      });
+      text += `Total: ${discounts.totalDiscountedOrders||0} orders, RM ${discounts.totalOffset||0} offset`;
+      navigator.clipboard.writeText(text).then(()=>showSuccess('Copied to clipboard'));
+    };
+  }
 }
 
 // --- Helpers ---
