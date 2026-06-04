@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#6B4226"/>
+  <rect x="24" y="24" width="464" height="464" rx="80" fill="#FFF8F0"/>
+  <!-- Coffee bean accent -->
+  <ellipse cx="400" cy="120" rx="40" ry="28" fill="#D4A574" opacity="0.6" transform="rotate(-30 400 120)"/>
+  <path d="M385 110 Q400 120 385 130" stroke="#6B4226" stroke-width="3" fill="none" opacity="0.4"/>
+  <!-- 153 text -->
+  <text x="256" y="320" text-anchor="middle" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif" font-size="180" font-weight="800" fill="#6B4226">153</text>
+  <!-- Coffee cup underneath -->
+  <text x="256" y="420" text-anchor="middle" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif" font-size="48" fill="#8B5E3C">☕ café</text>
+  <!-- Steam lines -->
+  <path d="M200 180 Q205 160 210 180 Q215 160 220 180" stroke="#D4A574" stroke-width="4" fill="none" opacity="0.5"/>
+  <path d="M240 170 Q245 150 250 170 Q255 150 260 170" stroke="#D4A574" stroke-width="4" fill="none" opacity="0.4"/>
+</svg>
