@@ -78,7 +78,6 @@ function renderMain(){
     <button id="btnStats" class="pos-sidebar-btn">📊 Stats</button>
   </nav>
   <div class="pos-sidebar-footer">
-    <button id="btnLogout" class="pos-sidebar-logout">Logout</button>
   </div>
 </aside>
 <div class="pos-sidebar-overlay" id="posSidebarOverlay"></div>
@@ -131,7 +130,7 @@ function renderMain(){
     modal.querySelector('#scFridge').onclick=()=>{ modal.remove(); openStockCount('fridge'); };
     modal.querySelector('#scStore').onclick=()=>{ modal.remove(); openStockCount('storeroom'); };
   };
-  $('#btnLogout').onclick = logout;
+  document.getElementById('headerLogout').onclick = logout;
   $('#btnHistory').onclick = openHistory;
   $('#btnStats').onclick = ()=>{ $('#posStats').classList.toggle('visible'); };
   $('#btnView').onclick = ()=>{ viewMode = viewMode==='kanban'?'list':'kanban'; renderBoard(); $('#btnView').textContent = viewMode==='kanban'?'List View':'Kanban View'; };

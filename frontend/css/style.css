@@ -733,6 +733,11 @@ header h1{
   background:none;border:none;color:#fff;font-size:1.5rem;
   cursor:pointer;padding:4px 12px 4px 4px;margin-right:8px;
 }
+.header-logout{
+  background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;
+  font-size:.8rem;font-weight:600;padding:6px 14px;border-radius:6px;cursor:pointer;
+}
+.header-logout:hover{background:rgba(255,255,255,.25)}
 
 .pos-app{padding:0;max-width:1280px;margin:0 auto}
 
