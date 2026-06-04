@@ -88,24 +88,30 @@ Extracted from church recipe document. These map to menu items and define ingred
 - Ice
 - Top up with Sprite
 
-## Ingredient Mapping
+## Ingredient Mapping (Confirmed with Head Barista)
 
-| Recipe Ingredient | System Ingredient | Usage Unit | Typical Amount |
-|------------------|------------------|------------|----------------|
-| Coffee beans | Coffee Beans | g | 17g per shot |
-| Milk | Milk (Fresh) | ml | 150ml per drink |
-| Oat milk | Oat Milk | ml | 150ml per drink |
+| Recipe Ingredient | System Ingredient | Usage Unit | Amount per Drink |
+|------------------|------------------|------------|-----------------|
+| Coffee beans | Coffee Beans | g | **18g** per shot |
+| Milk | Milk (Fresh) | ml | **200ml** per drink |
+| Oat milk | Oat Milk | ml | **200ml** per drink |
 | Chocolate powder | Chocolate Powder (63% Tiger) | g | 25g per drink |
+| Matcha powder | Matcha Powder | g | 4g per drink |
+| Chai latte powder | Chai Latte Powder | g | 12g per drink |
 | Nata de coco | Nata de Coco | spoons | 2 per drink |
-| Butterfly pea | Butterfly Pea Tea | pumps | 4-5 per drink |
-| Lemon juice | Lemon Juice (Liotti) | squeezes | 3 per drink |
-| Passionfruit syrup | Monin Passion Fruit Syrup | pumps/ml | 2 pumps per drink |
-| Lemon syrup | Monin Lemon Syrup | pumps/ml | 2 pumps per drink |
+| Butterfly pea | Butterfly Pea Tea | **pumps** | 2 per drink |
+| Lemon juice | Lemon Juice (Liotti) | **squeezes** | 3 per drink |
+| Passionfruit syrup | Monin Passion Fruit Syrup | ml | 20ml per drink |
+| Lemon syrup | Monin Lemon Syrup | ml | 20ml per drink |
 | Orange syrup | Monin Orange Fruitmix | ml | 30ml per drink |
-| Sprite | Sprite | ml | ~200ml per drink |
-| Soda water | Sparkling Water | ml | ~200ml per drink |
-| Tonic water | Tonic Water | ml | ~200ml per drink |
-| Ice | Ice | pieces | varies |
+| Sprite | Sprite | ml | 100-150ml per drink |
+| Soda water | Sparkling Water | ml | 100-200ml per drink |
+| Tonic water | Tonic Water (cans) | ml | 200ml (~⅓ can) |
+| Ribena | Ribena | ml | 20ml per drink |
+| English breakfast tea | English Breakfast Tea | bags | 1 bag per drink |
+| Citron paste | Citron Paste | spoons | 2 per drink |
+| Sugar syrup | Sugar Syrup | ml | 10ml per drink |
+| Ice | Ice | pieces | 5 per iced drink |
 
 ## Notes
 

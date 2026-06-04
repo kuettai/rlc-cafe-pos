@@ -3,42 +3,49 @@
 ## 1. System Overview
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      GitHub Pages (Free)                      │
-│                                                              │
-│  ┌──────────┐   ┌──────────────┐   ┌───────────────────┐   │
-│  │ Customer │   │ Cashier POS  │   │ Admin Dashboard   │   │
-│  │   PWA    │   │     PWA      │   │       PWA         │   │
-│  └────┬─────┘   └──────┬───────┘   └────────┬──────────┘   │
-└───────┼─────────────────┼────────────────────┼──────────────┘
-        │                 │                    │
-        │        HTTPS (REST API)              │
-        ▼                 ▼                    ▼
-┌─────────────────────────────────────────────────────────────┐
-│                   AWS API Gateway (REST)                      │
-│                      + Lambda Authorizer                      │
-└───────────────────────────┬─────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│            GitHub Pages (153.oasisofcare.org)                        │
+│                                                                     │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐             │
+│  │ Customer │ │ Cashier  │ │  Admin   │ │ Barista  │             │
+│  │   PWA    │ │   POS    │ │Dashboard │ │Prep View │             │
+│  └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘             │
+└───────┼─────────────┼────────────┼─────────────┼──────────────────┘
+        │             │            │             │
+        │          HTTPS (REST API)              │
+        ▼             ▼            ▼             ▼
+┌────────────────────────────────────────────────────────────────────┐
+│                    AWS API Gateway (REST, proxy)                     │
+└───────────────────────────┬────────────────────────────────────────┘
                             │
                             ▼
-┌─────────────────────────────────────────────────────────────┐
-│                     AWS Lambda Functions                      │
-│                                                              │
-│  ┌─────────┐ ┌─────────┐ ┌───────────┐ ┌───────────────┐  │
-│  │ Orders  │ │  Menu   │ │ Inventory │ │     Auth      │  │
-│  └────┬────┘ └────┬────┘ └─────┬─────┘ └───────┬───────┘  │
-└───────┼────────────┼────────────┼───────────────┼───────────┘
-        │            │            │               │
-        ▼            ▼            ▼               ▼
-┌─────────────────────────────────────────────────────────────┐
-│                      AWS DynamoDB                             │
-│                                                              │
-│  ┌────────┐ ┌──────┐ ┌───────────┐ ┌──────┐ ┌──────────┐  │
-│  │ Orders │ │ Menu │ │ Inventory │ │ Users│ │ Settings │  │
-│  └────────┘ └──────┘ └───────────┘ └──────┘ └──────────┘  │
-└─────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│                      AWS Lambda (single function)                    │
+│                                                                     │
+│  ┌────────┐ ┌──────┐ ┌──────────┐ ┌──────┐ ┌──────────────────┐  │
+│  │ Orders │ │ Menu │ │Inventory │ │ Auth │ │ Checklist/Recipes│  │
+│  ├────────┤ ├──────┤ ├──────────┤ ├──────┤ ├──────────────────┤  │
+│  │Receipt │ │ POS  │ │Planogram │ │Admin │ │  Cafe/Expiry     │  │
+│  └───┬────┘ └──┬───┘ └────┬─────┘ └──┬───┘ └────────┬─────────┘  │
+└──────┼─────────┼──────────┼──────────┼───────────────┼─────────────┘
+       │         │          │          │               │
+       ▼         ▼          ▼          ▼               ▼
+┌────────────────────────────────────────────────────────────────────┐
+│                         AWS DynamoDB                                 │
+│  ┌────────┐ ┌──────┐ ┌───────────┐ ┌──────┐ ┌──────────┐         │
+│  │ Orders │ │ Menu │ │Ingredients│ │Users │ │ Settings │         │
+│  └────────┘ └──────┘ └───────────┘ └──────┘ └──────────┘         │
+└────────────────────────────────────────────────────────────────────┘
 
-┌─────────────────────┐
-│  Gmail SMTP (Free)  │ ← Triggered by Lambda (low-stock, end-of-day)
+┌─────────────────────┐   ┌──────────────────────────────────┐
+│   AWS S3 Buckets    │   │      AWS Bedrock (Claude)        │
+│  ┌───────────────┐  │   │                                  │
+│  │ rlc-receipts  │  │   │  • Receipt amount extraction     │
+│  │  (1-day TTL)  │  │   │  • Planogram stock count (vision)│
+│  ├───────────────┤  │   │  • Model: Claude Sonnet 4.6      │
+│  │rlc-planogram  │  │   │                                  │
+│  │ (28-day TTL)  │  │   └──────────────────────────────────┘
+│  └───────────────┘  │
 └─────────────────────┘
 ```
 
@@ -47,15 +54,17 @@
 | Layer | Technology | Free Tier Type | Cost |
 |-------|-----------|----------------|------|
 | Frontend hosting | GitHub Pages | Always free | RM0 |
-| Frontend framework | Vanilla JS or lightweight framework (e.g., Preact) | N/A | RM0 |
+| Frontend framework | Vanilla JS (no framework) | N/A | RM0 |
 | PWA | Service Worker + manifest.json | N/A | RM0 |
-| API | AWS API Gateway (REST) | $200 credit (6 months for new accounts) | ~RM0.01/month after credits expire |
-| Compute | AWS Lambda (Node.js) | Always free (1M requests/month) | RM0 |
-| Database | AWS DynamoDB | Always free (25GB, 25 RCU/WCU) | RM0 |
-| Email | Gmail SMTP via Lambda (app password) | Always free | RM0 |
-| Domain (optional) | Custom domain | N/A | ~RM40/year |
+| API | AWS API Gateway (REST, proxy) | $200 credit (6 months) | ~RM0.01/month |
+| Compute | AWS Lambda (Node.js 20) | Always free (1M req/month) | RM0 |
+| Database | AWS DynamoDB | Always free (25GB) | RM0 |
+| Storage | AWS S3 (receipts + planogram) | 5GB free | ~RM0 |
+| AI/Vision | AWS Bedrock (Claude Sonnet 4.6) | Pay per use | ~RM2-3/month |
+| Email | Gmail SMTP (future) | Always free | RM0 |
+| Domain | 153.oasisofcare.org (CNAME) | N/A | Existing |
 
-**Estimated monthly cost after free credits expire: ~RM0.01/month** (API Gateway pay-per-use at ~1,000 requests/month is negligible. Lambda and DynamoDB are always free at this volume — ~200 orders/month, ~50 users.)
+**Estimated monthly cost: ~RM3-5/month** (mostly Bedrock vision calls for planogram: ~32 images/month × ~RM0.10 each. Everything else is effectively free at church café volume.)
 
 > **Note:** AWS free tier details as of July 2025. Lambda (1M requests/month) and DynamoDB (25GB + 25 RCU/WCU) are **always free** with no expiry. API Gateway moved to a credit-based model for new accounts ($200 credits, 6-month free plan). After credits expire, cost is ~$1 per 1M API calls — effectively zero at church café volume.
 
@@ -66,15 +75,18 @@
 | Path | View | Auth Required |
 |------|------|---------------|
 | `/` | Customer — Menu & ordering | No |
-| `/track.html?id=xxx` | Customer — Order tracking | No |
-| `/pos.html` | Cashier — Order board | PIN login |
-| `/admin.html` | Admin — Dashboard (future) | PIN login |
+| `/track.html?id=xxx` | Customer — Order tracking + receipt upload | No |
+| `/pos.html` | Cashier — Order board, walk-up, menu mgmt | PIN login |
+| `/admin.html` | Admin — Menu CRUD, ingredients, recipes, checklist, planogram, reports | PIN login (ADMIN role) |
+| `/prep.html` | Barista — Prep queue (large text, dark theme) | PIN login (shared session) |
 
 ### 3.2 Hosting
 
-- **URL:** https://kuettai.github.io/rlc-cafe-pos/
+- **Primary URL:** https://153.oasisofcare.org/
+- **Fallback URL:** https://kuettai.github.io/rlc-cafe-pos/
 - **Deployment:** GitHub Actions auto-deploys on push to `frontend/`
 - **Repo:** https://github.com/kuettai/rlc-cafe-pos
+- **CNAME:** `153.oasisofcare.org` → `kuettai.github.io`
 
 ### 3.2 PWA Configuration
 
@@ -325,29 +337,34 @@ Attributes:
    - Send end-of-day email (sales summary, menu changes, inventory status)
 ```
 
-## 7. Infrastructure (AWS)
+## 7. Infrastructure (AWS CDK)
 
 ### 7.1 Resources
 
-- **API Gateway:** Single REST API with Lambda proxy integration
-- **Lambda functions:** Single function (or split by domain: orders, menu, inventory, auth)
-- **DynamoDB:** Single-table design or multiple tables (as shown above)
-- **EventBridge:** Scheduled rule for order expiry check (every 5 min)
-- **IAM:** Lambda execution role with DynamoDB + SES/SMTP access
+- **API Gateway:** Single REST API with Lambda proxy integration (all CORS)
+- **Lambda:** Single bundled function (esbuild, Node.js 20, 256MB, 10s timeout)
+- **Lambda (expiry):** Cron function for order expiry (128MB, 30s, every 5 min)
+- **DynamoDB:** 5 tables (orders, menu, ingredients, users, settings) — PAY_PER_REQUEST
+- **S3 (receipts):** `rlc-cafe-receipts-{account}` — 1-day lifecycle, CORS
+- **S3 (planogram):** `rlc-cafe-planogram-{account}` — 28-day lifecycle, CORS
+- **EventBridge:** Scheduled rule for order expiry (every 5 min)
+- **IAM:** Lambda role with DynamoDB RW + S3 RW + Bedrock InvokeModel
+- **Bedrock:** Claude Sonnet 4.6 (global inference profile)
 
 ### 7.2 Deployment
 
-- Infrastructure as Code: **AWS CDK (TypeScript)** — all resources defined in code for easy migration between AWS accounts
-- CI/CD: GitHub Actions → auto-deploy frontend to GitHub Pages on push to `frontend/`
-- Backend: `cd infra && npx cdk deploy` to update Lambda + API Gateway
-- Account migration: Simply configure new AWS credentials and run `cdk deploy` to replicate entire stack
-- Frontend URL: https://kuettai.github.io/rlc-cafe-pos/
+- Infrastructure as Code: **AWS CDK (TypeScript)** — `infra/lib/infra-stack.ts`
+- Account/Region: `956288449190` / `ap-southeast-5` (hardcoded in `bin/infra.ts`)
+- CI/CD: GitHub Actions → auto-deploy frontend on push to `frontend/`
+- Backend deploy: `cd infra && npx cdk deploy`
+- Frontend URL: https://153.oasisofcare.org/
 - API URL: https://hcydppml1a.execute-api.ap-southeast-5.amazonaws.com/prod/
 
 ### 7.3 Environments
 
-- **Production:** Single environment (low traffic, minimal cost concern)
-- **Local dev:** SAM local or LocalStack for testing
+- **Production:** Single environment (low traffic, minimal cost)
+- **Local dev:** `npx http-server frontend -p 3001` + live API
+- **Tests:** `cd backend && npm test` (unit + integration against live API)
 
 ## 8. Security
 
@@ -364,25 +381,44 @@ Attributes:
 - **DynamoDB:** Consumed capacity monitoring (ensure within free tier)
 - **Application:** Low-stock email alerts, end-of-day summary emails
 
-## 10. Future Considerations
+## 10. AI Integration
 
-- WebSocket (API Gateway WebSocket API) for real-time updates if polling becomes insufficient
-- S3 for image uploads (menu item photos)
-- CloudFront CDN if GitHub Pages latency is an issue from Malaysia
-- Display screen app (TV at counter showing "Ready" orders)
-- Customer push notifications via Web Push API
+### 10.1 Payment Receipt Verification
+- Customer uploads receipt screenshot → Lambda sends to Bedrock
+- Claude extracts: amount, date/time, transaction reference number
+- Validation: amount match, time window (30 min), duplicate detection (reference uniqueness)
+- Auto-reject on mismatch (cashier not notified for failed uploads)
 
-## 11. Current Deployment
+### 10.2 Planogram Stock Count
+- Cashier takes 1-3 photos of fridge/storeroom
+- Lambda sends photos + reference layout + ingredient list to Bedrock
+- Claude Vision identifies items, counts units, estimates fill levels
+- Returns editable results with confidence indicators
+- Cashier confirms → stock levels updated
+
+## 11. Future Considerations
+
+- WebSocket for real-time updates (if polling insufficient)
+- CloudFront CDN (if GitHub Pages latency an issue)
+- Display screen app (TV showing "Ready" orders)
+- Customer push notifications (Web Push API)
+- Email notifications (low stock, end-of-day summary)
+- Multi-site support (if café expands)
+
+## 12. Current Deployment
 
 | Component | URL/Location |
 |-----------|-------------|
-| Frontend (Customer + POS) | https://kuettai.github.io/rlc-cafe-pos/ |
+| Frontend (Customer) | https://153.oasisofcare.org/ |
+| Frontend (POS) | https://153.oasisofcare.org/pos.html |
+| Frontend (Admin) | https://153.oasisofcare.org/admin.html |
+| Frontend (Barista) | https://153.oasisofcare.org/prep.html |
 | API Gateway | https://hcydppml1a.execute-api.ap-southeast-5.amazonaws.com/prod/ |
 | GitHub Repo | https://github.com/kuettai/rlc-cafe-pos |
 | AWS Region | ap-southeast-5 (Malaysia) |
 | AWS Account | 956288449190 |
 | CloudFormation Stack | RlcCafeStack |
 
-### Test Credentials
-- Admin: userId=`admin-001`, PIN=`123456`
-- Cashier: userId=`7cf1994a-4e5d-4603-af7e-475e5043fcde` (Sarah), PIN=`1234`
+### Credentials
+- Admin: name=`admin-001` or `Admin`, PIN=`123456`
+- Cashier: name=`Sarah`, PIN=`1234`
