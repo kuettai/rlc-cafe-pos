@@ -1486,8 +1486,8 @@ header h1{
   min-height:calc(100vh - 52px);
 }
 @media(min-width:900px){
-  .pos-sidebar-toggle{display:none}
-  .pos-sidebar{transform:translateX(0)}
   .pos-sidebar.open ~ .pos-sidebar-overlay{display:none}
   .pos-main{margin-left:220px}
 }
+.pos-sidebar.open ~ .pos-main{margin-left:220px}
+.pos-sidebar:not(.open) ~ .pos-main{margin-left:0}

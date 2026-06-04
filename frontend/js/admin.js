@@ -69,13 +69,13 @@ function renderApp(){
   <div class="sidebar-user">👤 ${currentUser}</div>
   <nav class="sidebar-nav">
     <button data-tab="dashboard" class="active">📊 Dashboard</button>
+    <button data-tab="reports">📈 Reports</button>
     <button data-tab="menu">🍽️ Menu</button>
-    <button data-tab="users">👥 Users</button>
     <button data-tab="ingredients">🧪 Ingredients</button>
     <button data-tab="checklist">✅ Checklist</button>
     <button data-tab="planogram">📷 Planogram</button>
+    <button data-tab="users">👥 Users</button>
     <button data-tab="settings">⚙️ Settings</button>
-    <button data-tab="reports">📈 Reports</button>
   </nav>
   <div class="sidebar-footer">
     <a href="pos" class="pos-btn pos-btn-sm" style="text-decoration:none;display:block;text-align:center;margin-bottom:8px">Go to POS</a>

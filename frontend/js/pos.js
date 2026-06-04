@@ -64,11 +64,11 @@ function renderMain(){
   <div class="pos-sidebar-header">☕ POS</div>
   <div class="pos-sidebar-user">👤 ${currentUser} <span class="pos-status-dot ${cafeOpen?'open':'closed'}"></span></div>
   <nav class="pos-sidebar-nav">
-    <button id="btnCafeToggle" class="pos-sidebar-btn">${cafeOpen?'🔒 Close Café':'🔓 Open Café'}</button>
-    <button id="btnCelebration" class="pos-sidebar-btn ${celebrationMode?'active':''}">🎉 Celebration</button>
     <button id="btnWalkup" class="pos-sidebar-btn primary">➕ Walk-up</button>
-    <button id="btnMenu" class="pos-sidebar-btn">📋 Menu</button>
+    <button id="btnCafeToggle" class="pos-sidebar-btn">${cafeOpen?'🔒 Close Café':'🔓 Open Café'}</button>
     <button id="btnPrep" class="pos-sidebar-btn">☑️ Prep</button>
+    <button id="btnMenu" class="pos-sidebar-btn">📋 Menu</button>
+    <button id="btnCelebration" class="pos-sidebar-btn ${celebrationMode?'active':''}">🎉 Celebration</button>
     <button id="btnHistory" class="pos-sidebar-btn">📜 History</button>
     <a href="admin" class="pos-sidebar-btn" style="text-decoration:none;display:block">⚙️ Admin</a>
   </nav>

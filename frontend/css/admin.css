@@ -77,14 +77,14 @@
   min-height:calc(100vh - 52px);
 }
 
-/* Desktop: sidebar always open, hide hamburger */
+/* Desktop: sidebar open by default, hamburger toggles */
 @media(min-width:900px){
-  .sidebar-toggle{display:none}
   .sidebar-close{display:none}
   .admin-sidebar.open ~ .admin-overlay{display:none}
-  .admin-sidebar{transform:translateX(0)}
   .admin-main{margin-left:240px}
 }
+.admin-sidebar.open ~ .admin-main{margin-left:240px}
+.admin-sidebar:not(.open) ~ .admin-main{margin-left:0}
 
 /* Section container */
 .admin-section{
