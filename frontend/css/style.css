@@ -812,7 +812,7 @@ header h1{
   border-color:var(--danger);
   box-shadow:0 2px 8px rgba(192,57,43,.2);
 }
-.pos-btn-danger:hover{box-shadow:0 4px 12px rgba(192,57,43,.3)}
+.pos-btn-danger:hover{box-shadow:0 4px 12px rgba(192,57,43,.3);background:linear-gradient(135deg,#c0392b 0%,#d63031 100%);color:#fff}
 .pos-btn.active{
   background:linear-gradient(135deg,#7C3AED 0%,#9F67FF 100%);
   color:#fff;
