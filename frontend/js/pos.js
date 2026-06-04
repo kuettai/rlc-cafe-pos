@@ -952,7 +952,6 @@ function openPrepView(){
   modal.innerHTML=`<div class="pos-modal" style="max-width:500px">
     <button class="pos-modal-close">✕</button>
     <h3>☕ Prep Queue (${items.length} drinks)</h3>
-    <a href="prep.html" target="_blank" style="font-size:.82rem;color:var(--primary,#6B4226);text-decoration:underline">Open full-screen barista view ↗</a>
     <div style="margin-top:16px;max-height:60vh;overflow-y:auto">
       ${items.length ? items.map((it,i)=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--cream-dark,#eee)">
         <div><strong>${it.name}</strong>${it.variant?' <span style="color:var(--text-light,#7A6355)">('+it.variant+')</span>':''}</div>
