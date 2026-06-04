@@ -44,7 +44,7 @@ cafepos/
 │   ├── css/            # style.css, admin.css
 │   ├── img/            # QR payment image
 │   ├── manifest.json   # PWA manifest
-│   ├── sw.js           # Service worker (v4)
+│   ├── sw.js           # Service worker (v16)
 │   └── CNAME           # Custom domain: 153.oasisofcare.org
 ├── infra/              # CDK stack
 │   └── lib/infra-stack.ts  # DynamoDB, Lambda, API GW, S3, Bedrock perms
@@ -75,7 +75,7 @@ cafepos/
 - API responses: `{ statusCode, headers: {}, body: JSON.stringify(...) }`
 - Path parameter extraction from `event.path` (not `event.pathParameters`) due to proxy integration
 
-## Current Status (as of 2026-06-03)
+## Current Status (as of 2026-06-05)
 ### Completed (Foundation)
 - ✅ All backend routes (auth, cafe, menu, orders, pos, admin)
 - ✅ Customer ordering PWA (menu, cart, order submission)
@@ -85,6 +85,23 @@ cafepos/
 - ✅ GitHub Pages CI/CD
 - ✅ Variant pricing (e.g., Oat Milk +RM1)
 - ✅ Order expiry cron (5min check, 1hr timeout)
+
+### Completed (2026-06-04 Sprint)
+- ✅ Variant Groups system — Temperature (single), Milk (optional), Flavor (single) selectors
+- ✅ Menu restructuring: merged 5 sodas → single "Soda (Iced)" with Flavor picker
+- ✅ Renamed iced/hot-only drinks: Tonic Espresso (Iced), Citrus Black (Iced), Fruit Tea (Hot)
+- ✅ Added Iced option (+RM1) to Tea
+- ✅ Backend supports selectedVariants array in order price calculation (backward compat with old variant field)
+- ✅ Force PIN update feature (forceUpdatePin) — new users must change PIN on first login
+- ✅ Last login tracking (lastLoginAt) displayed in admin Volunteers
+- ✅ Volunteer filter buttons (All / Cashier / Admin / Never Logged In)
+- ✅ Clipboard copy of access credentials on volunteer create/edit
+- ✅ POS sidebar closed by default, opens only on hamburger tap
+- ✅ POS order items displayed as list view (not comma-separated)
+- ✅ POS Menu sort: Drinks (Long Black/Latte first, then alpha), Food (pinned > qty > alpha)
+- ✅ POS view toggle button styled to match café theme
+- ✅ Admin card badges center-aligned
+- ✅ Service worker cache bump (v16)
 
 ### Completed (2026-06-03 Sprint)
 - ✅ UI Redesign — warm café theme (browns/cream/caramel) across all pages
@@ -148,4 +165,4 @@ cafepos/
 - Payment: Maybank QR (DuitNow), manually verified by cashier
 - Special pricing: Celebration (all drinks RM5), Newcomer (free), Staff/Pastor (walk-up only)
 - Inventory: recipe-based estimation, cashier manual override
-- Menu: ~10 drinks (hot/iced variants, oat milk option) + food (subject to availability)
+- Menu: ~10 drinks (variant groups: Temperature hot/iced, Milk oat milk, Flavor for tea/soda) + food (subject to availability)

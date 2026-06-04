@@ -20,7 +20,9 @@ A Progressive Web App (PWA) replacing the current Loyverse POS for the church ca
 - Scan QR code at table/counter → opens PWA
 - Enter preferred name (persisted in cookie for repeat visits)
 - Browse menu (drinks + food), see available quantities for food items
-- Select variants (hot/iced, oat milk +RM1)
+- Select variant groups: Temperature (Hot/Iced), Milk (Oat Milk), Flavor (for Tea/Soda)
+- Variant groups can be: single (pick one), optional (toggle on/off), multi (pick many)
+- Iced-only drinks named with "(Iced)" suffix — no selection needed
 - Add multiple items to cart, modify freely
 - Submit order → system checks food stock availability at submission
 - If food unavailable, customer notified to adjust order

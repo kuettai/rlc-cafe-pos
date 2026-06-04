@@ -32,7 +32,8 @@
 | name | string | Display name |
 | category | string | DRINK / FOOD |
 | basePrice | number | Price in MYR |
-| variants | list | [{id, name, priceModifier}] |
+| variants | list | [{id, name, priceModifier}] (legacy, replaced by variantGroups) |
+| variantGroups | list | [{group, type, options: [{name, price}]}] — type: single/optional/multi |
 | imageUrl | string | Optional image URL |
 | isActive | boolean | Admin-level active |
 | isEnabledToday | boolean | Cashier daily toggle |
@@ -65,6 +66,8 @@
 | pinHash | string | bcrypt hash of PIN |
 | role | string | CASHIER / ADMIN |
 | isActive | boolean | Can login |
+| forceUpdatePin | boolean | Must change PIN on next login |
+| lastLoginAt | string | ISO timestamp of last successful login |
 
 ## Settings Table (rlc-cafe-settings)
 - PK: `SETTINGS` (string)

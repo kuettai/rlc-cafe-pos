@@ -194,9 +194,11 @@ Attributes:
 - category (enum: DRINK | FOOD)
 - basePrice (number, MYR)
 - variants (list: [{id, name, priceModifier}])
-  e.g., [{id: "hot", name: "Hot", priceModifier: 0},
-         {id: "iced", name: "Iced", priceModifier: 0},
-         {id: "oat", name: "Oat Milk", priceModifier: 1}]
+  — LEGACY: flat variant list, replaced by variantGroups
+- variantGroups (list: [{group, type, options: [{name, price}]}])
+  type: "single" (pick one), "optional" (toggle), "multi" (pick many)
+  e.g., [{group: "Temperature", type: "single", options: [{name: "Hot", price: 0}, {name: "Iced", price: 1}]},
+         {group: "Milk", type: "optional", options: [{name: "Oat Milk", price: 1}]}]
 - imageUrl (string, optional)
 - isActive (boolean — admin-level active)
 - isEnabledToday (boolean — cashier daily toggle)

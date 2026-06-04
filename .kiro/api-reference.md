@@ -8,10 +8,11 @@ Base URL: `https://hcydppml1a.execute-api.ap-southeast-5.amazonaws.com/prod`
 |--------|------|-------------|
 | GET | /api/cafe/status | Returns {cafeStatus, queueSize} |
 | GET | /api/menu | Returns {items: [...]} (active + enabled today) |
-| POST | /api/orders | Create order. Body: {customerName, items: [{menuItemId, variant, quantity}]} |
+| POST | /api/orders | Create order. Body: {customerName, items: [{menuItemId, variant?, selectedVariants?, quantity}]} |
 | GET | /api/orders/{id} | Get order status (for polling) |
 | PUT | /api/orders/{id} | Modify/cancel. Body: {action: 'cancel'} or {action: 'update', items} |
-| POST | /api/auth/login | Login. Body: {userId, pin} → Returns {token, userId, name, role} |
+| POST | /api/auth/login | Login. Body: {userId, pin} → Returns {token, userId, name, role, forceUpdatePin} |
+| POST | /api/auth/update-pin | Update PIN (requires JWT). Body: {newPin} → Sets forceUpdatePin=false |
 
 ## POS Endpoints (Requires JWT, role: CASHIER or ADMIN)
 
