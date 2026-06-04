@@ -63,8 +63,7 @@ function logout(){ token=null; sessionStorage.removeItem('pos_token'); sessionSt
 
 // --- Main app shell ---
 function renderApp(){
-  app.innerHTML = `<button class="sidebar-toggle" id="sidebarToggle" aria-label="Toggle menu">☰</button>
-<aside class="admin-sidebar" id="adminSidebar">
+  app.innerHTML = `<aside class="admin-sidebar" id="adminSidebar">
   <div class="sidebar-header"><span>☕ Admin</span><button class="sidebar-close" id="sidebarClose">✕</button></div>
   <div class="sidebar-user">👤 ${currentUser}</div>
   <nav class="sidebar-nav">
@@ -87,9 +86,8 @@ function renderApp(){
 
   if(window.innerWidth >= 900) document.getElementById('adminSidebar').classList.add('open');
 
-  document.getElementById('sidebarToggle').onclick=()=>{
-    document.getElementById('adminSidebar').classList.add('open');
-    document.getElementById('adminOverlay').style.display='block';
+  document.getElementById('adminHeaderToggle').onclick=()=>{
+    document.getElementById('adminSidebar').classList.toggle('open');
   };
   document.getElementById('sidebarClose').onclick=()=>{
     document.getElementById('adminSidebar').classList.remove('open');

@@ -24,13 +24,6 @@
 }
 
 /* Sidebar */
-.sidebar-toggle{
-  position:fixed;top:60px;left:12px;z-index:200;
-  background:var(--primary,#6B4226);color:#fff;
-  border:none;border-radius:8px;width:40px;height:40px;
-  font-size:1.3rem;cursor:pointer;display:flex;align-items:center;justify-content:center;
-  box-shadow:0 2px 8px rgba(0,0,0,.15);
-}
 .admin-sidebar{
   position:fixed;top:0;left:0;bottom:0;width:240px;
   background:#fff;border-right:1px solid var(--cream-dark,#e8e0d8);

@@ -59,8 +59,7 @@ function logout(){ token=null; currentUser=''; sessionStorage.removeItem('pos_to
 
 // --- Main view ---
 function renderMain(){
-  app.innerHTML = `<button class="pos-sidebar-toggle" id="posSidebarToggle" aria-label="Toggle menu">☰</button>
-<aside class="pos-sidebar" id="posSidebar">
+  app.innerHTML = `<aside class="pos-sidebar" id="posSidebar">
   <div class="pos-sidebar-header">☕ POS</div>
   <div class="pos-sidebar-user">👤 ${currentUser} <span class="pos-status-dot ${cafeOpen?'open':'closed'}"></span></div>
   <nav class="pos-sidebar-nav">
@@ -87,7 +86,7 @@ function renderMain(){
   <div id="orderBoard" class="pos-board"></div>
 </main>`;
   if(window.innerWidth >= 900) document.getElementById('posSidebar').classList.add('open');
-  $('#posSidebarToggle').onclick = () => {
+  document.getElementById('posHeaderToggle').onclick = () => {
     $('#posSidebar').classList.toggle('open');
   };
   $('#posSidebarOverlay').onclick = () => {
