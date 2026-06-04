@@ -64,7 +64,11 @@ function renderMenu() {
 
   categories.forEach(cat => {
     if (!filteredGrouped[cat].length) return;
-    filteredGrouped[cat].sort((a, b) => (b.isPinned ? 1 : 0) - (a.isPinned ? 1 : 0));
+    filteredGrouped[cat].sort((a, b) => {
+      const pinDiff = (b.isPinned ? 1 : 0) - (a.isPinned ? 1 : 0);
+      if (pinDiff !== 0) return pinDiff;
+      return (a.sortOrder || 0) - (b.sortOrder || 0);
+    });
     html += `<h2 class="category-title">${cat === 'DRINK' ? '🥤 Drinks' : '🍔 Food'}</h2>`;
     html += `<div class="${menuLayout === 'grid' ? 'menu-grid' : ''}">`;
     filteredGrouped[cat].forEach(item => {
@@ -280,7 +284,7 @@ cartSubmit.addEventListener('click', async () => {
 
 async function loadMenu() {
   const data = await apiFetch('/api/menu');
-  menu = (data.items || data).map(i => ({ ...i, id: i.menuItemId }));
+  menu = (data.items || data).map(i => ({ ...i, id: i.menuItemId })).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
 }
 
 async function init() {
