@@ -210,7 +210,12 @@ function updateCartBar() {
   cartCount.textContent = `${count} item${count !== 1 ? 's' : ''}`;
   cartTotal.textContent = `RM ${total.toFixed(2)}`;
   cartTotalExpanded.textContent = `Total: RM ${total.toFixed(2)}`;
+  const wasHidden = cartBar.classList.contains('hidden');
   cartBar.classList.toggle('hidden', count === 0);
+  if (wasHidden && count > 0) {
+    cartBar.classList.add('bounce');
+    setTimeout(() => cartBar.classList.remove('bounce'), 600);
+  }
 }
 
 function renderCartPanel() {
@@ -251,9 +256,36 @@ cartBar.addEventListener('click', () => { cartOverlay.classList.add('open'); ren
 cartOverlay.addEventListener('click', e => { if (e.target === cartOverlay) cartOverlay.classList.remove('open'); });
 document.getElementById('cartClose')?.addEventListener('click', () => { cartOverlay.classList.remove('open'); });
 
+function promptName() {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(61,43,31,.6);backdrop-filter:blur(4px);z-index:400;display:flex;align-items:center;justify-content:center';
+    overlay.innerHTML = `<div style="background:#fff;border-radius:var(--radius-xl,16px);padding:28px 24px;width:90%;max-width:340px;box-shadow:0 8px 24px rgba(74,44,23,.15)">
+      <h3 style="color:var(--primary,#6B4226);margin-bottom:8px">What's your name?</h3>
+      <p style="font-size:.85rem;color:var(--text-light,#7A6355);margin-bottom:16px">So we can call you when your order is ready ☕</p>
+      <input id="promptNameInput" type="text" placeholder="Your name" style="width:100%;padding:14px 16px;border:2px solid var(--accent-light,#E8C9A0);border-radius:12px;font-size:1rem;background:var(--cream,#FFF8F0)" autofocus>
+      <button id="promptNameOk" style="width:100%;padding:14px;margin-top:14px;background:linear-gradient(135deg,var(--primary,#6B4226),var(--primary-light,#8B5E3C));color:#fff;border:none;border-radius:12px;font-size:1.05rem;font-weight:700;cursor:pointer">Continue</button>
+    </div>`;
+    document.body.appendChild(overlay);
+    const input = overlay.querySelector('#promptNameInput');
+    const btn = overlay.querySelector('#promptNameOk');
+    input.focus();
+    const submit = () => { const v = input.value.trim(); if (v) { overlay.remove(); resolve(v); } else { input.style.borderColor = 'var(--danger,#C0392B)'; } };
+    btn.onclick = submit;
+    input.onkeydown = e => { if (e.key === 'Enter') submit(); };
+    overlay.onclick = e => { if (e.target === overlay) { overlay.remove(); resolve(null); } };
+  });
+}
+
 cartSubmit.addEventListener('click', async () => {
-  const name = localStorage.getItem('customerName')?.trim();
-  if (!name) { showError('Please enter your name first'); cartOverlay.classList.remove('open'); document.getElementById('nameInput')?.focus(); return; }
+  let name = localStorage.getItem('customerName')?.trim();
+  if (!name) {
+    name = await promptName();
+    if (!name) return;
+    localStorage.setItem('customerName', name);
+    const nameInput = document.getElementById('nameInput');
+    if (nameInput) nameInput.value = name;
+  }
   if (!cart.length) return;
 
   const existingOrderId = localStorage.getItem('lastOrderId');

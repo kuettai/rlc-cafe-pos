@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rlc-cafe-v14';
+const CACHE_NAME = 'rlc-cafe-v15';
 const SHELL = [
   './', './index.html', './track.html', './pos.html', './admin.html',
   './css/style.css', './css/admin.css',
@@ -19,6 +19,10 @@ self.addEventListener('fetch', e => {
   if (e.request.url.includes('/api/')) {
     e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
   } else {
-    e.respondWith(caches.match(e.request).then(r => r || fetch(e.request)));
+    e.respondWith(fetch(e.request).then(r => {
+      const clone = r.clone();
+      caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
+      return r;
+    }).catch(() => caches.match(e.request)));
   }
 });
