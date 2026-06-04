@@ -184,7 +184,7 @@ function renderMenuSection(container, items){
           </div>
           <div class="admin-card-actions">
             <span class="admin-card-badge ${badge}">${item.category}</span>
-            ${item.category==='DRINK' ? `<span class="admin-card-badge ${item.celebrationEligible!==false?'badge-active':'badge-inactive'}">${item.celebrationEligible!==false?'🎉 RM5':'No 🎉'}</span>` : ''}
+            ${item.category==='DRINK' ? `<span class="admin-card-badge ${item.celebrationEligible===true?'badge-active':'badge-inactive'}">${item.celebrationEligible===true?'🎉 RM5':'No 🎉'}</span>` : ''}
             <button class="pos-btn pos-btn-sm" data-edit-menu="${item.menuItemId||item.id}">Edit</button>
             <button class="pos-btn pos-btn-sm pos-btn-danger" data-del-menu="${item.menuItemId||item.id}">Delete</button>
           </div>
@@ -232,7 +232,7 @@ function openMenuForm(container, item, allItems){
       <div class="admin-form-group"><label>Sort Order</label><input id="mfSort" type="number" class="pos-input" value="${item?.sortOrder||0}"></div>
     </div>
     <div class="admin-form-row">
-      <div class="admin-form-group"><label>Celebration Eligible</label><select id="mfCelebration" class="pos-input"><option value="true" ${item?.celebrationEligible!==false?'selected':''}>Yes — RM5 on celebration day</option><option value="false" ${item?.celebrationEligible===false?'selected':''}>No — always normal price</option></select></div>
+      <div class="admin-form-group"><label>Celebration Eligible</label><select id="mfCelebration" class="pos-input"><option value="false" ${item?.celebrationEligible!==true?'selected':''}>No — always normal price</option><option value="true" ${item?.celebrationEligible===true?'selected':''}>Yes — RM5 on celebration day</option></select></div>
     </div>
     <div class="admin-form-group"><label>Variants</label><div id="variantList" class="variant-list">${variantHtml}</div>
       <button class="pos-btn pos-btn-sm" id="btnAddVariant" style="margin-top:8px">+ Add Variant</button></div>
