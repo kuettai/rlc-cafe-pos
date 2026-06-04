@@ -184,6 +184,7 @@ function renderMenuSection(container, items){
           </div>
           <div class="admin-card-actions">
             <span class="admin-card-badge ${badge}">${item.category}</span>
+            ${item.category==='DRINK' ? `<span class="admin-card-badge ${item.celebrationEligible!==false?'badge-active':'badge-inactive'}">${item.celebrationEligible!==false?'🎉 RM5':'No 🎉'}</span>` : ''}
             <button class="pos-btn pos-btn-sm" data-edit-menu="${item.menuItemId||item.id}">Edit</button>
             <button class="pos-btn pos-btn-sm pos-btn-danger" data-del-menu="${item.menuItemId||item.id}">Delete</button>
           </div>
@@ -230,6 +231,9 @@ function openMenuForm(container, item, allItems){
       <div class="admin-form-group"><label>Base Price (RM)</label><input id="mfPrice" type="number" step="0.5" class="pos-input" value="${item?.basePrice||''}"></div>
       <div class="admin-form-group"><label>Sort Order</label><input id="mfSort" type="number" class="pos-input" value="${item?.sortOrder||0}"></div>
     </div>
+    <div class="admin-form-row">
+      <div class="admin-form-group"><label>Celebration Eligible</label><select id="mfCelebration" class="pos-input"><option value="true" ${item?.celebrationEligible!==false?'selected':''}>Yes — RM5 on celebration day</option><option value="false" ${item?.celebrationEligible===false?'selected':''}>No — always normal price</option></select></div>
+    </div>
     <div class="admin-form-group"><label>Variants</label><div id="variantList" class="variant-list">${variantHtml}</div>
       <button class="pos-btn pos-btn-sm" id="btnAddVariant" style="margin-top:8px">+ Add Variant</button></div>
     <div class="admin-form-actions">
@@ -271,6 +275,7 @@ function openMenuForm(container, item, allItems){
       category: form.querySelector('#mfCategory').value,
       basePrice: +form.querySelector('#mfPrice').value,
       sortOrder: +form.querySelector('#mfSort').value,
+      celebrationEligible: form.querySelector('#mfCelebration').value === 'true',
       variants: currentVariants.filter(v=>v.name)
     };
     if(!body.name || !body.basePrice){ showError('Name and price are required'); return; }

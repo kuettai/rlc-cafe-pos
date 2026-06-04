@@ -46,7 +46,7 @@ function renderMenu() {
   html += `<div class="menu-filter"><input type="text" id="menuSearch" placeholder="🔍 Search menu..." value="${menuFilter}" class="menu-search-input"><div class="menu-filter-tabs"><button class="menu-filter-tab${menuCategory==='ALL'?' active':''}" data-cat="ALL">All</button><button class="menu-filter-tab${menuCategory==='DRINK'?' active':''}" data-cat="DRINK">🥤 Drinks</button><button class="menu-filter-tab${menuCategory==='FOOD'?' active':''}" data-cat="FOOD">🍔 Food</button></div></div>`;
 
   if (celebrationMode) {
-    html += `<div class="celebration-banner" aria-live="polite">🎉 Celebration Day! All drinks at <strong>RM ${celebrationPrice.toFixed(2)}</strong></div>`;
+    html += `<div class="celebration-banner" aria-live="polite">🎉 Celebration Day! Selected drinks at <strong>RM ${celebrationPrice.toFixed(2)}</strong></div>`;
   }
 
   if (queueSize > 0) {
@@ -73,9 +73,9 @@ function renderMenu() {
       const cartItem = cart.find(c => c.id === item.id && c.variant === (item.variants ? item.variants[0] : null));
       const qty = cart.filter(c => c.id === item.id).reduce((s, c) => s + c.qty, 0);
 
-      const displayPrice = (celebrationMode && item.category === 'DRINK') ? celebrationPrice : item.basePrice;
+      const displayPrice = (celebrationMode && item.category === 'DRINK' && item.celebrationEligible !== false) ? celebrationPrice : item.basePrice;
       html += `<div class="menu-item${item.isPinned ? ' menu-item-pinned' : ''}${soldOut ? ' sold-out' : ''}" data-id="${item.id}">`;
-      html += `<div class="item-header"><span class="item-name">${item.isPinned ? '⭐ ' : ''}${item.name}</span><span class="item-price">${celebrationMode && item.category === 'DRINK' ? '<s style="opacity:.5;font-size:.8em">RM '+item.basePrice.toFixed(2)+'</s> ' : ''}RM ${displayPrice.toFixed(2)}</span></div>`;
+      html += `<div class="item-header"><span class="item-name">${item.isPinned ? '⭐ ' : ''}${item.name}</span><span class="item-price">${celebrationMode && item.category === 'DRINK' && item.celebrationEligible !== false ? '<s style="opacity:.5;font-size:.8em">RM '+item.basePrice.toFixed(2)+'</s> ' : ''}RM ${displayPrice.toFixed(2)}</span></div>`;
       if (item.description) {
         html += `<div style="font-size:.82rem;color:var(--text-light,#7A6355);margin-bottom:8px">${item.description}</div>`;
       }
@@ -148,10 +148,10 @@ function bindMenuEvents() {
       const itemId = container.dataset.itemId;
       const item = menu.find(m => m.id === itemId);
       const variantObj = item.variants?.find(v => v.id === btn.dataset.variant);
-      const basePrice = (celebrationMode && item.category === 'DRINK') ? celebrationPrice : item.basePrice;
-      const price = basePrice + ((celebrationMode && item.category === 'DRINK') ? 0 : (variantObj?.priceModifier || 0));
+      const basePrice = (celebrationMode && item.category === 'DRINK' && item.celebrationEligible !== false) ? celebrationPrice : item.basePrice;
+      const price = basePrice + ((celebrationMode && item.category === 'DRINK' && item.celebrationEligible !== false) ? 0 : (variantObj?.priceModifier || 0));
       const priceSpan = container.closest('.menu-item').querySelector('.item-price');
-      priceSpan.innerHTML = `${celebrationMode && item.category === 'DRINK' ? '<s style="opacity:.5;font-size:.8em">RM '+item.basePrice.toFixed(2)+'</s> ' : ''}RM ${price.toFixed(2)}`;
+      priceSpan.innerHTML = `${celebrationMode && item.category === 'DRINK' && item.celebrationEligible !== false ? '<s style="opacity:.5;font-size:.8em">RM '+item.basePrice.toFixed(2)+'</s> ' : ''}RM ${price.toFixed(2)}`;
     });
   });
 
@@ -167,8 +167,8 @@ function bindMenuEvents() {
         const totalQty = cart.filter(c => c.id === id).reduce((s, c) => s + c.qty, 0);
         if (item.category === 'FOOD' && totalQty >= getAvailable(item)) return;
         const variantObj = item.variants?.find(v => v.id === variant);
-        const basePrice = (celebrationMode && item.category === 'DRINK') ? celebrationPrice : item.basePrice;
-        const price = basePrice + ((celebrationMode && item.category === 'DRINK') ? 0 : (variantObj?.priceModifier || 0));
+        const basePrice = (celebrationMode && item.category === 'DRINK' && item.celebrationEligible !== false) ? celebrationPrice : item.basePrice;
+        const price = basePrice + ((celebrationMode && item.category === 'DRINK' && item.celebrationEligible !== false) ? 0 : (variantObj?.priceModifier || 0));
         if (existing) { existing.qty++; } else { cart.push({ id, name: item.name, variant, variantName: variantObj?.name || variant, price, qty: 1 }); }
         saveCart();
       } else {
