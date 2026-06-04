@@ -281,16 +281,17 @@ async function createWalkUp(event: APIGatewayProxyEvent): Promise<APIGatewayProx
 
     if (menu.category === 'FOOD') {
       const available = (menu.foodQuantityToday || 0) - (menu.foodReserved || 0);
-      if (available < item.quantity) return res(400, { error: `Insufficient stock for ${menu.name}` });
+      if (available < (item.quantity || item.qty || 1)) return res(400, { error: `Insufficient stock for ${menu.name}` });
     }
 
     let unitPrice = menu.basePrice;
-    const variant = item.variant ? menu.variants?.find((v: any) => v.name === item.variant) : null;
-    if (variant) unitPrice = variant.price ?? unitPrice;
+    const variant = item.variant ? menu.variants?.find((v: any) => v.name === item.variant || v.id === item.variant) : null;
+    if (variant) unitPrice = menu.basePrice + (variant.priceModifier || 0);
     if (settings?.celebrationMode && menu.category === 'DRINK') unitPrice = settings.celebrationPrice;
 
-    orderItems.push({ menuItemId: item.menuItemId, name: menu.name, variant: item.variant || null, quantity: item.quantity, unitPrice, category: menu.category });
-    totalAmount += unitPrice * item.quantity;
+    const qty = item.quantity || item.qty || 1;
+    orderItems.push({ menuItemId: item.menuItemId, name: menu.name, variant: item.variant || null, quantity: qty, unitPrice, category: menu.category });
+    totalAmount += unitPrice * qty;
   }
 
   // Apply discount

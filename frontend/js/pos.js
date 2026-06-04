@@ -773,7 +773,7 @@ async function openWalkup(){
       const disc=modal.querySelector('#wkDiscount').value||undefined;
       const notes=modal.querySelector('#wkNotes')?.value||'';
       try{
-        await api('POST','/api/pos/orders',{customerName:name, items:cart.map(c=>({menuItemId:c.menuItemId,name:c.name,variant:c.variant,qty:c.qty,price:c.price})), discountType:disc, notes});
+        await api('POST','/api/pos/orders',{customerName:name, items:cart.map(c=>({menuItemId:c.menuItemId,name:c.name,variant:c.variant,quantity:c.qty,price:c.price})), discountType:disc, notes});
         // Track item popularity for favourites sorting
         const counts = JSON.parse(localStorage.getItem('walkup_item_counts')||'{}');
         cart.forEach(c=>{ counts[c.menuItemId] = (counts[c.menuItemId]||0) + c.qty; });
