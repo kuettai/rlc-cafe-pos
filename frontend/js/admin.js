@@ -63,26 +63,53 @@ function logout(){ token=null; sessionStorage.removeItem('pos_token'); sessionSt
 
 // --- Main app shell ---
 function renderApp(){
-  app.innerHTML = `<nav class="admin-nav">
-    <span class="admin-nav-user">👤 ${currentUser}</span>
-    <button data-tab="dashboard" class="active">Dashboard</button>
-    <button data-tab="menu">Menu</button>
-    <button data-tab="users">Users</button>
-    <button data-tab="ingredients">Ingredients</button>
-    <button data-tab="checklist">Checklist</button>
-    <button data-tab="planogram">Planogram</button>
-    <button data-tab="settings">Settings</button>
-    <button data-tab="reports">Reports</button>
-    <a href="pos" class="pos-btn pos-btn-sm" style="text-decoration:none;margin-left:auto">POS</a>
-    <button class="nav-logout">Logout</button>
+  app.innerHTML = `<button class="sidebar-toggle" id="sidebarToggle" aria-label="Toggle menu">☰</button>
+<aside class="admin-sidebar" id="adminSidebar">
+  <div class="sidebar-header"><span>☕ Admin</span><button class="sidebar-close" id="sidebarClose">✕</button></div>
+  <div class="sidebar-user">👤 ${currentUser}</div>
+  <nav class="sidebar-nav">
+    <button data-tab="dashboard" class="active">📊 Dashboard</button>
+    <button data-tab="menu">🍽️ Menu</button>
+    <button data-tab="users">👥 Users</button>
+    <button data-tab="ingredients">🧪 Ingredients</button>
+    <button data-tab="checklist">✅ Checklist</button>
+    <button data-tab="planogram">📷 Planogram</button>
+    <button data-tab="settings">⚙️ Settings</button>
+    <button data-tab="reports">📈 Reports</button>
   </nav>
-  <div id="adminContent"></div>`;
-  app.querySelectorAll('.admin-nav button[data-tab]').forEach(btn=>{
+  <div class="sidebar-footer">
+    <a href="pos" class="pos-btn pos-btn-sm" style="text-decoration:none;display:block;text-align:center;margin-bottom:8px">Go to POS</a>
+    <button class="nav-logout">Logout</button>
+  </div>
+</aside>
+<div class="admin-overlay" id="adminOverlay"></div>
+<main class="admin-main" id="adminContent"></main>`;
+
+  if(window.innerWidth >= 900) document.getElementById('adminSidebar').classList.add('open');
+
+  document.getElementById('sidebarToggle').onclick=()=>{
+    document.getElementById('adminSidebar').classList.add('open');
+    document.getElementById('adminOverlay').style.display='block';
+  };
+  document.getElementById('sidebarClose').onclick=()=>{
+    document.getElementById('adminSidebar').classList.remove('open');
+    document.getElementById('adminOverlay').style.display='';
+  };
+  document.getElementById('adminOverlay').onclick=()=>{
+    document.getElementById('adminSidebar').classList.remove('open');
+    document.getElementById('adminOverlay').style.display='';
+  };
+
+  app.querySelectorAll('.sidebar-nav button[data-tab]').forEach(btn=>{
     btn.onclick=()=>{
-      app.querySelectorAll('.admin-nav button').forEach(b=>b.classList.remove('active'));
+      app.querySelectorAll('.sidebar-nav button').forEach(b=>b.classList.remove('active'));
       btn.classList.add('active');
       currentTab = btn.dataset.tab;
       loadTab();
+      if(window.innerWidth < 900){
+        document.getElementById('adminSidebar').classList.remove('open');
+        document.getElementById('adminOverlay').style.display='';
+      }
     };
   });
   app.querySelector('.nav-logout').onclick = logout;

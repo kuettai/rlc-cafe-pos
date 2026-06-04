@@ -59,24 +59,40 @@ function logout(){ token=null; currentUser=''; sessionStorage.removeItem('pos_to
 
 // --- Main view ---
 function renderMain(){
-  app.innerHTML = `<div class="pos-topbar">
-    <span class="pos-user">👤 ${currentUser} <span class="pos-status-dot ${cafeOpen?'open':'closed'}"></span></span>
-    <button id="btnCafeToggle" class="pos-btn pos-btn-sm">${cafeOpen?'Close Café':'Open Café'}</button>
-    <button id="btnCelebration" class="pos-btn pos-btn-sm ${celebrationMode?'active':''}">🎉 Celebration</button>
-    <button id="btnWalkup" class="pos-btn pos-btn-sm pos-btn-primary">+ Walk-up</button>
-    <button id="btnMenu" class="pos-btn pos-btn-sm">Menu</button>
-    <button id="btnPrep" class="pos-btn pos-btn-sm">Prep</button>
-    <a href="admin" class="pos-btn pos-btn-sm" style="text-decoration:none">Admin</a>
-    <button id="btnLogout" class="pos-btn pos-btn-sm pos-btn-danger">Logout</button>
+  app.innerHTML = `<button class="pos-sidebar-toggle" id="posSidebarToggle" aria-label="Toggle menu">☰</button>
+<aside class="pos-sidebar" id="posSidebar">
+  <div class="pos-sidebar-header">☕ POS</div>
+  <div class="pos-sidebar-user">👤 ${currentUser} <span class="pos-status-dot ${cafeOpen?'open':'closed'}"></span></div>
+  <nav class="pos-sidebar-nav">
+    <button id="btnCafeToggle" class="pos-sidebar-btn">${cafeOpen?'🔒 Close Café':'🔓 Open Café'}</button>
+    <button id="btnCelebration" class="pos-sidebar-btn ${celebrationMode?'active':''}">🎉 Celebration</button>
+    <button id="btnWalkup" class="pos-sidebar-btn primary">➕ Walk-up</button>
+    <button id="btnMenu" class="pos-sidebar-btn">📋 Menu</button>
+    <button id="btnPrep" class="pos-sidebar-btn">☑️ Prep</button>
+    <button id="btnHistory" class="pos-sidebar-btn">📜 History</button>
+    <a href="admin" class="pos-sidebar-btn" style="text-decoration:none;display:block">⚙️ Admin</a>
+  </nav>
+  <div class="pos-sidebar-footer">
+    <button id="btnLogout" class="pos-sidebar-logout">Logout</button>
   </div>
+</aside>
+<div class="pos-sidebar-overlay" id="posSidebarOverlay"></div>
+<main class="pos-main">
   <div id="posStats" class="pos-stats-bar"></div>
   <div class="pos-controls">
     <input id="orderSearch" class="pos-input pos-search" placeholder="Search customer...">
-    <button id="btnHistory" class="pos-btn pos-btn-sm">History</button>
     <button id="btnView" class="pos-btn pos-btn-sm">${viewMode==='kanban'?'List View':'Kanban View'}</button>
     <span id="lastRefresh" class="pos-last-refresh"></span>
   </div>
-  <div id="orderBoard" class="pos-board"></div>`;
+  <div id="orderBoard" class="pos-board"></div>
+</main>`;
+  if(window.innerWidth >= 900) document.getElementById('posSidebar').classList.add('open');
+  $('#posSidebarToggle').onclick = () => {
+    $('#posSidebar').classList.toggle('open');
+  };
+  $('#posSidebarOverlay').onclick = () => {
+    $('#posSidebar').classList.remove('open');
+  };
   $('#btnCafeToggle').onclick = toggleCafe;
   $('#btnCelebration').onclick = async()=>{
     try{
