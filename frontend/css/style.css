@@ -861,13 +861,14 @@ header h1{
 
 /* === Stats bar === */
 .pos-stats-bar{
-  display:flex;
+  display:none;
   gap:2px;
   padding:10px 20px;
   background:var(--cream);
   border-bottom:1px solid var(--cream-dark);
   overflow-x:auto;
 }
+.pos-stats-bar.visible{display:flex}
 .pos-stat{
   display:flex;
   flex-direction:column;
