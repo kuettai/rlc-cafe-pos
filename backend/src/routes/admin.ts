@@ -160,7 +160,7 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
     // Users
     if (method === 'GET' && path.endsWith('/admin/users')) {
       const r = await docClient.send(new ScanCommand({ TableName: USERS_TABLE }));
-      const users = (r.Items || []).map(u => ({ userId: u.userId, name: u.name, role: u.role, isActive: u.isActive }));
+      const users = (r.Items || []).map(u => ({ userId: u.userId, name: u.name, role: u.role, isActive: u.isActive, lastLoginAt: u.lastLoginAt }));
       return res(200, { users });
     }
 
@@ -168,7 +168,7 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
       const userId = uuid();
       const item = {
         PK: `USER#${userId}`, SK: 'META', userId,
-        name: body.name, pinHash: hashPin(body.pin), role: body.role, isActive: true
+        name: body.name, pinHash: hashPin(body.pin), role: body.role, isActive: true, forceUpdatePin: true
       };
       await docClient.send(new PutCommand({ TableName: USERS_TABLE, Item: item }));
       return res(201, { userId, name: body.name, role: body.role });
@@ -179,6 +179,7 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
       const updates = { ...body };
       if (updates.pin) {
         updates.pinHash = hashPin(updates.pin);
+        updates.forceUpdatePin = true;
         delete updates.pin;
       }
       const fields: string[] = [];

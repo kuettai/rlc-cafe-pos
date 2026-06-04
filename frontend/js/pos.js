@@ -50,6 +50,7 @@ function renderLogin(){
       sessionStorage.setItem('pos_token', token);
       sessionStorage.setItem('pos_user', currentUser);
       localStorage.setItem('pos_last_user', $('#loginUser').value);
+      if(data.forceUpdatePin){ showPinChangeModal(); return; }
       renderMain();
     } catch(e){ showError('Invalid PIN'); }
   };
@@ -57,10 +58,33 @@ function renderLogin(){
 
 function logout(){ token=null; currentUser=''; sessionStorage.removeItem('pos_token'); sessionStorage.removeItem('pos_user'); renderLogin(); }
 
+function showPinChangeModal(){
+  const modal = document.createElement('div');
+  modal.className = 'pos-modal-overlay';
+  modal.innerHTML = `<div class="pos-modal" style="max-width:400px">
+    <h3>🔒 Change Your PIN</h3>
+    <p style="margin:12px 0;font-size:.9rem;color:var(--text-light)">You must set a new PIN before continuing.</p>
+    <input id="newPin1" type="password" inputmode="numeric" maxlength="6" placeholder="New PIN (min 4 digits)" class="pos-input" style="margin-bottom:10px">
+    <input id="newPin2" type="password" inputmode="numeric" maxlength="6" placeholder="Confirm PIN" class="pos-input" style="margin-bottom:16px">
+    <button id="pinChangeSubmit" class="pos-btn pos-btn-primary" style="width:100%">Update PIN</button>
+  </div>`;
+  document.body.appendChild(modal);
+  modal.querySelector('#pinChangeSubmit').onclick = async()=>{
+    const p1 = modal.querySelector('#newPin1').value, p2 = modal.querySelector('#newPin2').value;
+    if(!p1 || p1.length < 4){ showError('PIN must be at least 4 digits'); return; }
+    if(p1 !== p2){ showError('PINs do not match'); return; }
+    try{
+      const res = await fetch(`${API_BASE}/api/auth/update-pin`,{ method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+token}, body:JSON.stringify({newPin:p1}) });
+      if(!res.ok){ const err = await res.json().catch(()=>({})); throw new Error(err.error||'Failed'); }
+      modal.remove();
+      renderMain();
+    } catch(e){ showError(e.message||'Failed to update PIN'); }
+  };
+}
+
 // --- Main view ---
 function renderMain(){
   app.innerHTML = `<aside class="pos-sidebar" id="posSidebar">
-  <div class="pos-sidebar-header">☕ POS</div>
   <div class="pos-sidebar-user">👤 ${currentUser} <span class="pos-status-dot ${cafeOpen?'open':'closed'}"></span></div>
   <div class="pos-sidebar-section-label">Quick Actions</div>
   <div class="pos-sidebar-actions">
@@ -85,12 +109,11 @@ function renderMain(){
   <div id="posStats" class="pos-stats-bar"></div>
   <div class="pos-controls">
     <input id="orderSearch" class="pos-input pos-search" placeholder="Search customer...">
-    <button id="btnView" class="pos-btn pos-btn-sm">${viewMode==='kanban'?'List View':'Kanban View'}</button>
+    <button id="btnView" class="pos-btn pos-btn-sm pos-btn-outline">${viewMode==='kanban'?'📋 List':'📊 Kanban'}</button>
     <span id="lastRefresh" class="pos-last-refresh"></span>
   </div>
   <div id="orderBoard" class="pos-board"></div>
 </main>`;
-  if(window.innerWidth >= 900) document.getElementById('posSidebar').classList.add('open');
   document.getElementById('posHeaderToggle').onclick = () => {
     $('#posSidebar').classList.toggle('open');
   };
@@ -133,7 +156,7 @@ function renderMain(){
   document.getElementById('headerLogout').onclick = logout;
   $('#btnHistory').onclick = openHistory;
   $('#btnStats').onclick = ()=>{ $('#posStats').classList.toggle('visible'); };
-  $('#btnView').onclick = ()=>{ viewMode = viewMode==='kanban'?'list':'kanban'; renderBoard(); $('#btnView').textContent = viewMode==='kanban'?'List View':'Kanban View'; };
+  $('#btnView').onclick = ()=>{ viewMode = viewMode==='kanban'?'list':'kanban'; renderBoard(); $('#btnView').textContent = viewMode==='kanban'?'📋 List':'📊 Kanban'; };
   $('#orderSearch').oninput = e=>{ searchFilter=e.target.value.toLowerCase(); renderBoard(); };
   fetchCafeStatus();
   fetchOrders();
@@ -402,7 +425,7 @@ function renderBoard(){
 function timeAgo(d){ const m=Math.floor((Date.now()-new Date(d))/60000); return m<1?'just now':m<60?`${m}m ago`:`${Math.floor(m/60)}h ${m%60}m ago`; }
 
 function cardHtml(o){
-  const items = (o.items||[]).map(i=>`${i.quantity||i.qty||1}x ${i.name}${i.variant?' ('+i.variant+')':''}`).join(', ');
+  const items = (o.items||[]).map(i=>`<div>${i.quantity||i.qty||1}x ${i.name}${i.variant?' ('+i.variant+')':''}</div>`).join('');
   const mins = Math.floor((Date.now()-new Date(o.createdAt))/60000);
   const urgent = mins > 10 && o.status === 'PENDING';
   const hasReceipt = !!o.receiptUrl;
@@ -791,12 +814,27 @@ async function openWalkup(){
 async function openMenuToggle(){
   let menu=[];
   try{ const d=await api('GET','/api/menu'); menu=Array.isArray(d)?d:d.items||[]; } catch(e){ showError('Failed to load menu'); return; }
-  const drinks = menu.filter(m=>m.category==='DRINK');
-  const food = menu.filter(m=>m.category==='FOOD');
+  const drinks = menu.filter(m=>m.category==='DRINK').sort((a,b)=>{
+    const top=['Long Black','Latte'];
+    const strip=s=>s.replace(/^[\p{Emoji}\p{Emoji_Presentation}\s]+/u,'');
+    const ai=top.indexOf(strip(a.name)),bi=top.indexOf(strip(b.name));
+    if(ai!==-1&&bi!==-1)return ai-bi;
+    if(ai!==-1)return -1;
+    if(bi!==-1)return 1;
+    return strip(a.name).localeCompare(strip(b.name));
+  });
+  const foodAll = menu.filter(m=>m.category==='FOOD');
   const modal=document.createElement('div');
   modal.className='pos-modal-overlay';
 
   function renderModal(){
+    const food = foodAll.slice().sort((a,b)=>{
+      if(!!a.isPinned!==!!b.isPinned)return a.isPinned?-1:1;
+      const aq=Number(a.foodQuantityToday||0)>0, bq=Number(b.foodQuantityToday||0)>0;
+      if(aq!==bq)return aq?-1:1;
+      const strip=s=>s.replace(/^[\p{Emoji}\p{Emoji_Presentation}\s]+/u,'');
+      return strip(a.name).localeCompare(strip(b.name));
+    });
     const allItems = [...drinks, ...food];
     modal.innerHTML=`<div class="pos-modal" style="max-width:600px">
       <button class="pos-modal-close">✕</button>

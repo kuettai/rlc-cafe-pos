@@ -193,7 +193,6 @@ function renderMenuSection(container, items){
       <button class="pos-btn pos-btn-sm" id="btnEnableDrinks">✅ Enable All Drinks</button>
       <button class="pos-btn pos-btn-sm" id="btnEnableFood">✅ Enable All Food</button>
       <button class="pos-btn pos-btn-sm pos-btn-danger" id="btnDisableAll">❌ Disable All</button>
-      <button class="pos-btn pos-btn-sm" id="btnRepeatFood">📋 Repeat Last Food</button>
     </div>`;
   if(!items.length){
     html += '<div class="admin-empty"><p>No menu items yet</p></div>';
@@ -224,7 +223,6 @@ function renderMenuSection(container, items){
   $('#btnEnableDrinks').onclick = async()=>{ try{ await api('PUT','/api/admin/menu/bulk-toggle',{enable:true,category:'DRINK'}); loadMenu(container); }catch(e){ showError('Failed'); } };
   $('#btnEnableFood').onclick = async()=>{ try{ await api('PUT','/api/admin/menu/bulk-toggle',{enable:true,category:'FOOD'}); loadMenu(container); }catch(e){ showError('Failed'); } };
   $('#btnDisableAll').onclick = async()=>{ try{ await api('PUT','/api/admin/menu/bulk-toggle',{enable:false}); loadMenu(container); }catch(e){ showError('Failed'); } };
-  $('#btnRepeatFood').onclick = async()=>{ try{ const r=await api('POST','/api/admin/menu/duplicate-food',{}); showSuccess(`Repeated ${r.duplicated} food items`); loadMenu(container); }catch(e){ showError('Failed'); } };
   container.querySelectorAll('[data-edit-menu]').forEach(btn=>{
     btn.onclick=()=>{ const item=items.find(i=>(i.menuItemId||i.id)===btn.dataset.editMenu); openMenuForm(container, item, items); };
   });
@@ -325,22 +323,29 @@ async function loadUsers(container){
   } catch(e){ renderUsersSection(container, []); }
 }
 
-function renderUsersSection(container, users){
+function renderUsersSection(container, users, filter='ALL'){
+  const filtered = filter==='ALL' ? users : filter==='NEVER' ? users.filter(u=>!u.lastLoginAt) : users.filter(u=>u.role===filter);
   let html = `<div class="admin-section">
     <div class="admin-section-header">
       <h2>Volunteers</h2>
       <button class="pos-btn pos-btn-primary" id="btnAddUser">+ Add Volunteer</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <button class="pos-btn pos-btn-sm ${filter==='ALL'?'pos-btn-primary':''}" data-user-filter="ALL">All</button>
+      <button class="pos-btn pos-btn-sm ${filter==='CASHIER'?'pos-btn-primary':''}" data-user-filter="CASHIER">Cashier</button>
+      <button class="pos-btn pos-btn-sm ${filter==='ADMIN'?'pos-btn-primary':''}" data-user-filter="ADMIN">Admin</button>
+      <button class="pos-btn pos-btn-sm ${filter==='NEVER'?'pos-btn-primary':''}" data-user-filter="NEVER">Never Logged In</button>
     </div>`;
-  if(!users.length){
-    html += '<div class="admin-empty"><p>No users loaded. Users are managed via the API.</p></div>';
+  if(!filtered.length){
+    html += '<div class="admin-empty"><p>No volunteers found.</p></div>';
   } else {
-    users.forEach(u=>{
+    filtered.forEach(u=>{
       const badge = u.role === 'ADMIN' ? 'badge-admin' : 'badge-cashier';
       html += `<div class="admin-card">
         <div class="admin-card-header">
           <div>
             <div class="admin-card-title">${u.name||u.userId}</div>
-            <div class="admin-card-subtitle">${u.userId}</div>
+            <div class="admin-card-subtitle">${u.lastLoginAt ? 'Last login: '+new Date(u.lastLoginAt).toLocaleString() : 'Never logged in'}</div>
           </div>
           <div class="admin-card-actions">
             <span class="admin-card-badge ${badge}">${u.role}</span>
@@ -356,6 +361,9 @@ function renderUsersSection(container, users){
   container.innerHTML = html;
 
   $('#btnAddUser').onclick = ()=> openUserForm(container, null);
+  container.querySelectorAll('[data-user-filter]').forEach(btn=>{
+    btn.onclick=()=>renderUsersSection(container, users, btn.dataset.userFilter);
+  });
   container.querySelectorAll('[data-edit-user]').forEach(btn=>{
     btn.onclick=()=>{ const u=users.find(x=>x.userId===btn.dataset.editUser); openUserForm(container, u); };
   });
@@ -402,6 +410,11 @@ function openUserForm(container, user){
     try{
       if(isEdit) await api('PUT',`/api/admin/users/${user.userId}`, body);
       else await api('POST','/api/admin/users', body);
+      if(pin){
+        const msg = `This is your access to https://153.oasisofcare.org/pos\nUsername: ${name}\nPin: ${pin}`;
+        await navigator.clipboard.writeText(msg);
+        showSuccess('Saved! Access details copied to clipboard.');
+      }
       form._overlay.remove();
       loadUsers(container);
     } catch(e){ showError('Save failed'); }

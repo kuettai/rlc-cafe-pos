@@ -115,7 +115,7 @@
 }
 .admin-card-title{font-weight:700;font-size:1.05rem;color:var(--text)}
 .admin-card-subtitle{font-size:.85rem;color:var(--text-light);margin-top:4px}
-.admin-card-actions{display:flex;gap:8px}
+.admin-card-actions{display:flex;gap:8px;align-items:center}
 .admin-card-badge{
   display:inline-block;
   padding:4px 10px;
