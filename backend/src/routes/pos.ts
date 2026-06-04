@@ -123,7 +123,77 @@ async function approveOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProx
     ExpressionAttributeValues: { ':s': 'PREPARING', ':a': body.approvedBy, ':dt': discountType, ':do': discountOffset, ':t': totalAmount, ':u': new Date().toISOString() },
   }));
 
+  // Deduct ingredients based on recipes
+  await deductIngredients(order.items);
+
   return res(200, { orderId: id, status: 'PREPARING', totalAmount, discountOffset });
+}
+
+async function deductIngredients(items: any[]) {
+  const usage: Record<string, number> = {};
+
+  for (const item of items) {
+    const menuItemId = item.menuItemId;
+    const variant = item.variant || 'default';
+    const qty = item.quantity || item.qty || 1;
+
+    // Always start with default/base recipe
+    const defaultKey = `RECIPE#${menuItemId}#default`;
+    const defaultResult = await docClient.send(new QueryCommand({
+      TableName: INGREDIENTS_TABLE,
+      KeyConditionExpression: 'PK = :pk',
+      ExpressionAttributeValues: { ':pk': defaultKey },
+    }));
+    const baseRecipe: Record<string, number> = {};
+    for (const ri of defaultResult.Items || []) {
+      if (ri.ingredientId) baseRecipe[ri.ingredientId] = ri.quantity || 0;
+    }
+
+    // If variant differs from default, merge variant on top (overrides same ingredient, adds new ones)
+    if (variant !== 'default') {
+      const variantKey = `RECIPE#${menuItemId}#${variant}`;
+      const variantResult = await docClient.send(new QueryCommand({
+        TableName: INGREDIENTS_TABLE,
+        KeyConditionExpression: 'PK = :pk',
+        ExpressionAttributeValues: { ':pk': variantKey },
+      }));
+      for (const ri of variantResult.Items || []) {
+        if (ri.ingredientId) baseRecipe[ri.ingredientId] = ri.quantity || 0;
+      }
+    }
+
+    for (const [ingId, amount] of Object.entries(baseRecipe)) {
+      usage[ingId] = (usage[ingId] || 0) + amount * qty;
+    }
+  }
+
+  // Deduct from ingredient stock (convert usage units to stock units is TODO — for now just track raw usage)
+  // Store usage log for the day
+  if (Object.keys(usage).length > 0) {
+    const today = new Date().toISOString().split('T')[0];
+    const logKey = `USAGE_LOG#${today}`;
+
+    const existing = await docClient.send(new GetCommand({
+      TableName: SETTINGS_TABLE,
+      Key: { PK: logKey, SK: 'META' },
+    }));
+
+    const currentUsage = existing.Item?.usage || {};
+    for (const [ingId, amount] of Object.entries(usage)) {
+      currentUsage[ingId] = (currentUsage[ingId] || 0) + amount;
+    }
+
+    await docClient.send(new PutCommand({
+      TableName: SETTINGS_TABLE,
+      Item: {
+        PK: logKey,
+        SK: 'META',
+        date: today,
+        usage: currentUsage,
+        lastUpdated: new Date().toISOString(),
+      },
+    }));
+  }
 }
 
 async function markReady(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
@@ -502,10 +572,20 @@ export async function handlePos(event: APIGatewayProxyEvent): Promise<APIGateway
     if (id) { event.pathParameters = { id }; return togglePin(event); }
   }
   if (method === 'GET' && path === '/api/pos/inventory') return getInventory();
+  if (method === 'GET' && path === '/api/pos/usage') return getUsageToday();
   if (method === 'PUT' && path.match(/\/api\/pos\/inventory\/[^/]+$/)) {
     const id = extractSegment(path, /\/api\/pos\/inventory\/([^/]+)/, 1);
     if (id) { event.pathParameters = { id }; return adjustStock(event); }
   }
 
   return res(404, { error: 'Not found' });
+}
+
+async function getUsageToday(): Promise<APIGatewayProxyResult> {
+  const today = new Date().toISOString().split('T')[0];
+  const logResult = await docClient.send(new GetCommand({
+    TableName: SETTINGS_TABLE,
+    Key: { PK: `USAGE_LOG#${today}`, SK: 'META' },
+  }));
+  return res(200, { date: today, usage: logResult.Item?.usage || {} });
 }
