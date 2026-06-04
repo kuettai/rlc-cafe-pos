@@ -75,6 +75,7 @@ function renderMain(){
     <button id="btnChecklist" class="pos-sidebar-btn">☑️ Checklist</button>
     <button id="btnPlanogram" class="pos-sidebar-btn">📷 Stock Count</button>
     <button id="btnHistory" class="pos-sidebar-btn">📜 History</button>
+    <button id="btnStats" class="pos-sidebar-btn">📊 Stats</button>
   </nav>
   <div class="pos-sidebar-footer">
     <button id="btnLogout" class="pos-sidebar-logout">Logout</button>
@@ -132,6 +133,7 @@ function renderMain(){
   };
   $('#btnLogout').onclick = logout;
   $('#btnHistory').onclick = openHistory;
+  $('#btnStats').onclick = ()=>{ $('#posStats').classList.toggle('visible'); };
   $('#btnView').onclick = ()=>{ viewMode = viewMode==='kanban'?'list':'kanban'; renderBoard(); $('#btnView').textContent = viewMode==='kanban'?'List View':'Kanban View'; };
   $('#orderSearch').oninput = e=>{ searchFilter=e.target.value.toLowerCase(); renderBoard(); };
   fetchCafeStatus();
