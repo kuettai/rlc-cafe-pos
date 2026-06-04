@@ -36,24 +36,26 @@ function getAvailable(item) {
 
 function renderMenu() {
   const name = localStorage.getItem('customerName') || '';
+
+  // Only build the shell if it doesn't exist yet
+  if (!document.getElementById('menuItems')) {
+    let shell = '';
+    shell += `<section class="name-section"><label for="nameInput">Your Name</label><div style="display:flex;gap:8px;align-items:center"><input type="text" id="nameInput" value="${name}" placeholder="Enter your name" aria-required="true" style="flex:1"><a href="track" class="layout-toggle" aria-label="My Orders" title="My Orders" style="text-decoration:none">📋</a><button id="layoutToggle" class="layout-toggle" aria-label="Toggle view">${menuLayout === 'grid' ? '☰' : '⊞'}</button></div></section>`;
+    shell += `<div class="menu-filter"><input type="text" id="menuSearch" placeholder="🔍 Search menu..." value="${menuFilter}" class="menu-search-input"><div class="menu-filter-tabs"><button class="menu-filter-tab${menuCategory==='ALL'?' active':''}" data-cat="ALL">All</button><button class="menu-filter-tab${menuCategory==='DRINK'?' active':''}" data-cat="DRINK">🥤 Drinks</button><button class="menu-filter-tab${menuCategory==='FOOD'?' active':''}" data-cat="FOOD">🍔 Food</button></div></div>`;
+    if (celebrationMode) {
+      shell += `<div class="celebration-banner" aria-live="polite">🎉 Celebration Day! Selected drinks at <strong>RM ${celebrationPrice.toFixed(2)}</strong></div>`;
+    }
+    if (queueSize > 0) {
+      const estMin = Math.max(3, queueSize * 3);
+      shell += `<div class="queue-info" aria-live="polite">☕ ${queueSize} order${queueSize > 1 ? 's' : ''} ahead · est. wait ~${estMin} min</div>`;
+    }
+    shell += `<div id="menuItems"></div>`;
+    app.innerHTML = shell;
+    bindShellEvents();
+  }
+
+  // Render only the menu items
   const categories = ['DRINK', 'FOOD'];
-  const grouped = {};
-  categories.forEach(c => { grouped[c] = menu.filter(i => i.category === c); });
-
-  let html = '';
-  html += `<section class="name-section"><label for="nameInput">Your Name</label><div style="display:flex;gap:8px;align-items:center"><input type="text" id="nameInput" value="${name}" placeholder="Enter your name" aria-required="true" style="flex:1"><a href="track" class="layout-toggle" aria-label="My Orders" title="My Orders" style="text-decoration:none">📋</a><button id="layoutToggle" class="layout-toggle" aria-label="Toggle view">${menuLayout === 'grid' ? '☰' : '⊞'}</button></div></section>`;
-
-  html += `<div class="menu-filter"><input type="text" id="menuSearch" placeholder="🔍 Search menu..." value="${menuFilter}" class="menu-search-input"><div class="menu-filter-tabs"><button class="menu-filter-tab${menuCategory==='ALL'?' active':''}" data-cat="ALL">All</button><button class="menu-filter-tab${menuCategory==='DRINK'?' active':''}" data-cat="DRINK">🥤 Drinks</button><button class="menu-filter-tab${menuCategory==='FOOD'?' active':''}" data-cat="FOOD">🍔 Food</button></div></div>`;
-
-  if (celebrationMode) {
-    html += `<div class="celebration-banner" aria-live="polite">🎉 Celebration Day! Selected drinks at <strong>RM ${celebrationPrice.toFixed(2)}</strong></div>`;
-  }
-
-  if (queueSize > 0) {
-    const estMin = Math.max(3, queueSize * 3);
-    html += `<div class="queue-info" aria-live="polite">☕ ${queueSize} order${queueSize > 1 ? 's' : ''} ahead · est. wait ~${estMin} min</div>`;
-  }
-
   const filteredMenu = menu.filter(i => {
     if (menuCategory !== 'ALL' && i.category !== menuCategory) return false;
     if (menuFilter && !i.name.toLowerCase().includes(menuFilter.toLowerCase())) return false;
@@ -62,6 +64,7 @@ function renderMenu() {
   const filteredGrouped = {};
   categories.forEach(c => { filteredGrouped[c] = filteredMenu.filter(i => i.category === c); });
 
+  let html = '';
   categories.forEach(cat => {
     if (!filteredGrouped[cat].length) return;
     filteredGrouped[cat].sort((a, b) => {
@@ -74,7 +77,6 @@ function renderMenu() {
     filteredGrouped[cat].forEach(item => {
       const avail = getAvailable(item);
       const soldOut = item.category === 'FOOD' && avail <= 0;
-      const cartItem = cart.find(c => c.id === item.id && c.variant === (item.variants ? item.variants[0] : null));
       const qty = cart.filter(c => c.id === item.id).reduce((s, c) => s + c.qty, 0);
 
       const displayPrice = (celebrationMode && item.category === 'DRINK' && item.celebrationEligible === true) ? celebrationPrice : item.basePrice;
@@ -107,9 +109,49 @@ function renderMenu() {
     html += `</div>`;
   });
 
-  app.innerHTML = html;
-  bindMenuEvents();
+  document.getElementById('menuItems').innerHTML = html;
+  bindItemEvents();
   updateCartBar();
+}
+
+let searchDebounceTimer = null;
+
+function bindShellEvents() {
+  document.getElementById('nameInput')?.addEventListener('input', e => {
+    localStorage.setItem('customerName', e.target.value.trim());
+  });
+
+  document.getElementById('menuSearch')?.addEventListener('input', e => {
+    menuFilter = e.target.value;
+    clearTimeout(searchDebounceTimer);
+    searchDebounceTimer = setTimeout(() => {
+      const el = document.getElementById('menuSearch');
+      const pos = el?.selectionStart;
+      renderMenu();
+      const newEl = document.getElementById('menuSearch');
+      if (newEl && pos !== null) {
+        newEl.value = menuFilter;
+        newEl.setSelectionRange(pos, pos);
+        newEl.focus();
+      }
+    }, 150);
+  });
+
+  document.querySelectorAll('.menu-filter-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      menuCategory = btn.dataset.cat;
+      document.querySelectorAll('.menu-filter-tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      renderMenu();
+    });
+  });
+
+  document.getElementById('layoutToggle')?.addEventListener('click', () => {
+    menuLayout = menuLayout === 'list' ? 'grid' : 'list';
+    localStorage.setItem('menuLayout', menuLayout);
+    document.getElementById('layoutToggle').textContent = menuLayout === 'grid' ? '☰' : '⊞';
+    renderMenu();
+  });
 }
 
 function getSelectedVariant(itemId) {
@@ -119,30 +161,7 @@ function getSelectedVariant(itemId) {
   return active ? active.dataset.variant : variantContainer.querySelector('button')?.dataset.variant || null;
 }
 
-function bindMenuEvents() {
-  document.getElementById('nameInput')?.addEventListener('input', e => {
-    localStorage.setItem('customerName', e.target.value.trim());
-  });
-
-  document.getElementById('menuSearch')?.addEventListener('input', e => {
-    menuFilter = e.target.value;
-    renderMenu();
-    document.getElementById('menuSearch')?.focus();
-  });
-
-  document.querySelectorAll('.menu-filter-tab').forEach(btn => {
-    btn.addEventListener('click', () => {
-      menuCategory = btn.dataset.cat;
-      renderMenu();
-    });
-  });
-
-  document.getElementById('layoutToggle')?.addEventListener('click', () => {
-    menuLayout = menuLayout === 'list' ? 'grid' : 'list';
-    localStorage.setItem('menuLayout', menuLayout);
-    renderMenu();
-  });
-
+function bindItemEvents() {
   document.querySelectorAll('.variants button').forEach(btn => {
     btn.addEventListener('click', () => {
       const container = btn.closest('.variants');
