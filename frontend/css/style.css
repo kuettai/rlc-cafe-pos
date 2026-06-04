@@ -996,18 +996,28 @@ header h1{
 .pos-card-preparing{border-left-color:var(--info)}
 .pos-card-ready{border-left-color:var(--success)}
 .pos-card-name{
-  font-weight:700;
-  font-size:1rem;
+  font-weight:800;
+  font-size:1.15rem;
   margin-bottom:6px;
   color:var(--text);
 }
+.pos-card-tag{
+  font-size:.68rem;
+  opacity:.6;
+  font-weight:500;
+}
 .pos-card-items{
-  font-size:.83rem;
+  font-size:.85rem;
   color:var(--text-light);
   margin-bottom:8px;
   overflow:hidden;
   text-overflow:ellipsis;
   white-space:nowrap;
+}
+.pos-card-note{
+  font-size:.75rem;
+  color:#7C3AED;
+  margin-top:2px;
 }
 .pos-card-footer{
   display:flex;
@@ -1015,6 +1025,16 @@ header h1{
   font-size:.78rem;
   color:#9CA3AF;
   font-weight:500;
+}
+.pos-card-actions{
+  margin-top:8px;
+  padding-top:8px;
+  border-top:1px solid var(--cream-dark);
+}
+.pos-card-actions .pos-btn{
+  width:100%;
+  font-size:.85rem;
+  padding:8px;
 }
 
 /* === Modal === */

@@ -363,23 +363,86 @@ function cardHtml(o){
   const mins = Math.floor((Date.now()-new Date(o.createdAt))/60000);
   const urgent = mins > 10 && o.status === 'PENDING';
   const hasReceipt = !!o.receiptUrl;
-  return `<div class="pos-card pos-card-${o.status.toLowerCase()} ${urgent?'pos-card-urgent':''} ${hasReceipt?'pos-card-receipt':''}" data-id="${o.id||o.orderId}">
+  let quickAction = '';
+  if(o.status==='PENDING') quickAction = `<div class="pos-card-actions"><button class="pos-btn pos-btn-sm pos-btn-primary pos-card-quick-approve" data-quick-id="${o.id||o.orderId}" onclick="event.stopPropagation()">✓ Approve</button></div>`;
+  else if(o.status==='PREPARING') quickAction = `<div class="pos-card-actions"><button class="pos-btn pos-btn-sm pos-btn-primary pos-card-quick-ready" data-quick-id="${o.id||o.orderId}" onclick="event.stopPropagation()">✓ Ready</button></div>`;
+
+  return `<div class="pos-card pos-card-${o.status.toLowerCase()} ${urgent?'pos-card-urgent':''} ${hasReceipt?'pos-card-receipt':''}" data-id="${o.id||o.orderId}" data-status="${o.status}">
     ${hasReceipt ? `<div class="pos-receipt-badge${Math.abs((o.receiptAmount||0)-(o.total||o.totalAmount||0))>0.01?' pos-receipt-mismatch':''}">💰 Receipt: RM${(o.receiptAmount||0).toFixed(2)}${Math.abs((o.receiptAmount||0)-(o.total||o.totalAmount||0))>0.01?' ⚠️ expected RM'+(o.total||o.totalAmount||0).toFixed(2):''}</div>` : ''}
-    <div class="pos-card-name">${o.customerName||'Guest'}${o.isWalkUp?' <span style="font-size:.7rem;opacity:.6">walk-up</span>':''}</div>
+    <div class="pos-card-name">${o.customerName||'Guest'}${o.isWalkUp?' <span class="pos-card-tag">walk-up</span>':''}</div>
     <div class="pos-card-items">${items||'—'}</div>
-    ${o.notes ? '<div style="font-size:.75rem;color:#7C3AED;margin-top:2px">📝 '+o.notes+'</div>' : ''}
+    ${o.notes ? '<div class="pos-card-note">📝 '+o.notes+'</div>' : ''}
     <div class="pos-card-footer"><span>RM ${(o.total||o.totalAmount||0).toFixed(2)}</span><span>${urgent?'⚠️ ':''}${timeAgo(o.createdAt)}</span></div>
-    ${o.status==='PENDING' ? `<button class="pos-btn pos-btn-sm pos-btn-primary pos-card-quick-approve" data-quick-id="${o.id||o.orderId}" onclick="event.stopPropagation()">✓ Approve</button>` : ''}
+    ${quickAction}
   </div>`;
 }
 
 function bindCards(){
-  document.querySelectorAll('.pos-card').forEach(c=>c.onclick=()=>openDetail(c.dataset.id));
+  document.querySelectorAll('.pos-card').forEach(c=>{
+    c.onclick=()=>openDetail(c.dataset.id);
+    initSwipe(c);
+  });
   document.querySelectorAll('.pos-card-quick-approve').forEach(btn=>btn.onclick=async(e)=>{
     e.stopPropagation();
     btn.disabled=true; btn.textContent='...';
     try{ await api('PUT',`/api/pos/orders/${btn.dataset.quickId}/approve`,{approvedBy:currentUser}); fetchOrders(); }
     catch(err){ btn.disabled=false; btn.textContent='✓ Approve'; showError('Approve failed'); }
+  });
+  document.querySelectorAll('.pos-card-quick-ready').forEach(btn=>btn.onclick=async(e)=>{
+    e.stopPropagation();
+    btn.disabled=true; btn.textContent='...';
+    try{ await api('PUT',`/api/pos/orders/${btn.dataset.quickId}/ready`); fetchOrders(); }
+    catch(err){ btn.disabled=false; btn.textContent='✓ Ready'; showError('Ready failed'); }
+  });
+}
+
+// --- Swipe gestures ---
+function initSwipe(card){
+  let startX=0, currentX=0, swiping=false;
+  const threshold=80;
+
+  card.addEventListener('touchstart',e=>{
+    startX=e.touches[0].clientX;
+    currentX=startX;
+    swiping=true;
+    card.style.transition='none';
+  },{passive:true});
+
+  card.addEventListener('touchmove',e=>{
+    if(!swiping) return;
+    currentX=e.touches[0].clientX;
+    const dx=currentX-startX;
+    if(Math.abs(dx)>10){
+      card.style.transform=`translateX(${dx*0.5}px)`;
+      card.style.opacity=1-Math.abs(dx)/300;
+    }
+  },{passive:true});
+
+  card.addEventListener('touchend',async()=>{
+    if(!swiping) return;
+    swiping=false;
+    const dx=currentX-startX;
+    card.style.transition='var(--transition)';
+    card.style.transform='';
+    card.style.opacity='';
+
+    const id=card.dataset.id;
+    const status=card.dataset.status;
+
+    if(dx>threshold){
+      // Swipe right: advance state
+      if(status==='PENDING'){
+        try{ await api('PUT',`/api/pos/orders/${id}/approve`,{approvedBy:currentUser}); fetchOrders(); }catch(e){ showError('Approve failed'); }
+      } else if(status==='PREPARING'){
+        try{ await api('PUT',`/api/pos/orders/${id}/ready`); fetchOrders(); }catch(e){ showError('Ready failed'); }
+      }
+    } else if(dx<-threshold){
+      // Swipe left: undo/reject
+      if(status==='PENDING') openDetail(id);
+      else if(status==='PREPARING'){
+        try{ await api('PUT',`/api/pos/orders/${id}/undo`); fetchOrders(); }catch(e){ showError('Undo failed'); }
+      }
+    }
   });
 }
 
@@ -584,6 +647,15 @@ async function openWalkup(){
   const modal=document.createElement('div');
   modal.className='pos-modal-overlay';
 
+  // Sort by popularity (items ordered more often appear first)
+  const orderHistory = JSON.parse(localStorage.getItem('walkup_item_counts')||'{}');
+  menu.sort((a,b)=>{
+    const aCount = orderHistory[a.menuItemId||a.id]||0;
+    const bCount = orderHistory[b.menuItemId||b.id]||0;
+    if(bCount !== aCount) return bCount - aCount;
+    return (a.sortOrder||0)-(b.sortOrder||0);
+  });
+
   function filteredMenu(){
     return menu.filter(m=>{
       if(m.isEnabledToday === false) return false;
@@ -660,6 +732,10 @@ async function openWalkup(){
       const notes=modal.querySelector('#wkNotes')?.value||'';
       try{
         await api('POST','/api/pos/orders',{customerName:name, items:cart.map(c=>({menuItemId:c.menuItemId,name:c.name,variant:c.variant,qty:c.qty,price:c.price})), discountType:disc, notes});
+        // Track item popularity for favourites sorting
+        const counts = JSON.parse(localStorage.getItem('walkup_item_counts')||'{}');
+        cart.forEach(c=>{ counts[c.menuItemId] = (counts[c.menuItemId]||0) + c.qty; });
+        localStorage.setItem('walkup_item_counts', JSON.stringify(counts));
         modal.remove(); fetchOrders();
       } catch(e){ showError('Failed to submit order'); }
     };
@@ -834,6 +910,7 @@ function openPrepView(){
   modal.innerHTML=`<div class="pos-modal" style="max-width:500px">
     <button class="pos-modal-close">✕</button>
     <h3>☕ Prep Queue (${items.length} drinks)</h3>
+    <a href="prep.html" target="_blank" style="font-size:.82rem;color:var(--primary,#6B4226);text-decoration:underline">Open full-screen barista view ↗</a>
     <div style="margin-top:16px;max-height:60vh;overflow-y:auto">
       ${items.length ? items.map((it,i)=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--cream-dark,#eee)">
         <div><strong>${it.name}</strong>${it.variant?' <span style="color:var(--text-light,#7A6355)">('+it.variant+')</span>':''}</div>

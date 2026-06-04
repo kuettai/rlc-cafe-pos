@@ -2,7 +2,7 @@ import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
-import { docClient, ORDERS_TABLE, GetCommand, UpdateCommand } from '../lib/db';
+import { docClient, ORDERS_TABLE, GetCommand, UpdateCommand, ScanCommand } from '../lib/db';
 
 const s3 = new S3Client({});
 const bedrock = new BedrockRuntimeClient({ region: process.env.AWS_REGION || 'ap-southeast-5' });
@@ -63,7 +63,7 @@ export async function handleReceipt(event: APIGatewayProxyEvent): Promise<APIGat
         ContentType: imageContentType,
       }));
 
-      // Call Bedrock to extract amount
+      // Call Bedrock to extract amount, date, and reference number
       const extractResult = await extractReceiptAmount(imageData, imageContentType);
 
       if (!extractResult.amount) {
@@ -81,16 +81,99 @@ export async function handleReceipt(event: APIGatewayProxyEvent): Promise<APIGat
         });
       }
 
+      // Validate receipt timestamp — must be after order creation and within 30 minutes
+      // Note: receipt date from bank apps is in local time (MYT = UTC+8)
+      // order.createdAt is in UTC (from Lambda). We normalize both to UTC for comparison.
+      if (extractResult.date) {
+        // Treat extracted date as MYT (UTC+8) if it has no timezone info
+        const dateStr = extractResult.date;
+        const hasTZ = dateStr.includes('+') || dateStr.includes('Z') || dateStr.includes('T');
+        const receiptTime = hasTZ
+          ? new Date(dateStr).getTime()
+          : new Date(dateStr + '+08:00').getTime();
+
+        const orderTime = new Date(order.createdAt).getTime();
+        const now = Date.now();
+
+        if (receiptTime < orderTime) {
+          return res(400, {
+            error: 'Receipt timestamp is before this order was placed. Please upload the receipt for this order.',
+          });
+        }
+
+        if (receiptTime > now + 60000) {
+          return res(400, {
+            error: 'Receipt timestamp appears to be in the future. Please upload a valid receipt.',
+          });
+        }
+
+        if (now - receiptTime > 30 * 60 * 1000) {
+          return res(400, {
+            error: 'Receipt is older than 30 minutes. Please upload a recent receipt for this order.',
+          });
+        }
+      }
+
+      // Duplicate detection — check if this receipt was already used for another order
+      if (extractResult.referenceNo) {
+        const dupCheck = await docClient.send(new ScanCommand({
+          TableName: ORDERS_TABLE,
+          FilterExpression: 'receiptRef = :ref AND orderId <> :oid',
+          ExpressionAttributeValues: {
+            ':ref': extractResult.referenceNo,
+            ':oid': orderId,
+          },
+        }));
+        if (dupCheck.Items && dupCheck.Items.length > 0) {
+          return res(400, {
+            error: 'This receipt has already been used for another order. Please upload a different receipt.',
+          });
+        }
+      }
+
+      // Fallback duplicate detection by amount + timestamp (±1 min) if no reference number
+      if (!extractResult.referenceNo && extractResult.date) {
+        const dateStr = extractResult.date;
+        const hasTZ = dateStr.includes('+') || dateStr.includes('Z') || dateStr.includes('T');
+        const receiptTime = hasTZ
+          ? new Date(dateStr).getTime()
+          : new Date(dateStr + '+08:00').getTime();
+
+        const dupCheck = await docClient.send(new ScanCommand({
+          TableName: ORDERS_TABLE,
+          FilterExpression: 'receiptAmount = :amt AND orderId <> :oid AND attribute_exists(receiptDate)',
+          ExpressionAttributeValues: {
+            ':amt': extractResult.amount,
+            ':oid': orderId,
+          },
+        }));
+        const duplicates = (dupCheck.Items || []).filter((item: any) => {
+          if (!item.receiptDate) return false;
+          const otherStr = item.receiptDate;
+          const otherHasTZ = otherStr.includes('+') || otherStr.includes('Z') || otherStr.includes('T');
+          const otherTime = otherHasTZ
+            ? new Date(otherStr).getTime()
+            : new Date(otherStr + '+08:00').getTime();
+          return Math.abs(otherTime - receiptTime) < 60000;
+        });
+        if (duplicates.length > 0) {
+          return res(400, {
+            error: 'A receipt with the same amount and timestamp was already used for another order. Please upload a unique receipt.',
+          });
+        }
+      }
+
       // Update order with receipt info
       const receiptUrl = `s3://${RECEIPTS_BUCKET}/${s3Key}`;
       await docClient.send(new UpdateCommand({
         TableName: ORDERS_TABLE,
         Key: { PK: `ORDER#${orderId}`, SK: 'META' },
-        UpdateExpression: 'SET receiptUrl = :url, receiptAmount = :amt, receiptDate = :dt, receiptUploadedAt = :now',
+        UpdateExpression: 'SET receiptUrl = :url, receiptAmount = :amt, receiptDate = :dt, receiptRef = :ref, receiptUploadedAt = :now',
         ExpressionAttributeValues: {
           ':url': receiptUrl,
           ':amt': extractResult.amount,
           ':dt': extractResult.date || null,
+          ':ref': extractResult.referenceNo || null,
           ':now': new Date().toISOString(),
         },
       }));
@@ -151,12 +234,12 @@ export async function handleReceipt(event: APIGatewayProxyEvent): Promise<APIGat
   }
 }
 
-async function extractReceiptAmount(imageData: Buffer, contentType: string): Promise<{ amount: number | null; date: string | null }> {
+async function extractReceiptAmount(imageData: Buffer, contentType: string): Promise<{ amount: number | null; date: string | null; referenceNo: string | null }> {
   const mediaType = contentType.includes('png') ? 'image/png' : 'image/jpeg';
 
   const payload = {
     anthropic_version: 'bedrock-2023-05-31',
-    max_tokens: 200,
+    max_tokens: 300,
     messages: [{
       role: 'user',
       content: [
@@ -170,9 +253,15 @@ async function extractReceiptAmount(imageData: Buffer, contentType: string): Pro
         },
         {
           type: 'text',
-          text: `Extract the payment amount and date/time from this DuitNow/bank transfer receipt screenshot.
-Return ONLY a JSON object: {"amount": <number>, "date": "<YYYY-MM-DD HH:mm>"}
-If you cannot determine the amount, return: {"amount": null, "date": null}
+          text: `Extract payment details from this DuitNow/bank transfer receipt screenshot.
+Return ONLY a JSON object with these fields:
+{"amount": <number>, "date": "<YYYY-MM-DD HH:mm>", "referenceNo": "<transaction reference/ID string>"}
+
+Rules:
+- "amount" is the transferred amount in MYR (number, e.g. 12.00)
+- "date" is the transaction date and time
+- "referenceNo" is the unique transaction reference, receipt number, or trace ID (the unique identifier for this specific transaction — look for fields like "Reference", "Transaction ID", "Receipt No", "Trace No")
+- If you cannot determine any field, set it to null
 Do not include any other text, just the JSON.`,
         },
       ],
@@ -195,9 +284,10 @@ Do not include any other text, just the JSON.`,
       return {
         amount: typeof parsed.amount === 'number' ? parsed.amount : null,
         date: parsed.date || null,
+        referenceNo: parsed.referenceNo || null,
       };
     }
   } catch {}
 
-  return { amount: null, date: null };
+  return { amount: null, date: null, referenceNo: null };
 }

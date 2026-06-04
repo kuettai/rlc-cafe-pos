@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#1a1a2e">
+<title>Prep View - RLC Café</title>
+<link rel="stylesheet" href="css/style.css">
+<style>
+body{background:#1a1a2e;color:#fff;font-family:var(--font)}
+.prep-header{padding:12px 20px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #2d2d44}
+.prep-header h1{font-size:1.2rem;opacity:.8}
+.prep-count{font-size:1rem;background:#2d2d44;padding:6px 14px;border-radius:20px}
+.prep-list{padding:16px;max-width:800px;margin:0 auto}
+.prep-card{background:#2d2d44;border-radius:16px;padding:20px 24px;margin-bottom:12px;border-left:5px solid #3b82f6;animation:fadeIn .3s ease}
+.prep-card-name{font-size:1.6rem;font-weight:800;margin-bottom:8px;color:#fff}
+.prep-card-items{font-size:1.1rem;color:#cbd5e1;line-height:1.8}
+.prep-card-items span{display:block}
+.prep-card-time{font-size:.8rem;color:#64748b;margin-top:10px}
+.prep-card-note{font-size:.9rem;color:#a78bfa;margin-top:6px}
+.prep-empty{text-align:center;padding:80px 20px;color:#64748b;font-size:1.2rem}
+.prep-ready-btn{margin-top:12px;padding:12px 24px;background:#2D8A4E;color:#fff;border:none;border-radius:12px;font-size:1rem;font-weight:700;cursor:pointer;min-height:48px;width:100%;transition:all .2s}
+.prep-ready-btn:hover{background:#25a55a}
+.prep-ready-btn:active{transform:scale(.97)}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+</style>
+</head>
+<body>
+<div class="prep-header">
+  <h1>☕ Barista Prep View</h1>
+  <span class="prep-count" id="prepCount">0 orders</span>
+</div>
+<div class="prep-list" id="prepList"><div class="prep-empty">No orders to prepare</div></div>
+
+<script src="js/config.js"></script>
+<script>
+let token = sessionStorage.getItem('pos_token');
+if(!token){ window.location.href = 'pos.html'; }
+
+async function fetchPrep(){
+  try{
+    const res = await fetch(`${API_BASE}/api/pos/orders`,{headers:{Authorization:`Bearer ${token}`}});
+    if(res.status===401){ window.location.href='pos.html'; return; }
+    const data = await res.json();
+    const orders = (Array.isArray(data)?data:data.orders||[]).filter(o=>o.status==='PREPARING');
+    render(orders);
+  }catch(e){}
+}
+
+function render(orders){
+  document.getElementById('prepCount').textContent = orders.length + ' order' + (orders.length!==1?'s':'');
+  if(!orders.length){
+    document.getElementById('prepList').innerHTML = '<div class="prep-empty">All caught up! ☕</div>';
+    return;
+  }
+  document.getElementById('prepList').innerHTML = orders.map(o=>{
+    const items = (o.items||[]).map(i=>`<span>• ${i.quantity||i.qty||1}x <strong>${i.name}</strong>${i.variant?' ('+i.variant+')':''}</span>`).join('');
+    const mins = Math.floor((Date.now()-new Date(o.createdAt))/60000);
+    return `<div class="prep-card">
+      <div class="prep-card-name">${o.customerName||'Guest'}</div>
+      <div class="prep-card-items">${items}</div>
+      ${o.notes?'<div class="prep-card-note">📝 '+o.notes+'</div>':''}
+      <div class="prep-card-time">${mins}m ago</div>
+      <button class="prep-ready-btn" data-id="${o.id||o.orderId}">✓ Mark Ready</button>
+    </div>`;
+  }).join('');
+
+  document.querySelectorAll('.prep-ready-btn').forEach(btn=>{
+    btn.onclick=async()=>{
+      btn.disabled=true; btn.textContent='...';
+      try{
+        await fetch(`${API_BASE}/api/pos/orders/${btn.dataset.id}/ready`,{method:'PUT',headers:{Authorization:`Bearer ${token}`}});
+        fetchPrep();
+      }catch(e){ btn.disabled=false; btn.textContent='✓ Mark Ready'; }
+    };
+  });
+}
+
+fetchPrep();
+setInterval(fetchPrep, 5000);
+</script>
+</body>
+</html>
