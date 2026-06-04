@@ -400,16 +400,24 @@ async function loadIngredients(container){
   } catch(e){ container.innerHTML = '<div class="admin-empty"><p>Failed to load ingredients</p></div>'; }
 }
 
+let ingLocationFilter = 'ALL';
+
 function renderIngredientsSection(container, items, menuItems, recipes){
+  const filtered = ingLocationFilter === 'ALL' ? items : items.filter(i=>i.storageLocation===ingLocationFilter);
   let html = `<div class="admin-section">
     <div class="admin-section-header">
       <h2>Ingredients</h2>
       <button class="pos-btn pos-btn-primary" id="btnAddIngredient">+ Add Ingredient</button>
+    </div>
+    <div style="display:flex;gap:6px;margin-bottom:16px">
+      <button class="pos-btn pos-btn-sm ${ingLocationFilter==='ALL'?'active':''}" data-ing-loc="ALL">All</button>
+      <button class="pos-btn pos-btn-sm ${ingLocationFilter==='FRIDGE'?'active':''}" data-ing-loc="FRIDGE">🧊 Fridge</button>
+      <button class="pos-btn pos-btn-sm ${ingLocationFilter==='STOREROOM'?'active':''}" data-ing-loc="STOREROOM">🗄️ Storeroom</button>
     </div>`;
-  if(!items.length){
-    html += '<div class="admin-empty"><p>No ingredients added yet</p></div>';
+  if(!filtered.length){
+    html += '<div class="admin-empty"><p>No ingredients in this location</p></div>';
   } else {
-    items.forEach(ing=>{
+    filtered.forEach(ing=>{
       const isLow = ing.currentStock <= (ing.lowStockThreshold||0);
       const usageLabel = ing.usageUnit ? ` · recipe unit: ${ing.usageUnit}` : '';
       html += `<div class="admin-card">
@@ -460,6 +468,12 @@ function renderIngredientsSection(container, items, menuItems, recipes){
   container.innerHTML = html;
 
   $('#btnAddIngredient').onclick = ()=> openIngredientForm(container, null, items);
+  container.querySelectorAll('[data-ing-loc]').forEach(btn=>{
+    btn.onclick=()=>{
+      ingLocationFilter = btn.dataset.ingLoc;
+      renderIngredientsSection(container, items, menuItems, recipes);
+    };
+  });
   container.querySelectorAll('[data-edit-ing]').forEach(btn=>{
     btn.onclick=()=>{ const ing=items.find(i=>i.ingredientId===btn.dataset.editIng); openIngredientForm(container, ing, items); };
   });
