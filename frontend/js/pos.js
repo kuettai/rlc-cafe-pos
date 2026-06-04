@@ -62,14 +62,19 @@ function renderMain(){
   app.innerHTML = `<aside class="pos-sidebar" id="posSidebar">
   <div class="pos-sidebar-header">☕ POS</div>
   <div class="pos-sidebar-user">👤 ${currentUser} <span class="pos-status-dot ${cafeOpen?'open':'closed'}"></span></div>
+  <div class="pos-sidebar-section-label">Quick Actions</div>
+  <div class="pos-sidebar-actions">
+    <button id="btnWalkup" class="pos-action-btn pos-action-primary">➕ Walk-up</button>
+    <button id="btnCelebration" class="pos-action-btn pos-action-toggle ${celebrationMode?'active':''}">🎉 Celebration</button>
+    <button id="btnCafeToggle" class="pos-action-btn pos-action-danger">${cafeOpen?'🔒 Close Café':'🔓 Open Café'}</button>
+  </div>
+  <div class="pos-sidebar-section-label">Navigation</div>
   <nav class="pos-sidebar-nav">
-    <button id="btnWalkup" class="pos-sidebar-btn primary">➕ Walk-up</button>
-    <button id="btnCafeToggle" class="pos-sidebar-btn">${cafeOpen?'🔒 Close Café':'🔓 Open Café'}</button>
-    <button id="btnPrep" class="pos-sidebar-btn">☑️ Prep</button>
+    <button id="btnPrep" class="pos-sidebar-btn">☕ Prep Queue</button>
     <button id="btnMenu" class="pos-sidebar-btn">📋 Menu</button>
-    <button id="btnCelebration" class="pos-sidebar-btn ${celebrationMode?'active':''}">🎉 Celebration</button>
+    <button id="btnChecklist" class="pos-sidebar-btn">☑️ Checklist</button>
+    <button id="btnPlanogram" class="pos-sidebar-btn">📷 Stock Count</button>
     <button id="btnHistory" class="pos-sidebar-btn">📜 History</button>
-    <a href="admin" class="pos-sidebar-btn" style="text-decoration:none;display:block">⚙️ Admin</a>
   </nav>
   <div class="pos-sidebar-footer">
     <button id="btnLogout" class="pos-sidebar-logout">Logout</button>
@@ -103,6 +108,28 @@ function renderMain(){
   $('#btnWalkup').onclick = openWalkup;
   $('#btnMenu').onclick = openMenuToggle;
   $('#btnPrep').onclick = openPrepView;
+  $('#btnChecklist').onclick = ()=>{
+    const phase = cafeOpen ? 'close' : 'open';
+    openChecklist(phase);
+  };
+  $('#btnPlanogram').onclick = ()=>{
+    const modal=document.createElement('div');
+    modal.className='pos-modal-overlay';
+    modal.innerHTML=`<div class="pos-modal" style="max-width:340px;text-align:center">
+      <button class="pos-modal-close">✕</button>
+      <h3>📷 Stock Count</h3>
+      <p style="font-size:.85rem;color:var(--text-light,#7A6355);margin:8px 0 20px">Which area?</p>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <button class="pos-btn pos-btn-primary pos-btn-lg" id="scFridge">🧊 Fridge</button>
+        <button class="pos-btn pos-btn-primary pos-btn-lg" id="scStore">📦 Storeroom</button>
+      </div>
+    </div>`;
+    document.body.appendChild(modal);
+    modal.querySelector('.pos-modal-close').onclick=()=>modal.remove();
+    modal.onclick=e=>{ if(e.target===modal) modal.remove(); };
+    modal.querySelector('#scFridge').onclick=()=>{ modal.remove(); openStockCount('fridge'); };
+    modal.querySelector('#scStore').onclick=()=>{ modal.remove(); openStockCount('storeroom'); };
+  };
   $('#btnLogout').onclick = logout;
   $('#btnHistory').onclick = openHistory;
   $('#btnView').onclick = ()=>{ viewMode = viewMode==='kanban'?'list':'kanban'; renderBoard(); $('#btnView').textContent = viewMode==='kanban'?'List View':'Kanban View'; };
