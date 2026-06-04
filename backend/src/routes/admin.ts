@@ -25,12 +25,14 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
     // Menu
     if (method === 'POST' && path.endsWith('/admin/menu')) {
       const menuItemId = uuid();
-      const item = {
+      const item: any = {
         PK: `MENU#${menuItemId}`, SK: 'META', menuItemId,
         name: body.name, category: body.category, basePrice: body.basePrice,
-        variants: body.variants || [], imageUrl: body.imageUrl || null,
+        variants: body.variants || [], variantGroups: body.variantGroups || [],
+        imageUrl: body.imageUrl || null,
         sortOrder: body.sortOrder || 0, isActive: true, isEnabledToday: true
       };
+      if (body.celebrationEligible !== undefined) item.celebrationEligible = body.celebrationEligible;
       await docClient.send(new PutCommand({ TableName: MENU_TABLE, Item: item }));
       return res(201, item);
     }

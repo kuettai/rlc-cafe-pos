@@ -1,5 +1,5 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
-import { docClient, USERS_TABLE, ScanCommand, UpdateCommand } from '../lib/db';
+import { docClient, USERS_TABLE, ScanCommand, UpdateCommand, GetCommand, QueryCommand } from '../lib/db';
 import { comparePin, signToken, hashPin, verifyToken } from '../lib/auth';
 
 export async function handleAuth(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
@@ -10,14 +10,27 @@ export async function handleAuth(event: APIGatewayProxyEvent): Promise<APIGatewa
       return { statusCode: 400, headers: {}, body: JSON.stringify({ error: 'userId and pin required' }) };
     }
 
-    const result = await docClient.send(new ScanCommand({
+    // Try direct GetCommand by userId first (O(1) instead of scan)
+    let user: any = null;
+    const directGet = await docClient.send(new GetCommand({
       TableName: USERS_TABLE,
-      FilterExpression: '(userId = :uid OR #n = :uid) AND isActive = :active',
-      ExpressionAttributeNames: { '#n': 'name' },
-      ExpressionAttributeValues: { ':uid': userId, ':active': true },
+      Key: { PK: `USER#${userId}`, SK: 'META' },
     }));
+    if (directGet.Item && directGet.Item.isActive) {
+      user = directGet.Item;
+    }
 
-    const user = result.Items?.[0];
+    // Fallback: query by name (only if direct lookup failed, still a scan but unavoidable without GSI)
+    if (!user) {
+      const result = await docClient.send(new ScanCommand({
+        TableName: USERS_TABLE,
+        FilterExpression: '#n = :name AND isActive = :active',
+        ExpressionAttributeNames: { '#n': 'name' },
+        ExpressionAttributeValues: { ':name': userId, ':active': true },
+      }));
+      user = result.Items?.[0];
+    }
+
     if (!user || !comparePin(pin, user.pinHash)) {
       return { statusCode: 401, headers: {}, body: JSON.stringify({ error: 'Invalid credentials' }) };
     }

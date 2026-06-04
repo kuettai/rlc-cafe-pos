@@ -14,7 +14,7 @@ export async function handleCafe(event: APIGatewayProxyEvent): Promise<APIGatewa
       IndexName: 'status-createdAt-index',
       KeyConditionExpression: '#s = :status',
       ExpressionAttributeNames: { '#s': 'status' },
-      ExpressionAttributeValues: { ':status': 'PENDING' },
+      ExpressionAttributeValues: { ':status': 'PREPARING' },
     }));
 
     const cafeStatus = settings.Item?.cafeStatus || 'CLOSED';

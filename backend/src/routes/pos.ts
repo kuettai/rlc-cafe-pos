@@ -285,12 +285,19 @@ async function createWalkUp(event: APIGatewayProxyEvent): Promise<APIGatewayProx
     }
 
     let unitPrice = menu.basePrice;
-    const variant = item.variant ? menu.variants?.find((v: any) => v.name === item.variant || v.id === item.variant) : null;
-    if (variant) unitPrice = menu.basePrice + (variant.priceModifier || 0);
+    let variantLabel = null;
+    if (item.selectedVariants?.length) {
+      for (const sv of item.selectedVariants) unitPrice += (sv.price || 0);
+      variantLabel = item.selectedVariants.map((sv: any) => sv.option).join(', ');
+    } else if (item.variant) {
+      const variant = menu.variants?.find((v: any) => v.name === item.variant || v.id === item.variant);
+      if (variant) unitPrice = menu.basePrice + (variant.priceModifier || 0);
+      variantLabel = item.variant;
+    }
     if (settings?.celebrationMode && menu.category === 'DRINK') unitPrice = settings.celebrationPrice;
 
     const qty = item.quantity || item.qty || 1;
-    orderItems.push({ menuItemId: item.menuItemId, name: menu.name, variant: item.variant || null, quantity: qty, unitPrice, category: menu.category });
+    orderItems.push({ menuItemId: item.menuItemId, name: menu.name, variant: variantLabel, quantity: qty, unitPrice, category: menu.category });
     totalAmount += unitPrice * qty;
   }
 

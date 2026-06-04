@@ -2,7 +2,7 @@ import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
-import { docClient, ORDERS_TABLE, GetCommand, UpdateCommand, ScanCommand } from '../lib/db';
+import { docClient, ORDERS_TABLE, GetCommand, UpdateCommand, ScanCommand, QueryCommand } from '../lib/db';
 
 const s3 = new S3Client({});
 const bedrock = new BedrockRuntimeClient({ region: process.env.AWS_REGION || 'ap-southeast-5' });
@@ -116,15 +116,20 @@ export async function handleReceipt(event: APIGatewayProxyEvent): Promise<APIGat
 
       // Duplicate detection — check if this receipt was already used for another order
       if (extractResult.referenceNo) {
-        const dupCheck = await docClient.send(new ScanCommand({
-          TableName: ORDERS_TABLE,
-          FilterExpression: 'receiptRef = :ref AND orderId <> :oid',
-          ExpressionAttributeValues: {
-            ':ref': extractResult.referenceNo,
-            ':oid': orderId,
-          },
-        }));
-        if (dupCheck.Items && dupCheck.Items.length > 0) {
+        const statuses = ['PENDING', 'PREPARING', 'READY'];
+        let isDuplicate = false;
+        for (const status of statuses) {
+          const dupCheck = await docClient.send(new QueryCommand({
+            TableName: ORDERS_TABLE,
+            IndexName: 'status-createdAt-index',
+            KeyConditionExpression: '#s = :s',
+            FilterExpression: 'receiptRef = :ref AND orderId <> :oid',
+            ExpressionAttributeNames: { '#s': 'status' },
+            ExpressionAttributeValues: { ':s': status, ':ref': extractResult.referenceNo, ':oid': orderId },
+          }));
+          if (dupCheck.Items && dupCheck.Items.length > 0) { isDuplicate = true; break; }
+        }
+        if (isDuplicate) {
           return res(400, {
             error: 'This receipt has already been used for another order. Please upload a different receipt.',
           });
@@ -139,23 +144,28 @@ export async function handleReceipt(event: APIGatewayProxyEvent): Promise<APIGat
           ? new Date(dateStr).getTime()
           : new Date(dateStr + '+08:00').getTime();
 
-        const dupCheck = await docClient.send(new ScanCommand({
-          TableName: ORDERS_TABLE,
-          FilterExpression: 'receiptAmount = :amt AND orderId <> :oid AND attribute_exists(receiptDate)',
-          ExpressionAttributeValues: {
-            ':amt': extractResult.amount,
-            ':oid': orderId,
-          },
-        }));
-        const duplicates = (dupCheck.Items || []).filter((item: any) => {
-          if (!item.receiptDate) return false;
-          const otherStr = item.receiptDate;
-          const otherHasTZ = otherStr.includes('+') || otherStr.includes('Z') || otherStr.includes('T');
-          const otherTime = otherHasTZ
-            ? new Date(otherStr).getTime()
-            : new Date(otherStr + '+08:00').getTime();
-          return Math.abs(otherTime - receiptTime) < 60000;
-        });
+        const statuses = ['PENDING', 'PREPARING', 'READY'];
+        let duplicates: any[] = [];
+        for (const status of statuses) {
+          const dupCheck = await docClient.send(new QueryCommand({
+            TableName: ORDERS_TABLE,
+            IndexName: 'status-createdAt-index',
+            KeyConditionExpression: '#s = :s',
+            FilterExpression: 'receiptAmount = :amt AND orderId <> :oid AND attribute_exists(receiptDate)',
+            ExpressionAttributeNames: { '#s': 'status' },
+            ExpressionAttributeValues: { ':s': status, ':amt': extractResult.amount, ':oid': orderId },
+          }));
+          const matches = (dupCheck.Items || []).filter((item: any) => {
+            if (!item.receiptDate) return false;
+            const otherStr = item.receiptDate;
+            const otherHasTZ = otherStr.includes('+') || otherStr.includes('Z') || otherStr.includes('T');
+            const otherTime = otherHasTZ
+              ? new Date(otherStr).getTime()
+              : new Date(otherStr + '+08:00').getTime();
+            return Math.abs(otherTime - receiptTime) < 60000;
+          });
+          duplicates.push(...matches);
+        }
         if (duplicates.length > 0) {
           return res(400, {
             error: 'A receipt with the same amount and timestamp was already used for another order. Please upload a unique receipt.',

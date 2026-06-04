@@ -260,6 +260,15 @@ header h1{
   border-color:var(--primary);
   box-shadow:0 2px 8px rgba(107,66,38,.25);
 }
+.variant-groups{margin-bottom:14px}
+.variant-group{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px}
+.vg-btn{
+  padding:8px 16px;border:2px solid var(--cream-dark);border-radius:24px;
+  background:#fff;font-size:.85rem;min-height:44px;min-width:44px;
+  cursor:pointer;transition:var(--transition);font-weight:500;color:var(--text);
+}
+.vg-btn:hover{border-color:var(--accent);background:var(--cream)}
+.vg-btn.active{background:var(--primary);color:#fff;border-color:var(--primary);box-shadow:0 2px 8px rgba(107,66,38,.25)}
 
 /* === Qty controls === */
 .qty-controls{

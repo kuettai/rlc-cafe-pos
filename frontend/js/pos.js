@@ -748,8 +748,15 @@ async function openWalkup(){
       </div>
       <div class="pos-walkup-menu">${filtered.length ? filtered.map(m=>{
         const price = m.basePrice || m.price || 0;
-        const variants=(m.variants||[]).map(v=>`<button class="pos-variant-btn" data-mid="${m.menuItemId||m.id}" data-v="${v.name||v.id}" data-vp="${v.priceModifier||0}">${v.name||v}${v.priceModifier ? ' +'+v.priceModifier : ''}</button>`).join('');
-        return `<div class="pos-walkup-item"><span>${m.name}${price ? ' - RM'+price.toFixed(2) : ''}</span>${variants}<button class="pos-add-btn" data-mid="${m.menuItemId||m.id}" data-mname="${m.name}" data-mp="${price}">+</button></div>`;
+        let variantHtml = '';
+        if(m.variantGroups && m.variantGroups.length){
+          variantHtml = m.variantGroups.map(g=>g.options.map(o=>
+            `<button class="pos-variant-btn" data-mid="${m.menuItemId||m.id}" data-group="${g.group}" data-type="${g.type}" data-v="${o.name}" data-vp="${o.price||0}">${o.name}${o.price ? ' +'+o.price : ''}</button>`
+          ).join('')).join('');
+        } else if(m.variants && m.variants.length){
+          variantHtml = m.variants.map(v=>`<button class="pos-variant-btn" data-mid="${m.menuItemId||m.id}" data-v="${v.name||v.id}" data-vp="${v.priceModifier||0}">${v.name||v}${v.priceModifier ? ' +'+v.priceModifier : ''}</button>`).join('');
+        }
+        return `<div class="pos-walkup-item"><span>${m.name}${price ? ' - RM'+price.toFixed(2) : ''}</span>${variantHtml}<button class="pos-add-btn" data-mid="${m.menuItemId||m.id}" data-mname="${m.name}" data-mp="${price}">+</button></div>`;
       }).join('') : '<div style="padding:16px;text-align:center;color:var(--text-light,#7A6355)">No items match</div>'}</div>
       <div class="pos-walkup-cart"><h4>Cart${cart.length ? ' — RM'+cartTotal.toFixed(2) : ''}</h4><ul>${cartHtml||'<li>Empty</li>'}</ul></div>
       <input id="wkNotes" class="pos-input" placeholder="Special requests (less sugar, extra hot)" style="margin-bottom:12px">
@@ -783,8 +790,10 @@ async function openWalkup(){
       const item=menu.find(m=>(m.menuItemId||m.id)===b.dataset.mid);
       const basePrice = item.basePrice || item.price || 0;
       const variantPrice = basePrice + (+b.dataset.vp||0);
+      const sv = [{group: b.dataset.group||'', option: b.dataset.v, price: +b.dataset.vp||0}];
       const existing = cart.find(c=>c.menuItemId===b.dataset.mid && c.variant===b.dataset.v);
       if(existing){ existing.qty++; }
+      else { cart.push({name:item.name, menuItemId:b.dataset.mid, price:variantPrice, qty:1, variant:b.dataset.v, selectedVariants:sv}); }
       else { cart.push({name:item.name, menuItemId:b.dataset.mid, price:variantPrice, qty:1, variant:b.dataset.v}); }
       cart._name=modal.querySelector('#wkName')?.value||'';
       renderWalkup();
@@ -797,7 +806,7 @@ async function openWalkup(){
       const disc=modal.querySelector('#wkDiscount').value||undefined;
       const notes=modal.querySelector('#wkNotes')?.value||'';
       try{
-        await api('POST','/api/pos/orders',{customerName:name, items:cart.map(c=>({menuItemId:c.menuItemId,name:c.name,variant:c.variant,quantity:c.qty,price:c.price})), discountType:disc, notes});
+        await api('POST','/api/pos/orders',{customerName:name, items:cart.map(c=>({menuItemId:c.menuItemId,name:c.name,variant:c.variant,selectedVariants:c.selectedVariants||[],quantity:c.qty,price:c.price})), discountType:disc, notes});
         // Track item popularity for favourites sorting
         const counts = JSON.parse(localStorage.getItem('walkup_item_counts')||'{}');
         cart.forEach(c=>{ counts[c.menuItemId] = (counts[c.menuItemId]||0) + c.qty; });

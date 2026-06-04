@@ -90,7 +90,19 @@ function renderMenu() {
         html += `<div class="item-stock">${soldOut ? 'Sold out' : avail + ' left'}</div>`;
       }
 
-      if (item.variants && item.variants.length) {
+      if (item.variantGroups && item.variantGroups.length) {
+        html += `<div class="variant-groups" data-item-id="${item.id}">`;
+        item.variantGroups.forEach(g => {
+          html += `<div class="variant-group" data-group="${g.group}" data-type="${g.type}">`;
+          g.options.forEach((o, i) => {
+            const priceTag = o.price ? ` (+RM${o.price})` : '';
+            const isActive = g.type === 'single' ? i === 0 : false;
+            html += `<button class="vg-btn ${isActive?'active':''}" data-option="${o.name}" data-price="${o.price||0}">${o.name}${priceTag}</button>`;
+          });
+          html += `</div>`;
+        });
+        html += `</div>`;
+      } else if (item.variants && item.variants.length) {
         html += `<div class="variants" data-item-id="${item.id}">`;
         item.variants.forEach((v, i) => {
           const isActive = cart.some(c => c.id === item.id && c.variant === v.id) || (i === 0 && !cart.some(c => c.id === item.id));
@@ -161,20 +173,40 @@ function getSelectedVariant(itemId) {
   return active ? active.dataset.variant : variantContainer.querySelector('button')?.dataset.variant || null;
 }
 
+function getSelectedVariants(itemId) {
+  const container = document.querySelector(`.variant-groups[data-item-id="${itemId}"]`);
+  if (!container) return [];
+  const selected = [];
+  container.querySelectorAll('.variant-group').forEach(g => {
+    const group = g.dataset.group;
+    g.querySelectorAll('.vg-btn.active').forEach(btn => {
+      selected.push({ group, option: btn.dataset.option, price: parseFloat(btn.dataset.price) || 0 });
+    });
+  });
+  return selected;
+}
+
 function bindItemEvents() {
+  // Old flat variant buttons
   document.querySelectorAll('.variants button').forEach(btn => {
     btn.addEventListener('click', () => {
       const container = btn.closest('.variants');
       container.querySelectorAll('button').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-pressed', 'false'); });
       btn.classList.add('active');
       btn.setAttribute('aria-pressed', 'true');
-      const itemId = container.dataset.itemId;
-      const item = menu.find(m => m.id === itemId);
-      const variantObj = item.variants?.find(v => v.id === btn.dataset.variant);
-      const basePrice = (celebrationMode && item.category === 'DRINK' && item.celebrationEligible === true) ? celebrationPrice : item.basePrice;
-      const price = basePrice + ((celebrationMode && item.category === 'DRINK' && item.celebrationEligible === true) ? 0 : (variantObj?.priceModifier || 0));
-      const priceSpan = container.closest('.menu-item').querySelector('.item-price');
-      priceSpan.innerHTML = `${celebrationMode && item.category === 'DRINK' && item.celebrationEligible === true ? '<s style="opacity:.5;font-size:.8em">RM '+item.basePrice.toFixed(2)+'</s> ' : ''}RM ${price.toFixed(2)}`;
+    });
+  });
+
+  // New variant group buttons
+  document.querySelectorAll('.vg-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const group = btn.closest('.variant-group');
+      if (group.dataset.type === 'single') {
+        group.querySelectorAll('.vg-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      } else {
+        btn.classList.toggle('active');
+      }
     });
   });
 
@@ -183,19 +215,36 @@ function bindItemEvents() {
       const id = btn.dataset.id;
       const action = btn.dataset.action;
       const item = menu.find(m => m.id === id);
-      const variant = getSelectedVariant(id);
 
       if (action === 'inc') {
-        const existing = cart.find(c => c.id === id && c.variant === variant);
         const totalQty = cart.filter(c => c.id === id).reduce((s, c) => s + c.qty, 0);
         if (item.category === 'FOOD' && totalQty >= getAvailable(item)) return;
-        const variantObj = item.variants?.find(v => v.id === variant);
-        const basePrice = (celebrationMode && item.category === 'DRINK' && item.celebrationEligible === true) ? celebrationPrice : item.basePrice;
-        const price = basePrice + ((celebrationMode && item.category === 'DRINK' && item.celebrationEligible === true) ? 0 : (variantObj?.priceModifier || 0));
-        if (existing) { existing.qty++; } else { cart.push({ id, name: item.name, variant, variantName: variantObj?.name || variant, price, qty: 1 }); }
+
+        let price, variantKey, variantLabel;
+        const selectedVariants = getSelectedVariants(id);
+        if (selectedVariants.length) {
+          const variantExtra = (celebrationMode && item.category === 'DRINK' && item.celebrationEligible === true) ? 0 : selectedVariants.reduce((s, v) => s + v.price, 0);
+          const basePrice = (celebrationMode && item.category === 'DRINK' && item.celebrationEligible === true) ? celebrationPrice : item.basePrice;
+          price = basePrice + variantExtra;
+          variantKey = selectedVariants.map(v => v.option).join(',');
+          variantLabel = selectedVariants.map(v => v.option).join(', ');
+        } else {
+          const variant = getSelectedVariant(id);
+          const variantObj = item.variants?.find(v => v.id === variant);
+          const basePrice = (celebrationMode && item.category === 'DRINK' && item.celebrationEligible === true) ? celebrationPrice : item.basePrice;
+          price = basePrice + ((celebrationMode && item.category === 'DRINK' && item.celebrationEligible === true) ? 0 : (variantObj?.priceModifier || 0));
+          variantKey = variant;
+          variantLabel = variantObj?.name || variant;
+        }
+
+        const existing = cart.find(c => c.id === id && c.variant === variantKey);
+        if (existing) { existing.qty++; }
+        else { cart.push({ id, name: item.name, variant: variantKey, variantName: variantLabel, selectedVariants: selectedVariants.length ? selectedVariants : undefined, price, qty: 1 }); }
         saveCart();
       } else {
-        const existing = cart.find(c => c.id === id && c.variant === variant);
+        const selectedVariants = getSelectedVariants(id);
+        const variantKey = selectedVariants.length ? selectedVariants.map(v => v.option).join(',') : getSelectedVariant(id);
+        const existing = cart.find(c => c.id === id && c.variant === variantKey);
         if (existing) { existing.qty--; if (existing.qty <= 0) cart = cart.filter(c => c !== existing); }
         saveCart();
       }
@@ -308,7 +357,7 @@ cartSubmit.addEventListener('click', async () => {
   cartSubmit.textContent = 'Placing order...';
 
   try {
-    const items = cart.map(c => ({ menuItemId: c.id, variant: c.variant, quantity: c.qty }));
+    const items = cart.map(c => ({ menuItemId: c.id, variant: c.variant, selectedVariants: c.selectedVariants || [], quantity: c.qty }));
     const res = await fetch(`${API_BASE}/api/orders`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

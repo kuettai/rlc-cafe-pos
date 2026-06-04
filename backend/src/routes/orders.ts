@@ -50,11 +50,18 @@ async function createOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
     }
 
     let unitPrice = menu.basePrice;
-    const variant = item.variant ? menu.variants?.find((v: any) => v.id === item.variant) : null;
-    if (variant) unitPrice += (variant.priceModifier || 0);
+    let variantLabel = null;
+    if (item.selectedVariants?.length) {
+      for (const sv of item.selectedVariants) unitPrice += (sv.price || 0);
+      variantLabel = item.selectedVariants.map((sv: any) => sv.option).join(', ');
+    } else if (item.variant) {
+      const variant = menu.variants?.find((v: any) => v.id === item.variant || v.name === item.variant);
+      if (variant) unitPrice += (variant.priceModifier || 0);
+      variantLabel = item.variant;
+    }
     if (settings.celebrationMode && menu.category === 'DRINK') unitPrice = settings.celebrationPrice;
 
-    orderItems.push({ menuItemId: item.menuItemId, name: menu.name, variant: item.variant || null, quantity: item.quantity, unitPrice, category: menu.category });
+    orderItems.push({ menuItemId: item.menuItemId, name: menu.name, variant: variantLabel, quantity: item.quantity, unitPrice, category: menu.category });
     totalAmount += unitPrice * item.quantity;
   }
 
@@ -141,11 +148,18 @@ async function modifyOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
       }
 
       let unitPrice = menu.basePrice;
-      const variant = item.variant ? menu.variants?.find((v: any) => v.name === item.variant) : null;
-      if (variant) unitPrice = variant.price ?? unitPrice;
+      let variantLabel = null;
+      if (item.selectedVariants?.length) {
+        for (const sv of item.selectedVariants) unitPrice += (sv.price || 0);
+        variantLabel = item.selectedVariants.map((sv: any) => sv.option).join(', ');
+      } else if (item.variant) {
+        const variant = menu.variants?.find((v: any) => v.name === item.variant);
+        if (variant) unitPrice += (variant.priceModifier || 0);
+        variantLabel = item.variant;
+      }
       if (settings?.celebrationMode && menu.category === 'DRINK') unitPrice = settings.celebrationPrice;
 
-      newItems.push({ menuItemId: item.menuItemId, name: menu.name, variant: item.variant || null, quantity: item.quantity, unitPrice, category: menu.category });
+      newItems.push({ menuItemId: item.menuItemId, name: menu.name, variant: variantLabel, quantity: item.quantity, unitPrice, category: menu.category });
       totalAmount += unitPrice * item.quantity;
     }
 
