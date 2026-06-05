@@ -182,6 +182,13 @@ export class InfraStack extends cdk.Stack {
       targets: [new targets.LambdaFunction(expiryHandler)],
     });
 
+    new events.Rule(this, 'MidweekStockCheck', {
+      ruleName: 'rlc-cafe-midweek-stock',
+      // Wednesday 12pm MYT (4am UTC)
+      schedule: events.Schedule.expression('cron(0 4 ? * WED *)'),
+      targets: [new targets.LambdaFunction(expiryHandler)],
+    });
+
     // ─── API Gateway (proxy integration) ───────────────────────────────
 
     const api = new apigateway.LambdaRestApi(this, 'CafeApi', {
