@@ -602,6 +602,75 @@ header h1{
   color:var(--success);
 }
 
+/* === Order edit mode === */
+.order-actions-row{
+  display:flex;
+  gap:10px;
+  margin-top:20px;
+  justify-content:center;
+  flex-wrap:wrap;
+}
+.edit-btn{
+  padding:12px 24px;
+  border:2px solid var(--primary,#6B4226);
+  background:#fff;
+  color:var(--primary,#6B4226);
+  border-radius:var(--radius);
+  font-size:1rem;
+  font-weight:600;
+  cursor:pointer;
+  min-height:48px;
+  transition:var(--transition);
+}
+.edit-btn:hover{background:var(--cream,#FFF8F0)}
+.edit-item-row{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:10px 0;
+  border-bottom:1px solid var(--cream-dark,#F5EDE4);
+}
+.edit-item-name{font-weight:500;font-size:.95rem}
+.edit-item-controls{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.edit-qty-btn{
+  width:32px;
+  height:32px;
+  border-radius:50%;
+  border:2px solid var(--cream-dark,#F5EDE4);
+  background:#fff;
+  font-size:1.1rem;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  transition:var(--transition);
+  color:var(--primary,#6B4226);
+}
+.edit-qty-btn:hover{border-color:var(--accent,#D4A574);background:var(--cream,#FFF8F0)}
+.edit-qty{font-weight:700;min-width:24px;text-align:center}
+.edit-remove-btn{
+  width:32px;
+  height:32px;
+  border-radius:50%;
+  border:none;
+  background:var(--danger-bg,#FDE8E8);
+  color:var(--danger,#C0392B);
+  font-size:.9rem;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.edit-total{
+  padding:12px 0;
+  text-align:right;
+  font-size:1.05rem;
+}
+
 .flagged-warning{
   background:var(--warning-bg);
   border:1px solid #F5D789;

@@ -96,15 +96,18 @@ function renderOrder(order) {
 
   html += `<div class="order-details"><h3>Order Details</h3>`;
   if (order.notes) html += `<div style="background:var(--cream,#f9f5f0);padding:10px 12px;border-radius:8px;font-size:.85rem;margin-bottom:10px">📝 ${order.notes}</div>`;
-  html += `<ul>`;
-  items.forEach(i => {
+  html += `<ul id="orderItemsList">`;
+  items.forEach((i, idx) => {
     const label = i.variant ? `${i.name} (${i.variant})` : i.name;
     html += `<li><span>${label} × ${i.quantity || 1}</span><span>RM ${((i.price || i.unitPrice || 0) * (i.quantity || 1)).toFixed(2)}</span></li>`;
   });
   html += `</ul><div class="order-total">Total: RM ${total.toFixed(2)}</div></div>`;
 
   if (order.status === 'PENDING') {
-    html += `<button class="cancel-btn" id="cancelBtn">Cancel Order</button>`;
+    html += `<div class="order-actions-row">
+      <button class="edit-btn" id="editBtn">✏️ Edit Order</button>
+      <button class="cancel-btn" id="cancelBtn">Cancel Order</button>
+    </div>`;
   }
 
   if (['READY', 'ARCHIVED', 'CANCELLED', 'EXPIRED'].includes(order.status)) {
@@ -139,9 +142,102 @@ function renderOrder(order) {
     } catch { showError('Failed to cancel, try again'); }
   });
 
+  // Bind edit
+  document.getElementById('editBtn')?.addEventListener('click', () => {
+    enterEditMode(order);
+  });
+
   if (['READY', 'ARCHIVED', 'CANCELLED', 'EXPIRED'].includes(order.status)) {
     clearInterval(pollTimer);
   }
+}
+
+function enterEditMode(order) {
+  clearInterval(pollTimer);
+  const items = [...(order.items || [])];
+  const listEl = document.getElementById('orderItemsList');
+  const actionsRow = document.querySelector('.order-actions-row');
+
+  function renderEditItems() {
+    const total = items.reduce((s, i) => s + (i.price || i.unitPrice || 0) * (i.quantity || 1), 0);
+    listEl.innerHTML = items.map((i, idx) => {
+      const label = i.variant ? `${i.name} (${i.variant})` : i.name;
+      const price = (i.price || i.unitPrice || 0) * (i.quantity || 1);
+      return `<li class="edit-item-row">
+        <span class="edit-item-name">${label}</span>
+        <div class="edit-item-controls">
+          <button class="edit-qty-btn" data-idx="${idx}" data-action="dec">−</button>
+          <span class="edit-qty">${i.quantity || 1}</span>
+          <button class="edit-qty-btn" data-idx="${idx}" data-action="inc">+</button>
+          <button class="edit-remove-btn" data-idx="${idx}">✕</button>
+        </div>
+      </li>`;
+    }).join('');
+    listEl.innerHTML += `<li class="edit-total"><strong>New Total: RM ${total.toFixed(2)}</strong></li>`;
+
+    listEl.querySelectorAll('.edit-qty-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = parseInt(btn.dataset.idx);
+        if (btn.dataset.action === 'inc') items[idx].quantity = (items[idx].quantity || 1) + 1;
+        else {
+          items[idx].quantity = (items[idx].quantity || 1) - 1;
+          if (items[idx].quantity <= 0) items.splice(idx, 1);
+        }
+        renderEditItems();
+      });
+    });
+
+    listEl.querySelectorAll('.edit-remove-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        items.splice(parseInt(btn.dataset.idx), 1);
+        renderEditItems();
+      });
+    });
+  }
+
+  renderEditItems();
+
+  actionsRow.innerHTML = `
+    <button class="edit-btn" id="saveEditBtn" style="background:var(--primary,#6B4226);color:#fff;border-color:var(--primary,#6B4226)">💾 Save Changes</button>
+    <button class="cancel-btn" id="cancelEditBtn" style="border-color:var(--text-light,#7A6355);color:var(--text-light,#7A6355)">Cancel Edit</button>
+  `;
+
+  document.getElementById('saveEditBtn').addEventListener('click', async () => {
+    if (!items.length) { showError('Order must have at least one item'); return; }
+    const btn = document.getElementById('saveEditBtn');
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+    try {
+      const res = await fetch(`${API_BASE}/api/orders/${orderId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'update',
+          items: items.map(i => ({
+            menuItemId: i.menuItemId,
+            variant: i.variant,
+            quantity: i.quantity || 1,
+            selectedVariants: i.selectedVariants || null,
+          }))
+        })
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        showError(err.error || 'Failed to update order');
+        btn.disabled = false;
+        btn.textContent = '💾 Save Changes';
+        return;
+      }
+      showSuccess('Order updated!');
+      pollTimer = setInterval(pollOrder, 7000);
+      pollOrder();
+    } catch { showError('Connection error'); btn.disabled = false; btn.textContent = '💾 Save Changes'; }
+  });
+
+  document.getElementById('cancelEditBtn').addEventListener('click', () => {
+    pollTimer = setInterval(pollOrder, 7000);
+    pollOrder();
+  });
 }
 
 async function handleReceiptUpload(e) {
