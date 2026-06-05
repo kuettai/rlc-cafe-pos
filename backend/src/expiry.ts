@@ -61,6 +61,15 @@ export async function handler(_event: ScheduledEvent): Promise<void> {
 }
 
 async function checkLowStock() {
+  // Only send alerts on Sunday after 5pm MYT and Wednesday at 12pm MYT
+  const nowMYT = new Date(Date.now() + 8 * 60 * 60 * 1000); // UTC+8
+  const day = nowMYT.getUTCDay(); // 0=Sun, 3=Wed
+  const hour = nowMYT.getUTCHours();
+
+  const isSundayEvening = day === 0 && hour >= 17 && hour < 18;
+  const isWednesdayNoon = day === 3 && hour >= 12 && hour < 13;
+  if (!isSundayEvening && !isWednesdayNoon) return;
+
   const today = new Date().toISOString().split('T')[0];
   const alertKey = `LOW_STOCK_ALERT#${today}`;
 
@@ -69,11 +78,8 @@ async function checkLowStock() {
     Key: { PK: alertKey, SK: 'META' },
   }));
 
-  // Only alert once per hour
-  if (lastAlert.Item?.lastSent) {
-    const lastSentTime = new Date(lastAlert.Item.lastSent).getTime();
-    if (Date.now() - lastSentTime < 60 * 60 * 1000) return;
-  }
+  // Only send once per day
+  if (lastAlert.Item?.lastSent) return;
 
   const ingredientResult = await docClient.send(new ScanCommand({
     TableName: INGREDIENTS_TABLE,
