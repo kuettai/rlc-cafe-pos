@@ -1,6 +1,7 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { v4 as uuid } from 'uuid';
 import { docClient, ORDERS_TABLE, MENU_TABLE, SETTINGS_TABLE, INGREDIENTS_TABLE, GetCommand, PutCommand, UpdateCommand, QueryCommand, ScanCommand } from '../lib/db';
+import { sendEndOfDaySummary } from '../lib/email';
 
 const res = (statusCode: number, body: object): APIGatewayProxyResult => ({
   statusCode, headers: {}, body: JSON.stringify(body),
@@ -413,7 +414,53 @@ async function closeCafe(): Promise<APIGatewayProxyResult> {
     }));
   }
 
+  // Send end-of-day summary email (fire and forget)
+  sendDailySummaryEmail().catch(() => {});
+
   return res(200, { cafeStatus: 'CLOSED', expiredOrders: expired });
+}
+
+async function sendDailySummaryEmail() {
+  const today = new Date().toISOString().split('T')[0];
+  const statuses = ['PENDING', 'PREPARING', 'READY', 'ARCHIVED', 'EXPIRED', 'CANCELLED'];
+  let allOrders: any[] = [];
+
+  for (const status of statuses) {
+    const r = await docClient.send(new QueryCommand({
+      TableName: ORDERS_TABLE,
+      IndexName: 'status-createdAt-index',
+      KeyConditionExpression: '#s = :s AND createdAt >= :today',
+      ExpressionAttributeNames: { '#s': 'status' },
+      ExpressionAttributeValues: { ':s': status, ':today': today },
+    }));
+    allOrders.push(...(r.Items || []));
+  }
+
+  const totalOrders = allOrders.length;
+  const totalRevenue = allOrders.reduce((s, o) => s + (o.totalAmount || 0), 0);
+  const totalOffsets = allOrders.reduce((s, o) => s + (o.discountOffset || 0), 0);
+  const netExpected = totalRevenue - totalOffsets;
+  const newcomersServed = allOrders.filter(o => o.discountType === 'NEWCOMER').length;
+
+  const itemCounts: Record<string, number> = {};
+  for (const o of allOrders) {
+    for (const i of o.items || []) {
+      const key = i.name + (i.variant ? ` (${i.variant})` : '');
+      itemCounts[key] = (itemCounts[key] || 0) + (i.quantity || 1);
+    }
+  }
+  const topItems = Object.entries(itemCounts).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name, qty]) => ({ name, qty }));
+
+  const ingredientResult = await docClient.send(new ScanCommand({
+    TableName: INGREDIENTS_TABLE,
+    FilterExpression: 'begins_with(PK, :prefix) AND SK = :sk',
+    ExpressionAttributeValues: { ':prefix': 'INGREDIENT#', ':sk': 'META' },
+  }));
+  const lowStockItems = (ingredientResult.Items || [])
+    .filter((i: any) => i.currentStock <= (i.lowStockThreshold || 0) && i.lowStockThreshold > 0)
+    .map((i: any) => ({ name: i.name, currentStock: i.currentStock, unit: i.unit }));
+
+  await sendEndOfDaySummary({ date: today, totalOrders, totalRevenue, totalOffsets, netExpected, newcomersServed, topItems, lowStockItems });
 }
 
 async function toggleCelebration(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {

@@ -121,6 +121,9 @@ export class InfraStack extends cdk.Stack {
         RECEIPTS_BUCKET: receiptsBucket.bucketName,
         PLANOGRAM_BUCKET: planogramBucket.bucketName,
         JWT_SECRET: 'CHANGE_ME_BEFORE_DEPLOY',
+        GMAIL_USER: process.env.GMAIL_USER || '',
+        GMAIL_APP_PASSWORD: process.env.GMAIL_APP_PASSWORD || '',
+        NOTIFICATION_EMAIL: process.env.NOTIFICATION_EMAIL || '',
       },
     });
 
@@ -159,11 +162,18 @@ export class InfraStack extends cdk.Stack {
       environment: {
         ORDERS_TABLE: ordersTable.tableName,
         MENU_TABLE: menuTable.tableName,
+        INGREDIENTS_TABLE: ingredientsTable.tableName,
+        SETTINGS_TABLE: settingsTable.tableName,
+        GMAIL_USER: process.env.GMAIL_USER || '',
+        GMAIL_APP_PASSWORD: process.env.GMAIL_APP_PASSWORD || '',
+        NOTIFICATION_EMAIL: process.env.NOTIFICATION_EMAIL || '',
       },
     });
 
     ordersTable.grantReadWriteData(expiryHandler);
     menuTable.grantReadWriteData(expiryHandler);
+    ingredientsTable.grantReadData(expiryHandler);
+    settingsTable.grantReadWriteData(expiryHandler);
 
     new events.Rule(this, 'OrderExpiryCron', {
       ruleName: 'rlc-cafe-order-expiry',
