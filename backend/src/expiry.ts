@@ -61,14 +61,10 @@ export async function handler(_event: ScheduledEvent): Promise<void> {
 }
 
 async function checkLowStock() {
-  // Only send alerts on Sunday after 5pm MYT and Wednesday at 12pm MYT
+  // Send low stock alert on the last cron run of the day (closest to 3pm MYT)
   const nowMYT = new Date(Date.now() + 8 * 60 * 60 * 1000); // UTC+8
-  const day = nowMYT.getUTCDay(); // 0=Sun, 3=Wed
   const hour = nowMYT.getUTCHours();
-
-  const isSundayEvening = day === 0 && hour >= 17 && hour < 18;
-  const isWednesdayNoon = day === 3 && hour >= 12 && hour < 13;
-  if (!isSundayEvening && !isWednesdayNoon) return;
+  if (hour < 14) return; // Only check after 2:30pm MYT (last 30-min window)
 
   const today = new Date().toISOString().split('T')[0];
   const alertKey = `LOW_STOCK_ALERT#${today}`;
