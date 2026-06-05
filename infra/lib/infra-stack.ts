@@ -177,7 +177,8 @@ export class InfraStack extends cdk.Stack {
 
     new events.Rule(this, 'OrderExpiryCron', {
       ruleName: 'rlc-cafe-order-expiry',
-      schedule: events.Schedule.rate(cdk.Duration.minutes(5)),
+      // Sundays 9am-3pm MYT (1am-7am UTC), every 30 min
+      schedule: events.Schedule.expression('cron(0/30 1-7 ? * SUN *)'),
       targets: [new targets.LambdaFunction(expiryHandler)],
     });
 
