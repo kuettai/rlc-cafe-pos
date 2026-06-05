@@ -1588,3 +1588,41 @@ header h1{
 .pos-action-toggle.active{background:#FEF3C7;border-color:#F59E0B;color:#B45309}
 .pos-action-danger{background:#fff;color:var(--danger,#DC2626);border-color:var(--danger,#DC2626)}
 .pos-action-danger:hover{background:var(--danger-bg,#fef2f2)}
+
+/* === Customer Profile === */
+.returning-btn{
+  display:block;width:100%;margin-top:10px;padding:10px;
+  background:none;border:1px dashed var(--accent,#D4A574);border-radius:10px;
+  color:var(--primary,#6B4226);font-size:.85rem;font-weight:600;cursor:pointer;
+  transition:all .15s;
+}
+.returning-btn:hover{background:var(--cream,#FFF8F0);border-style:solid}
+.profile-badge{
+  display:flex;align-items:center;gap:10px;padding:12px 16px;
+  background:linear-gradient(135deg,var(--cream,#FFF8F0),#fff);
+  border:2px solid var(--accent-light,#E8C9A0);border-radius:12px;
+}
+.profile-icon{font-size:1.3rem}
+.profile-name{font-weight:700;color:var(--primary,#6B4226);flex:1}
+.profile-orders{font-size:.8rem;color:var(--text-light,#7A6355);background:var(--cream-dark,#F5EDE4);padding:3px 8px;border-radius:20px}
+.profile-logout{
+  background:none;border:none;font-size:1.1rem;cursor:pointer;
+  color:var(--text-light,#7A6355);padding:4px;opacity:.6;transition:opacity .15s;
+}
+.profile-logout:hover{opacity:1}
+
+/* === App Footer === */
+.app-footer{
+  display:flex;align-items:center;justify-content:center;gap:12px;
+  padding:24px 16px 32px;margin-top:20px;
+}
+.app-version{
+  font-size:.75rem;color:var(--text-light,#7A6355);opacity:.6;
+}
+.check-update-btn{
+  background:none;border:none;font-size:.75rem;
+  color:var(--primary,#6B4226);cursor:pointer;
+  text-decoration:underline;opacity:.7;transition:opacity .15s;
+}
+.check-update-btn:hover{opacity:1}
+.check-update-btn:disabled{opacity:.5;cursor:default;text-decoration:none}

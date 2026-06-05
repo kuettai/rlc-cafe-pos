@@ -63,6 +63,20 @@ export class InfraStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
+    const customersTable = new dynamodb.Table(this, 'CustomersTable', {
+      tableName: 'rlc-cafe-customers',
+      partitionKey: { name: 'PK', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'SK', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    ordersTable.addGlobalSecondaryIndex({
+      indexName: 'customerId-createdAt-index',
+      partitionKey: { name: 'customerId', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'createdAt', type: dynamodb.AttributeType.STRING },
+    });
+
     // ─── S3 Buckets ────────────────────────────────────────────────────
 
     const receiptsBucket = new s3.Bucket(this, 'ReceiptsBucket', {
@@ -118,6 +132,7 @@ export class InfraStack extends cdk.Stack {
         INGREDIENTS_TABLE: ingredientsTable.tableName,
         USERS_TABLE: usersTable.tableName,
         SETTINGS_TABLE: settingsTable.tableName,
+        CUSTOMERS_TABLE: customersTable.tableName,
         RECEIPTS_BUCKET: receiptsBucket.bucketName,
         PLANOGRAM_BUCKET: planogramBucket.bucketName,
         JWT_SECRET: 'CHANGE_ME_BEFORE_DEPLOY',
@@ -132,6 +147,7 @@ export class InfraStack extends cdk.Stack {
     ingredientsTable.grantReadWriteData(apiHandler);
     usersTable.grantReadWriteData(apiHandler);
     settingsTable.grantReadWriteData(apiHandler);
+    customersTable.grantReadWriteData(apiHandler);
     receiptsBucket.grantReadWrite(apiHandler);
     planogramBucket.grantReadWrite(apiHandler);
 

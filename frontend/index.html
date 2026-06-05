@@ -34,11 +34,18 @@
   <button id="installDismiss" class="pos-btn pos-btn-sm" style="padding:6px 10px">✕</button>
 </div>
 
+<footer class="app-footer" id="appFooter">
+  <span class="app-version">v17</span>
+  <button id="checkUpdateBtn" class="check-update-btn">Check for update</button>
+</footer>
+
 <script src="js/config.js"></script>
 <script src="js/app.js"></script>
 <script>
+let swRegistration = null;
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js').then(reg=>{
+    swRegistration = reg;
     reg.addEventListener('updatefound',()=>{
       const newWorker=reg.installing;
       newWorker.addEventListener('statechange',()=>{
@@ -52,6 +59,29 @@ if('serviceWorker' in navigator){
     });
   });
 }
+document.getElementById('checkUpdateBtn').addEventListener('click',async function(){
+  const btn=this;
+  btn.textContent='Checking...';
+  btn.disabled=true;
+  try{
+    if(swRegistration){
+      await swRegistration.update();
+      const waiting=swRegistration.waiting;
+      if(waiting){
+        location.reload();
+      } else {
+        btn.textContent='You\'re up to date ✓';
+        setTimeout(()=>{btn.textContent='Check for update';btn.disabled=false},3000);
+      }
+    } else {
+      btn.textContent='No service worker';
+      setTimeout(()=>{btn.textContent='Check for update';btn.disabled=false},2000);
+    }
+  }catch(e){
+    btn.textContent='Check failed';
+    setTimeout(()=>{btn.textContent='Check for update';btn.disabled=false},2000);
+  }
+});
 let deferredPrompt;
 window.addEventListener('beforeinstallprompt', e=>{
   e.preventDefault();

@@ -9,6 +9,7 @@ import { handleAdmin } from './routes/admin';
 import { handleChecklist } from './routes/checklist';
 import { handleReceipt } from './routes/receipt';
 import { handlePlanogram } from './routes/planogram';
+import { handleCustomers } from './routes/customers';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -52,6 +53,11 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
   }
   if (path.match(/\/api\/orders\/[^/]+\/receipt/)) {
     const res = await handleReceipt(event);
+    res.headers = { ...CORS_HEADERS, ...res.headers };
+    return res;
+  }
+  if (path.startsWith('/api/customers')) {
+    const res = await handleCustomers(event);
     res.headers = { ...CORS_HEADERS, ...res.headers };
     return res;
   }

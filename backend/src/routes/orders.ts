@@ -1,6 +1,7 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { v4 as uuid } from 'uuid';
 import { docClient, ORDERS_TABLE, MENU_TABLE, SETTINGS_TABLE, GetCommand, PutCommand, UpdateCommand, ScanCommand } from '../lib/db';
+import { linkOrderToCustomer } from './customers';
 
 const res = (statusCode: number, body: object): APIGatewayProxyResult => ({
   statusCode, headers: {}, body: JSON.stringify(body),
@@ -31,7 +32,7 @@ async function releaseFood(items: { menuItemId: string; quantity: number; catego
 
 async function createOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
   const body = JSON.parse(event.body || '{}');
-  const { customerName, items, notes } = body;
+  const { customerName, items, notes, customerId } = body;
   if (!customerName || !items?.length) return res(400, { error: 'customerName and items required' });
 
   const settings = await getSettings();
@@ -81,17 +82,21 @@ async function createOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
   const now = new Date().toISOString();
   const expiresAt = Math.floor(Date.now() / 1000) + (settings.orderExpiryMinutes || 30) * 60;
 
-  await docClient.send(new PutCommand({
-    TableName: ORDERS_TABLE,
-    Item: {
-      PK: `ORDER#${orderId}`, SK: 'META', orderId, customerName,
-      items: orderItems, totalAmount, status: 'PENDING',
-      notes: notes || '',
-      discountType: 'NONE', discountOffset: 0,
-      createdAt: now, updatedAt: now, expiresAt,
-      isWalkUp: false, flaggedItems: [],
-    },
-  }));
+  const orderItem: any = {
+    PK: `ORDER#${orderId}`, SK: 'META', orderId, customerName,
+    items: orderItems, totalAmount, status: 'PENDING',
+    notes: notes || '',
+    discountType: 'NONE', discountOffset: 0,
+    createdAt: now, updatedAt: now, expiresAt,
+    isWalkUp: false, flaggedItems: [],
+  };
+  if (customerId) orderItem.customerId = customerId;
+
+  await docClient.send(new PutCommand({ TableName: ORDERS_TABLE, Item: orderItem }));
+
+  if (customerId) {
+    await linkOrderToCustomer(customerId, orderId, totalAmount);
+  }
 
   return res(201, { orderId, totalAmount, status: 'PENDING' });
 }

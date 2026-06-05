@@ -17,6 +17,7 @@ let celebrationPrice = 5;
 let menuLayout = localStorage.getItem('menuLayout') || 'list';
 let menuFilter = '';
 let menuCategory = 'ALL';
+let customerProfile = JSON.parse(localStorage.getItem('customerProfile') || 'null');
 
 function showError(msg) {
   errorBanner.textContent = msg;
@@ -40,7 +41,11 @@ function renderMenu() {
   // Only build the shell if it doesn't exist yet
   if (!document.getElementById('menuItems')) {
     let shell = '';
-    shell += `<section class="name-section"><label for="nameInput">Your Name</label><div style="display:flex;gap:8px;align-items:center"><input type="text" id="nameInput" value="${name}" placeholder="Enter your name" aria-required="true" style="flex:1"><a href="track" class="layout-toggle" aria-label="My Orders" title="My Orders" style="text-decoration:none">📋</a><button id="layoutToggle" class="layout-toggle" aria-label="Toggle view">${menuLayout === 'grid' ? '☰' : '⊞'}</button></div></section>`;
+    if (customerProfile) {
+      shell += `<section class="name-section"><div class="profile-badge"><span class="profile-icon">👤</span><span class="profile-name">${customerProfile.name}</span><span class="profile-orders">${customerProfile.orderCount || 0} orders</span><button id="profileLogout" class="profile-logout">✕</button></div><div style="display:flex;gap:8px;align-items:center;margin-top:8px"><a href="track" class="layout-toggle" aria-label="My Orders" title="My Orders" style="text-decoration:none">📋</a><button id="layoutToggle" class="layout-toggle" aria-label="Toggle view">${menuLayout === 'grid' ? '☰' : '⊞'}</button></div></section>`;
+    } else {
+      shell += `<section class="name-section"><label for="nameInput">Your Name</label><div style="display:flex;gap:8px;align-items:center"><input type="text" id="nameInput" value="${name}" placeholder="Enter your name" aria-required="true" style="flex:1"><a href="track" class="layout-toggle" aria-label="My Orders" title="My Orders" style="text-decoration:none">📋</a><button id="layoutToggle" class="layout-toggle" aria-label="Toggle view">${menuLayout === 'grid' ? '☰' : '⊞'}</button></div><button id="returningBtn" class="returning-btn">Returning customer? Tap here</button></section>`;
+    }
     shell += `<div class="menu-filter"><input type="text" id="menuSearch" placeholder="🔍 Search menu..." value="${menuFilter}" class="menu-search-input"><div class="menu-filter-tabs"><button class="menu-filter-tab${menuCategory==='ALL'?' active':''}" data-cat="ALL">All</button><button class="menu-filter-tab${menuCategory==='DRINK'?' active':''}" data-cat="DRINK">🥤 Drinks</button><button class="menu-filter-tab${menuCategory==='FOOD'?' active':''}" data-cat="FOOD">🍔 Food</button></div></div>`;
     if (celebrationMode) {
       shell += `<div class="celebration-banner" aria-live="polite">🎉 Celebration Day! Selected drinks at <strong>RM ${celebrationPrice.toFixed(2)}</strong></div>`;
@@ -131,6 +136,15 @@ let searchDebounceTimer = null;
 function bindShellEvents() {
   document.getElementById('nameInput')?.addEventListener('input', e => {
     localStorage.setItem('customerName', e.target.value.trim());
+  });
+
+  document.getElementById('returningBtn')?.addEventListener('click', showPhoneLookup);
+  document.getElementById('profileLogout')?.addEventListener('click', () => {
+    customerProfile = null;
+    localStorage.removeItem('customerProfile');
+    localStorage.removeItem('customerName');
+    app.innerHTML = '';
+    renderMenu();
   });
 
   document.getElementById('menuSearch')?.addEventListener('input', e => {
@@ -358,10 +372,13 @@ cartSubmit.addEventListener('click', async () => {
 
   try {
     const items = cart.map(c => ({ menuItemId: c.id, variant: c.variant, selectedVariants: c.selectedVariants || [], quantity: c.qty }));
+    const orderPayload = { customerName: name, items, notes: document.getElementById('orderNotes')?.value?.trim() || '' };
+    if (customerProfile?.phone) orderPayload.customerId = customerProfile.phone;
+
     const res = await fetch(`${API_BASE}/api/orders`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ customerName: name, items, notes: document.getElementById('orderNotes')?.value?.trim() || '' })
+      body: JSON.stringify(orderPayload)
     });
     const data = await res.json();
     if (!res.ok) { showError(data.message || 'Order failed, please try again'); await loadMenu(); renderMenu(); return; }
@@ -373,7 +390,12 @@ cartSubmit.addEventListener('click', async () => {
     localStorage.setItem('orderHistory', JSON.stringify(orderHistory.slice(0, 50)));
     localStorage.setItem('lastOrderId', data.orderId);
     cartOverlay.classList.remove('open');
-    window.location.href = `track?id=${data.orderId}`;
+
+    if (!customerProfile) {
+      showRegistrationPrompt(data.orderId);
+    } else {
+      window.location.href = `track?id=${data.orderId}`;
+    }
   } catch (e) {
     showError('Connection error, please try again');
   } finally {
@@ -412,6 +434,99 @@ async function init() {
     showError('Connection error, retrying...');
     setTimeout(init, 3000);
   }
+}
+
+function showPhoneLookup() {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(61,43,31,.6);backdrop-filter:blur(4px);z-index:400;display:flex;align-items:center;justify-content:center';
+  overlay.innerHTML = `<div style="background:#fff;border-radius:var(--radius-xl,16px);padding:28px 24px;width:90%;max-width:340px;box-shadow:0 8px 24px rgba(74,44,23,.15)">
+    <h3 style="color:var(--primary,#6B4226);margin-bottom:8px">Welcome back!</h3>
+    <p style="font-size:.85rem;color:var(--text-light,#7A6355);margin-bottom:16px">Enter your phone number to load your profile</p>
+    <input id="phoneLookupInput" type="tel" placeholder="e.g. 0121234567" style="width:100%;padding:14px 16px;border:2px solid var(--accent-light,#E8C9A0);border-radius:12px;font-size:1rem;background:var(--cream,#FFF8F0)" autofocus>
+    <div id="phoneLookupError" style="color:var(--danger,#C0392B);font-size:.85rem;margin-top:8px;display:none"></div>
+    <button id="phoneLookupBtn" style="width:100%;padding:14px;margin-top:14px;background:linear-gradient(135deg,var(--primary,#6B4226),var(--primary-light,#8B5E3C));color:#fff;border:none;border-radius:12px;font-size:1.05rem;font-weight:700;cursor:pointer">Find My Profile</button>
+    <button id="phoneLookupCancel" style="width:100%;padding:10px;margin-top:8px;background:none;border:none;color:var(--text-light,#7A6355);font-size:.9rem;cursor:pointer">Continue as guest</button>
+  </div>`;
+  document.body.appendChild(overlay);
+
+  const input = overlay.querySelector('#phoneLookupInput');
+  const btn = overlay.querySelector('#phoneLookupBtn');
+  const errEl = overlay.querySelector('#phoneLookupError');
+  const cancel = overlay.querySelector('#phoneLookupCancel');
+  input.focus();
+
+  async function doLookup() {
+    const phone = input.value.replace(/[^0-9]/g, '');
+    if (phone.length < 9) { errEl.textContent = 'Please enter a valid phone number'; errEl.style.display = 'block'; return; }
+    btn.disabled = true; btn.textContent = 'Looking up...';
+    try {
+      const res = await fetch(`${API_BASE}/api/customers/${phone}`);
+      if (res.status === 404) { errEl.textContent = 'No profile found. Order as guest and register after!'; errEl.style.display = 'block'; btn.disabled = false; btn.textContent = 'Find My Profile'; return; }
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      customerProfile = data;
+      localStorage.setItem('customerProfile', JSON.stringify(data));
+      localStorage.setItem('customerName', data.name);
+      overlay.remove();
+      app.innerHTML = '';
+      renderMenu();
+    } catch { errEl.textContent = 'Connection error, try again'; errEl.style.display = 'block'; btn.disabled = false; btn.textContent = 'Find My Profile'; }
+  }
+
+  btn.onclick = doLookup;
+  input.onkeydown = e => { if (e.key === 'Enter') doLookup(); };
+  cancel.onclick = () => overlay.remove();
+  overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+}
+
+function showRegistrationPrompt(orderId) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(61,43,31,.6);backdrop-filter:blur(4px);z-index:400;display:flex;align-items:center;justify-content:center';
+  overlay.innerHTML = `<div style="background:#fff;border-radius:var(--radius-xl,16px);padding:28px 24px;width:90%;max-width:340px;box-shadow:0 8px 24px rgba(74,44,23,.15)">
+    <h3 style="color:var(--primary,#6B4226);margin-bottom:4px">Save your profile?</h3>
+    <p style="font-size:.85rem;color:var(--text-light,#7A6355);margin-bottom:16px">Faster ordering next time + earn rewards 🎁</p>
+    <input id="regPhone" type="tel" placeholder="Phone number (e.g. 0121234567)" style="width:100%;padding:14px 16px;border:2px solid var(--accent-light,#E8C9A0);border-radius:12px;font-size:1rem;background:var(--cream,#FFF8F0);margin-bottom:10px">
+    <input id="regBirthday" type="text" placeholder="Birthday (MM-DD, optional)" style="width:100%;padding:14px 16px;border:2px solid var(--accent-light,#E8C9A0);border-radius:12px;font-size:1rem;background:var(--cream,#FFF8F0)">
+    <div id="regError" style="color:var(--danger,#C0392B);font-size:.85rem;margin-top:8px;display:none"></div>
+    <button id="regSubmit" style="width:100%;padding:14px;margin-top:14px;background:linear-gradient(135deg,var(--primary,#6B4226),var(--primary-light,#8B5E3C));color:#fff;border:none;border-radius:12px;font-size:1.05rem;font-weight:700;cursor:pointer">Save Profile</button>
+    <button id="regSkip" style="width:100%;padding:10px;margin-top:8px;background:none;border:none;color:var(--text-light,#7A6355);font-size:.9rem;cursor:pointer">Maybe later</button>
+  </div>`;
+  document.body.appendChild(overlay);
+
+  const phoneInput = overlay.querySelector('#regPhone');
+  const birthdayInput = overlay.querySelector('#regBirthday');
+  const btn = overlay.querySelector('#regSubmit');
+  const errEl = overlay.querySelector('#regError');
+  const skip = overlay.querySelector('#regSkip');
+  phoneInput.focus();
+
+  async function doRegister() {
+    const phone = phoneInput.value.replace(/[^0-9]/g, '');
+    if (phone.length < 9) { errEl.textContent = 'Please enter a valid phone number'; errEl.style.display = 'block'; return; }
+    const birthday = birthdayInput.value.trim();
+    if (birthday && !/^\d{2}-\d{2}$/.test(birthday)) { errEl.textContent = 'Birthday format: MM-DD (e.g. 03-15)'; errEl.style.display = 'block'; return; }
+
+    btn.disabled = true; btn.textContent = 'Saving...';
+    const name = localStorage.getItem('customerName') || 'Guest';
+    try {
+      const res = await fetch(`${API_BASE}/api/customers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone, name, birthday: birthday || undefined })
+      });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Failed'); }
+      customerProfile = { phone, name, birthday, orderCount: 1, totalSpent: 0 };
+      localStorage.setItem('customerProfile', JSON.stringify(customerProfile));
+      overlay.remove();
+      window.location.href = `track?id=${orderId}`;
+    } catch (e) { errEl.textContent = e.message; errEl.style.display = 'block'; btn.disabled = false; btn.textContent = 'Save Profile'; }
+  }
+
+  btn.onclick = doRegister;
+  phoneInput.onkeydown = e => { if (e.key === 'Enter') birthdayInput.focus(); };
+  birthdayInput.onkeydown = e => { if (e.key === 'Enter') doRegister(); };
+  skip.onclick = () => { overlay.remove(); window.location.href = `track?id=${orderId}`; };
+  overlay.onclick = e => { if (e.target === overlay) { overlay.remove(); window.location.href = `track?id=${orderId}`; } };
 }
 
 init();
