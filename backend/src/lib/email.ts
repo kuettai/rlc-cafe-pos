@@ -9,6 +9,29 @@ const transporter = GMAIL_USER && GMAIL_APP_PASSWORD ? nodemailer.createTranspor
   auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
 }) : null;
 
+function emailWrapper(content: string): string {
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f5ede4;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">
+  <div style="max-width:560px;margin:0 auto;padding:24px 16px">
+    <!-- Header -->
+    <div style="background:linear-gradient(135deg,#4A2C17 0%,#6B4226 50%,#8B5E3C 100%);border-radius:16px 16px 0 0;padding:24px 28px;text-align:center">
+      <h1 style="color:#fff;margin:0;font-size:1.4rem;font-weight:700">☕ oneFIVEthree Café</h1>
+      <p style="color:rgba(255,255,255,.7);margin:6px 0 0;font-size:.85rem">Oasis of Care (RLC), Petaling Jaya</p>
+    </div>
+    <!-- Body -->
+    <div style="background:#ffffff;padding:28px;border-radius:0 0 16px 16px;box-shadow:0 4px 12px rgba(74,44,23,.08)">
+      ${content}
+    </div>
+    <!-- Footer -->
+    <div style="text-align:center;padding:16px;font-size:.75rem;color:#9CA3AF">
+      <p>This is an automated notification from the 153 Café POS system.</p>
+      <p>Manage settings at <a href="https://153.oasisofcare.org/admin.html" style="color:#6B4226">153.oasisofcare.org/admin</a></p>
+    </div>
+  </div>
+</body></html>`;
+}
+
 export async function sendEmail(subject: string, html: string): Promise<boolean> {
   if (!transporter || !NOTIFICATION_EMAIL) {
     console.log('[EMAIL] Not configured, skipping:', subject);
@@ -17,7 +40,7 @@ export async function sendEmail(subject: string, html: string): Promise<boolean>
 
   try {
     await transporter.sendMail({
-      from: `"RLC Café 153" <${GMAIL_USER}>`,
+      from: `"153 Café POS" <${GMAIL_USER}>`,
       to: NOTIFICATION_EMAIL,
       subject,
       html,
@@ -31,23 +54,35 @@ export async function sendEmail(subject: string, html: string): Promise<boolean>
 }
 
 export async function sendLowStockAlert(items: { name: string; currentStock: number; unit: string; threshold: number }[]): Promise<boolean> {
-  const itemsHtml = items.map(i =>
-    `<tr><td style="padding:8px;border-bottom:1px solid #eee"><strong>${i.name}</strong></td><td style="padding:8px;border-bottom:1px solid #eee;color:#C0392B">${i.currentStock} ${i.unit}</td><td style="padding:8px;border-bottom:1px solid #eee">${i.threshold} ${i.unit}</td></tr>`
+  const itemRows = items.map(i =>
+    `<tr>
+      <td style="padding:12px 14px;border-bottom:1px solid #f5ede4;font-weight:500">${i.name}</td>
+      <td style="padding:12px 14px;border-bottom:1px solid #f5ede4;text-align:center;color:#C0392B;font-weight:700">${i.currentStock} ${i.unit}</td>
+      <td style="padding:12px 14px;border-bottom:1px solid #f5ede4;text-align:center;color:#7A6355">${i.threshold} ${i.unit}</td>
+    </tr>`
   ).join('');
 
-  const html = `
-    <div style="font-family:sans-serif;max-width:500px">
-      <h2 style="color:#6B4226">⚠️ Low Stock Alert</h2>
-      <p>The following items are running low and may need restocking:</p>
-      <table style="width:100%;border-collapse:collapse;margin:16px 0">
-        <tr style="background:#f9f5f0"><th style="padding:8px;text-align:left">Item</th><th style="padding:8px;text-align:left">Current</th><th style="padding:8px;text-align:left">Threshold</th></tr>
-        ${itemsHtml}
-      </table>
-      <p style="color:#7A6355;font-size:14px">Please restock before next Sunday's service.</p>
-      <p style="color:#9CA3AF;font-size:12px">— RLC Café 153 POS System</p>
+  const content = `
+    <div style="text-align:center;margin-bottom:20px">
+      <div style="display:inline-block;background:#FEF3C7;border-radius:50%;width:48px;height:48px;line-height:48px;font-size:1.5rem">⚠️</div>
+      <h2 style="color:#6B4226;margin:12px 0 4px;font-size:1.3rem">Low Stock Alert</h2>
+      <p style="color:#7A6355;margin:0;font-size:.9rem">${items.length} item${items.length>1?'s':''} running low</p>
+    </div>
+    <table style="width:100%;border-collapse:collapse;margin:20px 0;border:1px solid #f5ede4;border-radius:10px;overflow:hidden">
+      <thead>
+        <tr style="background:#f9f5f0">
+          <th style="padding:10px 14px;text-align:left;font-size:.8rem;text-transform:uppercase;color:#7A6355;letter-spacing:.5px">Item</th>
+          <th style="padding:10px 14px;text-align:center;font-size:.8rem;text-transform:uppercase;color:#C0392B;letter-spacing:.5px">Current</th>
+          <th style="padding:10px 14px;text-align:center;font-size:.8rem;text-transform:uppercase;color:#7A6355;letter-spacing:.5px">Threshold</th>
+        </tr>
+      </thead>
+      <tbody>${itemRows}</tbody>
+    </table>
+    <div style="background:#FEF3C7;border-radius:10px;padding:14px 18px;margin-top:16px">
+      <p style="margin:0;font-size:.9rem;color:#92400E"><strong>Action needed:</strong> Please restock before next Sunday's service.</p>
     </div>`;
 
-  return sendEmail('⚠️ Low Stock Alert — RLC Café 153', html);
+  return sendEmail(`⚠️ Low Stock: ${items.length} item${items.length>1?'s':''} need restocking`, emailWrapper(content));
 }
 
 export async function sendEndOfDaySummary(data: {
@@ -60,28 +95,68 @@ export async function sendEndOfDaySummary(data: {
   topItems: { name: string; qty: number }[];
   lowStockItems: { name: string; currentStock: number; unit: string }[];
 }): Promise<boolean> {
-  const topItemsHtml = data.topItems.map((i, idx) =>
-    `<tr><td style="padding:6px 8px;border-bottom:1px solid #eee">${idx+1}. ${i.name}</td><td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right"><strong>${i.qty}</strong></td></tr>`
-  ).join('');
-
-  const lowStockHtml = data.lowStockItems.length
-    ? `<h3 style="color:#C0392B;margin-top:20px">⚠️ Low Stock</h3><ul>${data.lowStockItems.map(i => `<li>${i.name}: ${i.currentStock} ${i.unit}</li>`).join('')}</ul>`
-    : '<p style="color:#2D8A4E">✅ All stock levels OK</p>';
-
-  const html = `
-    <div style="font-family:sans-serif;max-width:500px">
-      <h2 style="color:#6B4226">☕ End-of-Day Summary — ${data.date}</h2>
-      <table style="width:100%;border-collapse:collapse;margin:16px 0;background:#f9f5f0;border-radius:8px">
-        <tr><td style="padding:12px"><strong>Total Orders</strong></td><td style="padding:12px;text-align:right;font-size:1.2em"><strong>${data.totalOrders}</strong></td></tr>
-        <tr><td style="padding:12px"><strong>Gross Revenue</strong></td><td style="padding:12px;text-align:right;font-size:1.2em"><strong>RM ${data.totalRevenue.toFixed(2)}</strong></td></tr>
-        <tr><td style="padding:12px"><strong>Discounts/Offsets</strong></td><td style="padding:12px;text-align:right">RM ${data.totalOffsets.toFixed(2)}</td></tr>
-        <tr><td style="padding:12px"><strong>Net Expected</strong></td><td style="padding:12px;text-align:right;font-size:1.2em;color:#2D8A4E"><strong>RM ${data.netExpected.toFixed(2)}</strong></td></tr>
-        <tr><td style="padding:12px"><strong>Newcomers Served</strong></td><td style="padding:12px;text-align:right">${data.newcomersServed}</td></tr>
-      </table>
-      ${data.topItems.length ? `<h3 style="color:#6B4226;margin-top:20px">🏆 Top Items</h3><table style="width:100%;border-collapse:collapse">${topItemsHtml}</table>` : ''}
-      ${lowStockHtml}
-      <p style="color:#9CA3AF;font-size:12px;margin-top:24px">— RLC Café 153 POS System</p>
+  const statsHtml = `
+    <div style="display:flex;flex-wrap:wrap;gap:12px;margin:20px 0">
+      <div style="flex:1;min-width:120px;background:#f9f5f0;border-radius:10px;padding:16px;text-align:center">
+        <div style="font-size:1.6rem;font-weight:800;color:#6B4226">${data.totalOrders}</div>
+        <div style="font-size:.75rem;color:#7A6355;text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Orders</div>
+      </div>
+      <div style="flex:1;min-width:120px;background:#f9f5f0;border-radius:10px;padding:16px;text-align:center">
+        <div style="font-size:1.6rem;font-weight:800;color:#2D8A4E">RM${data.netExpected.toFixed(0)}</div>
+        <div style="font-size:.75rem;color:#7A6355;text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Net Revenue</div>
+      </div>
+      <div style="flex:1;min-width:120px;background:#f9f5f0;border-radius:10px;padding:16px;text-align:center">
+        <div style="font-size:1.6rem;font-weight:800;color:#6B4226">${data.newcomersServed}</div>
+        <div style="font-size:.75rem;color:#7A6355;text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Newcomers</div>
+      </div>
     </div>`;
 
-  return sendEmail(`☕ Daily Summary: ${data.totalOrders} orders, RM${data.netExpected.toFixed(2)} — ${data.date}`, html);
+  const breakdownHtml = `
+    <table style="width:100%;border-collapse:collapse;margin:16px 0">
+      <tr><td style="padding:8px 0;color:#7A6355">Gross Revenue</td><td style="padding:8px 0;text-align:right;font-weight:600">RM ${data.totalRevenue.toFixed(2)}</td></tr>
+      <tr><td style="padding:8px 0;color:#7A6355">Discounts & Offsets</td><td style="padding:8px 0;text-align:right;font-weight:600;color:#C0392B">- RM ${data.totalOffsets.toFixed(2)}</td></tr>
+      <tr style="border-top:2px solid #f5ede4"><td style="padding:10px 0;font-weight:700">Net Expected</td><td style="padding:10px 0;text-align:right;font-weight:800;font-size:1.1rem;color:#2D8A4E">RM ${data.netExpected.toFixed(2)}</td></tr>
+    </table>`;
+
+  const topItemsHtml = data.topItems.length ? `
+    <h3 style="color:#6B4226;font-size:1rem;margin:24px 0 12px">🏆 Top Sellers</h3>
+    <table style="width:100%;border-collapse:collapse">
+      ${data.topItems.map((i, idx) => `
+        <tr>
+          <td style="padding:8px 0;border-bottom:1px solid #f5ede4">
+            <span style="display:inline-block;width:22px;height:22px;background:${idx<3?'#6B4226':'#D4A574'};color:#fff;border-radius:50%;text-align:center;line-height:22px;font-size:.7rem;font-weight:700;margin-right:8px">${idx+1}</span>
+            ${i.name}
+          </td>
+          <td style="padding:8px 0;border-bottom:1px solid #f5ede4;text-align:right;font-weight:700;color:#6B4226">${i.qty}</td>
+        </tr>`).join('')}
+    </table>` : '';
+
+  const stockHtml = data.lowStockItems.length ? `
+    <div style="background:#FDE8E8;border-radius:10px;padding:14px 18px;margin-top:20px">
+      <h4 style="color:#C0392B;margin:0 0 8px;font-size:.9rem">⚠️ Low Stock Items</h4>
+      <ul style="margin:0;padding:0 0 0 18px;color:#7A6355;font-size:.85rem">
+        ${data.lowStockItems.map(i => `<li style="padding:3px 0"><strong>${i.name}</strong>: ${i.currentStock} ${i.unit}</li>`).join('')}
+      </ul>
+    </div>` : `
+    <div style="background:#E8F5EC;border-radius:10px;padding:14px 18px;margin-top:20px;text-align:center">
+      <p style="margin:0;color:#2D8A4E;font-weight:600">✅ All stock levels are healthy</p>
+    </div>`;
+
+  const content = `
+    <div style="text-align:center;margin-bottom:16px">
+      <h2 style="color:#6B4226;margin:0 0 4px;font-size:1.3rem">End-of-Day Summary</h2>
+      <p style="color:#7A6355;margin:0;font-size:.9rem">${formatDate(data.date)}</p>
+    </div>
+    ${statsHtml}
+    <h3 style="color:#6B4226;font-size:1rem;margin:24px 0 12px">💰 Revenue Breakdown</h3>
+    ${breakdownHtml}
+    ${topItemsHtml}
+    ${stockHtml}`;
+
+  return sendEmail(`☕ ${formatDate(data.date)}: ${data.totalOrders} orders · RM${data.netExpected.toFixed(0)} revenue`, emailWrapper(content));
+}
+
+function formatDate(dateStr: string): string {
+  const d = new Date(dateStr + 'T00:00:00+08:00');
+  return d.toLocaleDateString('en-MY', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 }
