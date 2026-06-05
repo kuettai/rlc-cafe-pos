@@ -129,34 +129,14 @@ cafepos/
 - ✅ Unit tests (auth, router) + Integration tests (21 tests against live API)
 - ✅ Backend compiles clean, all 33 tests passing
 
-### Completed (2026-06-03)
-- ✅ Admin dashboard page (admin.html) — menu CRUD, ingredients, users, reports, settings
-- ✅ Food item quantity management UI (POS → Menu panel)
-- ✅ Celebration mode pricing reflected on customer menu
-- ✅ End-of-day close flow (auto-expire remaining orders + reset food)
-- ✅ Customer order cancel fix
-- ✅ Pin/upsell items feature
-- ✅ Walk-up order filter (search + category tabs)
-- ✅ POS live stats, order history, reorder
-- ✅ Order tracking progress stepper
-- ✅ PWA install prompt, service worker v2, manifest shortcuts
-- ✅ Keyboard shortcuts for POS
-- ✅ Login by name (not just UUID)
 
-### TODO — Easy
-- [ ] Café Open/Close Checklist — configurable list of tasks for cashier to tick off before opening (e.g., "turn on machine", "fill ice", "check milk") and after closing (e.g., "wipe counter", "empty grounds", "lock fridge"). Editable by Admin in settings.
-
-### TODO — Medium
-- [ ] Payment Receipt Upload — customer uploads DuitNow screenshot on track page, backend invokes Bedrock Claude to extract payment amount, auto-attaches to order with badge + distinct sound on POS card. Cashier still manually approves. Requires: S3 bucket for receipts, Bedrock API call, new field `receiptUrl` + `receiptAmount` on order.
-- [ ] Recipe-based ingredient deduction on order approval
-- [ ] Email notifications (low stock, end-of-day summary)
-
-### TODO — Complex
-- [ ] Planogram Stock Count — upload multiple fridge/shelf photos from POS or Admin, invoke Bedrock Claude Vision to count bottles/items by type, suggest stock levels. S3 storage with 1-day lifecycle policy. Requires: S3 bucket, Bedrock multimodal API, UI for photo capture + review of AI suggestions before committing stock.
-
-### TODO — Polish
-- [ ] PWA icons (192x192, 512x512)
-- [ ] Customer order modify UI
+### TODO — Remaining
+- [ ] Email notifications (low stock alert, end-of-day summary to admin)
+- [ ] Customer order modify UI (change items while order is still PENDING)
+- [ ] Stock history & consumption trends (graph of usage over weeks)
+- [ ] Weekly/monthly sales summary report
+- [ ] Ready orders auto-archive after 15 minutes (currently manual/on-close only)
+- [ ] Item-disabled notification to customers with that item in pending orders
 - [ ] Better error handling, loading states
 
 ## Important Context

@@ -129,12 +129,16 @@ async function approveOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProx
   return res(200, { orderId: id, status: 'PREPARING', totalAmount, discountOffset });
 }
 
+function normalizeVariantKey(label: string): string {
+  return label.trim().toLowerCase().replace(/\s+/g, '-');
+}
+
 async function deductIngredients(items: any[]) {
   const usage: Record<string, number> = {};
 
   for (const item of items) {
     const menuItemId = item.menuItemId;
-    const variant = item.variant || 'default';
+    const variantStr = item.variant || 'default';
     const qty = item.quantity || item.qty || 1;
 
     // Always start with default/base recipe
@@ -149,16 +153,20 @@ async function deductIngredients(items: any[]) {
       if (ri.ingredientId) baseRecipe[ri.ingredientId] = ri.quantity || 0;
     }
 
-    // If variant differs from default, merge variant on top (overrides same ingredient, adds new ones)
-    if (variant !== 'default') {
-      const variantKey = `RECIPE#${menuItemId}#${variant}`;
-      const variantResult = await docClient.send(new QueryCommand({
-        TableName: INGREDIENTS_TABLE,
-        KeyConditionExpression: 'PK = :pk',
-        ExpressionAttributeValues: { ':pk': variantKey },
-      }));
-      for (const ri of variantResult.Items || []) {
-        if (ri.ingredientId) baseRecipe[ri.ingredientId] = ri.quantity || 0;
+    // Parse variant string — could be "Iced, Oat Milk" (multi-group) or "iced" (legacy)
+    if (variantStr !== 'default') {
+      const variantParts = variantStr.includes(',') ? variantStr.split(',') : [variantStr];
+      for (const part of variantParts) {
+        const normalized = normalizeVariantKey(part);
+        const variantKey = `RECIPE#${menuItemId}#${normalized}`;
+        const variantResult = await docClient.send(new QueryCommand({
+          TableName: INGREDIENTS_TABLE,
+          KeyConditionExpression: 'PK = :pk',
+          ExpressionAttributeValues: { ':pk': variantKey },
+        }));
+        for (const ri of variantResult.Items || []) {
+          if (ri.ingredientId) baseRecipe[ri.ingredientId] = ri.quantity || 0;
+        }
       }
     }
 
