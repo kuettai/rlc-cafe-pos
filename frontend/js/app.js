@@ -19,6 +19,15 @@ let menuFilter = '';
 let menuCategory = 'ALL';
 let customerProfile = JSON.parse(localStorage.getItem('customerProfile') || 'null');
 
+// Strip leading emoji + whitespace from a display name. The DynamoDB items
+// have legacy emoji prefixes (e.g. "☕ Latte", "🍔 Food") which are now
+// redundant since each item has a real image. The slug helper below already
+// drops emoji as a side-effect, so image lookups still work either way; this
+// helper is purely for display text.
+function stripEmoji(name) {
+  return String(name || '').replace(/^[\p{Emoji}\p{Emoji_Component}\s]+/u, '').trim();
+}
+
 // Build a slug for the menu image filename.
 //   "Latte"               → "latte"
 //   "Hot Chocolate"       → "hot-chocolate"
@@ -81,7 +90,7 @@ function renderMenu() {
     } else {
       shell += `<section class="name-section"><label for="nameInput">Your Name</label><div style="display:flex;gap:8px;align-items:center"><input type="text" id="nameInput" value="${name}" placeholder="Enter your name" aria-required="true" style="flex:1"><a href="track" class="layout-toggle" aria-label="My Orders" title="My Orders" style="text-decoration:none">📋</a><button id="layoutToggle" class="layout-toggle" aria-label="Toggle view">${menuLayout === 'grid' ? '☰' : '⊞'}</button></div><button id="returningBtn" class="returning-btn">Returning customer? Tap here</button></section>`;
     }
-    shell += `<div class="menu-filter"><input type="text" id="menuSearch" placeholder="🔍 Search menu..." value="${menuFilter}" class="menu-search-input"><div class="menu-filter-tabs"><button class="menu-filter-tab${menuCategory==='ALL'?' active':''}" data-cat="ALL">All</button><button class="menu-filter-tab${menuCategory==='DRINK'?' active':''}" data-cat="DRINK">🥤 Drinks</button><button class="menu-filter-tab${menuCategory==='FOOD'?' active':''}" data-cat="FOOD">🍔 Food</button></div></div>`;
+    shell += `<div class="menu-filter"><input type="text" id="menuSearch" placeholder="🔍 Search menu..." value="${menuFilter}" class="menu-search-input"><div class="menu-filter-tabs"><button class="menu-filter-tab${menuCategory==='ALL'?' active':''}" data-cat="ALL">All</button><button class="menu-filter-tab${menuCategory==='DRINK'?' active':''}" data-cat="DRINK">Drinks</button><button class="menu-filter-tab${menuCategory==='FOOD'?' active':''}" data-cat="FOOD">Food</button></div></div>`;
     if (celebrationMode) {
       shell += `<div class="celebration-banner" aria-live="polite">🎉 Celebration Day! Selected drinks at <strong>RM ${celebrationPrice.toFixed(2)}</strong></div>`;
     }
@@ -112,7 +121,7 @@ function renderMenu() {
       if (pinDiff !== 0) return pinDiff;
       return (a.sortOrder || 0) - (b.sortOrder || 0);
     });
-    html += `<h2 class="category-title">${cat === 'DRINK' ? '🥤 Drinks' : '🍔 Food'}</h2>`;
+    html += `<h2 class="category-title">${cat === 'DRINK' ? 'Drinks' : 'Food'}</h2>`;
     html += `<div class="${menuLayout === 'grid' ? 'menu-grid' : ''}">`;
     filteredGrouped[cat].forEach(item => {
       const avail = getAvailable(item);
@@ -122,10 +131,11 @@ function renderMenu() {
       const displayPrice = (celebrationMode && item.category === 'DRINK' && item.celebrationEligible === true) ? celebrationPrice : item.basePrice;
       html += `<div class="menu-item${item.isPinned ? ' menu-item-pinned' : ''}${soldOut ? ' sold-out' : ''}" data-id="${item.id}">`;
       const slug = slugifyMenuName(item.name);
+      const displayName = stripEmoji(item.name);
       if (slug) {
         html += `<img class="menu-item-img" src="img/menu/${slug}.png" alt="" loading="lazy" onerror="this.style.display='none'">`;
       }
-      html += `<div class="item-header"><span class="item-name">${item.isPinned ? '⭐ ' : ''}${item.name}</span><span class="item-price">${celebrationMode && item.category === 'DRINK' && item.celebrationEligible === true ? '<s style="opacity:.5;font-size:.8em">RM '+item.basePrice.toFixed(2)+'</s> ' : ''}RM ${displayPrice.toFixed(2)}</span></div>`;
+      html += `<div class="item-header"><span class="item-name">${item.isPinned ? '⭐ ' : ''}${displayName}</span><span class="item-price">${celebrationMode && item.category === 'DRINK' && item.celebrationEligible === true ? '<s style="opacity:.5;font-size:.8em">RM '+item.basePrice.toFixed(2)+'</s> ' : ''}RM ${displayPrice.toFixed(2)}</span></div>`;
       const tagline = MENU_DESCRIPTIONS[slug];
       if (tagline) {
         html += `<p class="menu-item-desc">${tagline}</p>`;
@@ -144,9 +154,9 @@ function renderMenu() {
       }
 
       html += `<div class="qty-controls">`;
-      html += `<button aria-label="Decrease ${item.name}" data-action="dec" data-id="${item.id}">−</button>`;
+      html += `<button aria-label="Decrease ${displayName}" data-action="dec" data-id="${item.id}">−</button>`;
       html += `<span aria-live="polite">${qty}</span>`;
-      html += `<button aria-label="Increase ${item.name}" data-action="inc" data-id="${item.id}" ${soldOut || (avail <= qty && item.category === 'FOOD') ? 'disabled' : ''}>+</button>`;
+      html += `<button aria-label="Increase ${displayName}" data-action="inc" data-id="${item.id}" ${soldOut || (avail <= qty && item.category === 'FOOD') ? 'disabled' : ''}>+</button>`;
       html += `</div></div>`;
     });
     html += `</div>`;
@@ -242,7 +252,7 @@ function bindItemEvents() {
 
         const existing = cart.find(c => c.id === id && c.variant === variantKey);
         if (existing) { existing.qty++; }
-        else { cart.push({ id, name: item.name, variant: variantKey, variantName: variantLabel, selectedVariants: selectedVariants.length ? selectedVariants : undefined, price, qty: 1 }); }
+        else { cart.push({ id, name: stripEmoji(item.name), variant: variantKey, variantName: variantLabel, selectedVariants: selectedVariants.length ? selectedVariants : undefined, price, qty: 1 }); }
         saveCart();
       } else {
         const selectedVariants = getSelectedVariants(id);
@@ -276,7 +286,7 @@ function renderCartPanel() {
   cartItems.innerHTML = cart.map((c, i) => {
     const variantLabel = c.variantName || c.variant || '';
     return `<div class="cart-item">
-      <div class="cart-item-info"><div class="cart-item-name">${c.name}</div>${variantLabel ? `<div class="cart-item-variant">${variantLabel}</div>` : ''}</div>
+      <div class="cart-item-info"><div class="cart-item-name">${stripEmoji(c.name)}</div>${variantLabel ? `<div class="cart-item-variant">${variantLabel}</div>` : ''}</div>
       <div class="cart-item-actions">
         <button aria-label="Decrease" data-cart-idx="${i}" data-cart-action="dec">−</button>
         <span>${c.qty}</span>
