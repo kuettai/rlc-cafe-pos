@@ -19,6 +19,41 @@ let menuFilter = '';
 let menuCategory = 'ALL';
 let customerProfile = JSON.parse(localStorage.getItem('customerProfile') || 'null');
 
+// Build a slug for the menu image filename.
+//   "Latte"               → "latte"
+//   "Hot Chocolate"       → "hot-chocolate"
+//   "Citrus Black (Iced)" → "citrus-black"   (parenthetical suffixes stripped)
+//   "Fruit Tea (Hot)"     → "fruit-tea"
+// Returns '' for empty/missing names so callers can skip the <img> tag.
+function slugifyMenuName(name) {
+  if (!name) return '';
+  return String(name)
+    .toLowerCase()
+    .replace(/\s*\([^)]*\)\s*/g, ' ')   // strip "(Hot)", "(Iced)" etc.
+    .replace(/[^a-z0-9]+/g, '-')        // any other non-alphanumeric → hyphen
+    .replace(/^-+|-+$/g, '');           // trim leading/trailing hyphens
+}
+
+// Curated one-liner taglines shown under the item name on the customer
+// ordering page. Keyed by the same slug as the image filename. Items not
+// listed here render with no tagline (graceful fallback).
+const MENU_DESCRIPTIONS = {
+  'latte': 'Your personality but in a cup ☕',
+  'mocha': "For when you can't decide between coffee and chocolate — so both",
+  'citrus-black': 'Espresso went on a tropical vacation',
+  'hot-chocolate': "A warm hug that doesn't ask awkward questions",
+  'iced-chocolate': 'Dessert energy, zero guilt',
+  'matcha-latte': 'Main character in a Studio Ghibli film',
+  'chai-latte': 'Rest for the weary, spice for the bold ☕',
+  'butterfly-pea-soda': 'Pretty enough for your IG story',
+  'passion-fruit-soda': 'Summer in a glass, no passport needed',
+  'lemon-soda': 'When life gives you lemons, add sparkles ✨',
+  'orange-soda': 'Vitamin C but make it fun',
+  'fruit-tea': 'Adulting, but make it refreshing',
+  'ribena-tonic': 'New creation, same childhood taste 💜',
+  'raspberry-iced-tea': "Sweet, tart, and doesn't take itself too seriously",
+};
+
 function showError(msg) {
   errorBanner.textContent = msg;
   errorBanner.classList.add('show');
@@ -86,7 +121,15 @@ function renderMenu() {
 
       const displayPrice = (celebrationMode && item.category === 'DRINK' && item.celebrationEligible === true) ? celebrationPrice : item.basePrice;
       html += `<div class="menu-item${item.isPinned ? ' menu-item-pinned' : ''}${soldOut ? ' sold-out' : ''}" data-id="${item.id}">`;
+      const slug = slugifyMenuName(item.name);
+      if (slug) {
+        html += `<img class="menu-item-img" src="img/menu/${slug}.png" alt="" loading="lazy" onerror="this.style.display='none'">`;
+      }
       html += `<div class="item-header"><span class="item-name">${item.isPinned ? '⭐ ' : ''}${item.name}</span><span class="item-price">${celebrationMode && item.category === 'DRINK' && item.celebrationEligible === true ? '<s style="opacity:.5;font-size:.8em">RM '+item.basePrice.toFixed(2)+'</s> ' : ''}RM ${displayPrice.toFixed(2)}</span></div>`;
+      const tagline = MENU_DESCRIPTIONS[slug];
+      if (tagline) {
+        html += `<p class="menu-item-desc">${tagline}</p>`;
+      }
       if (item.description) {
         html += `<div style="font-size:.82rem;color:var(--text-light,#7A6355);margin-bottom:8px">${item.description}</div>`;
       }

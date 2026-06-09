@@ -178,6 +178,32 @@ header h1{
   align-items:center;
   margin-bottom:10px;
 }
+/* Menu thumbnail. Lazy-loaded; hidden via onerror if the file is missing. */
+.menu-item-img{
+  display:block;
+  width:100%;
+  max-width:140px;
+  height:90px;
+  object-fit:contain;
+  margin:0 auto 10px;
+  background:transparent;
+}
+.menu-item.sold-out .menu-item-img{
+  filter:grayscale(80%);
+  opacity:.5;
+}
+/* Curated one-liner shown under each item name. Compact, italic, muted. */
+.menu-item-desc{
+  margin:-4px 0 8px;
+  font-size:.78rem;
+  font-style:italic;
+  color:var(--text-light,#7A6355);
+  line-height:1.35;
+  display:-webkit-box;
+  -webkit-line-clamp:2;
+  -webkit-box-orient:vertical;
+  overflow:hidden;
+}
 .menu-item .item-name{
   font-weight:700;
   font-size:1.05rem;

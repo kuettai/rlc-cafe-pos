@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rlc-cafe-v21';
+const CACHE_NAME = 'rlc-cafe-v22';
 const SHELL = [
   './', './index.html', './track.html', './pos.html', './admin.html',
   './css/style.css', './css/admin.css',
@@ -15,9 +15,27 @@ self.addEventListener('activate', e => {
   self.clients.claim();
 });
 
+// Cache-first strategy for menu images: serve from cache immediately if
+// available, otherwise fetch + cache for next time. A failed network request
+// on a cache miss returns the network failure (the <img onerror> on the
+// customer page hides broken images so missing files don't show as broken).
+function handleMenuImage(req) {
+  return caches.open(CACHE_NAME).then(cache =>
+    cache.match(req).then(hit => {
+      if (hit) return hit;
+      return fetch(req).then(resp => {
+        if (resp && resp.ok) cache.put(req, resp.clone());
+        return resp;
+      });
+    })
+  );
+}
+
 self.addEventListener('fetch', e => {
   if (e.request.url.includes('/api/')) {
     e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
+  } else if (e.request.url.includes('/img/menu/')) {
+    e.respondWith(handleMenuImage(e.request));
   } else {
     e.respondWith(fetch(e.request).then(r => {
       const clone = r.clone();
