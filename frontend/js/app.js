@@ -129,30 +129,39 @@ function renderMenu() {
       const qty = cart.filter(c => c.id === item.id).reduce((s, c) => s + c.qty, 0);
 
       const displayPrice = (celebrationMode && item.category === 'DRINK' && item.celebrationEligible === true) ? celebrationPrice : item.basePrice;
-      html += `<div class="menu-item${item.isPinned ? ' menu-item-pinned' : ''}${soldOut ? ' sold-out' : ''}" data-id="${item.id}">`;
       const slug = slugifyMenuName(item.name);
       const displayName = stripEmoji(item.name);
+      const tagline = MENU_DESCRIPTIONS[slug];
+      const priceHtml = `${celebrationMode && item.category === 'DRINK' && item.celebrationEligible === true ? '<s style="opacity:.5;font-size:.8em">RM '+item.basePrice.toFixed(2)+'</s> ' : ''}RM ${displayPrice.toFixed(2)}`;
+
+      html += `<div class="menu-item${item.isPinned ? ' menu-item-pinned' : ''}${soldOut ? ' sold-out' : ''}" data-id="${item.id}">`;
+
+      // Top row: image + info (name, tagline, description, price, stock)
+      html += `<div class="menu-item-header">`;
       if (slug) {
         html += `<img class="menu-item-img" src="img/menu/${slug}.png" alt="" loading="lazy" onerror="this.style.display='none'">`;
       }
-      html += `<div class="item-header"><span class="item-name">${item.isPinned ? '⭐ ' : ''}${displayName}</span><span class="item-price">${celebrationMode && item.category === 'DRINK' && item.celebrationEligible === true ? '<s style="opacity:.5;font-size:.8em">RM '+item.basePrice.toFixed(2)+'</s> ' : ''}RM ${displayPrice.toFixed(2)}</span></div>`;
-      const tagline = MENU_DESCRIPTIONS[slug];
+      html += `<div class="menu-item-info">`;
+      html += `<div class="item-name">${item.isPinned ? '⭐ ' : ''}${displayName}</div>`;
       if (tagline) {
         html += `<p class="menu-item-desc">${tagline}</p>`;
       }
       if (item.description) {
-        html += `<div style="font-size:.82rem;color:var(--text-light,#7A6355);margin-bottom:8px">${item.description}</div>`;
+        html += `<div class="item-description">${item.description}</div>`;
       }
-
+      html += `<div class="item-price">${priceHtml}</div>`;
       if (item.category === 'FOOD' && avail !== Infinity) {
         html += `<div class="item-stock">${soldOut ? 'Sold out' : avail + ' left'}</div>`;
       }
+      html += `</div></div>`; // /info /header
 
+      // Middle row: variant pickers (full-width, separated by top border)
       if ((item.variantGroups && item.variantGroups.length) ||
           (item.variants && item.variants.length)) {
         html += RLCVariants.pickerHtml(item, { itemId: item.id });
       }
 
+      // Bottom row: qty controls (centered, separated by top border)
       html += `<div class="qty-controls">`;
       html += `<button aria-label="Decrease ${displayName}" data-action="dec" data-id="${item.id}">−</button>`;
       html += `<span aria-live="polite">${qty}</span>`;

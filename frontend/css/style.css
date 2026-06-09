@@ -172,20 +172,25 @@ header h1{
   background:linear-gradient(135deg,#FFFDF7 0%,#FFF8F0 100%);
   box-shadow:var(--shadow),0 0 0 1px var(--accent-light);
 }
-.menu-item .item-header{
+/* Top row of the card: thumbnail on the left, text info on the right. */
+.menu-item-header{
   display:flex;
-  justify-content:space-between;
-  align-items:center;
-  margin-bottom:10px;
+  gap:12px;
+  align-items:flex-start;
+  margin-bottom:12px;
 }
-/* Menu thumbnail. Lazy-loaded; hidden via onerror if the file is missing. */
+.menu-item-info{
+  flex:1;
+  text-align:left;
+  min-width:0;       /* allow flex child to shrink past content size */
+}
+/* Square thumbnail. Lazy-loaded; hidden via onerror if the file is missing. */
 .menu-item-img{
-  display:block;
-  width:100%;
-  max-width:140px;
-  height:90px;
+  width:80px;
+  height:80px;
+  border-radius:12px;
   object-fit:contain;
-  margin:0 auto 10px;
+  flex-shrink:0;
   background:transparent;
 }
 .menu-item.sold-out .menu-item-img{
@@ -194,7 +199,7 @@ header h1{
 }
 /* Curated one-liner shown under each item name. Compact, italic, muted. */
 .menu-item-desc{
-  margin:-4px 0 8px;
+  margin:2px 0 6px;
   font-size:.78rem;
   font-style:italic;
   color:var(--text-light,#7A6355);
@@ -205,11 +210,22 @@ header h1{
   overflow:hidden;
 }
 .menu-item .item-name{
+  display:block;
   font-weight:700;
   font-size:1.05rem;
   color:var(--text);
+  line-height:1.3;
+  margin-bottom:2px;
+}
+.menu-item .item-description{
+  font-size:.82rem;
+  color:var(--text-light,#7A6355);
+  margin-bottom:6px;
+  line-height:1.35;
 }
 .menu-item .item-price{
+  display:inline-block;
+  margin-top:6px;
   color:var(--primary);
   font-weight:800;
   font-size:1.05rem;
@@ -220,8 +236,21 @@ header h1{
 .menu-item .item-stock{
   font-size:.82rem;
   color:var(--text-light);
-  margin-bottom:8px;
+  margin-top:6px;
   font-weight:500;
+}
+
+/* Section separators inside the card: variants and qty-controls each get a
+   subtle top border so the three rows (info / variants / qty) read clearly. */
+.menu-item .variant-groups,
+.menu-item .variants{
+  padding-top:12px;
+  border-top:1px solid var(--cream-dark);
+}
+.menu-item .qty-controls{
+  justify-content:center;
+  padding-top:12px;
+  border-top:1px solid var(--cream-dark);
 }
 
 .menu-item.sold-out{
@@ -246,10 +275,16 @@ header h1{
   min-width:0;
   overflow:hidden;
 }
-.menu-grid .menu-item .item-header{
+/* Grid view: stack thumbnail above info to fit the narrower column. */
+.menu-grid .menu-item .menu-item-header{
   flex-direction:column;
-  align-items:flex-start;
-  gap:4px;
+  align-items:stretch;
+  gap:8px;
+}
+.menu-grid .menu-item .menu-item-img{
+  width:100%;
+  height:120px;
+  align-self:center;
 }
 .layout-toggle{
   width:40px;height:40px;border:1px solid var(--cream-dark);border-radius:var(--radius);
