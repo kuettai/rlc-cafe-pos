@@ -1,5 +1,6 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { docClient, CUSTOMERS_TABLE, ORDERS_TABLE, GetCommand, PutCommand, QueryCommand, UpdateCommand } from '../lib/db';
+import { normalizePhone } from '../lib/phone';
 
 const res = (statusCode: number, body: object): APIGatewayProxyResult => ({
   statusCode, headers: {}, body: JSON.stringify(body),
@@ -11,8 +12,8 @@ async function registerCustomer(event: APIGatewayProxyEvent): Promise<APIGateway
 
   if (!phone || !name) return res(400, { error: 'phone and name required' });
 
-  const cleanPhone = phone.replace(/[^0-9]/g, '');
-  if (cleanPhone.length < 9 || cleanPhone.length > 12) return res(400, { error: 'Invalid phone number' });
+  const cleanPhone = normalizePhone(phone);
+  if (!cleanPhone) return res(400, { error: 'Invalid phone number' });
 
   if (birthday && !/^\d{2}-\d{2}$/.test(birthday)) return res(400, { error: 'Birthday must be MM-DD format' });
 
@@ -56,7 +57,8 @@ async function lookupCustomer(event: APIGatewayProxyEvent): Promise<APIGatewayPr
   const phone = event.pathParameters?.phone || event.queryStringParameters?.phone;
   if (!phone) return res(400, { error: 'phone required' });
 
-  const cleanPhone = phone.replace(/[^0-9]/g, '');
+  const cleanPhone = normalizePhone(phone);
+  if (!cleanPhone) return res(400, { error: 'Invalid phone number' });
   const r = await docClient.send(new GetCommand({
     TableName: CUSTOMERS_TABLE,
     Key: { PK: `CUSTOMER#${cleanPhone}`, SK: 'META' },
@@ -77,7 +79,8 @@ async function lookupCustomer(event: APIGatewayProxyEvent): Promise<APIGatewayPr
 }
 
 async function linkOrderToCustomer(phone: string, orderId: string, totalAmount: number): Promise<void> {
-  const cleanPhone = phone.replace(/[^0-9]/g, '');
+  const cleanPhone = normalizePhone(phone);
+  if (!cleanPhone) return;
   try {
     await docClient.send(new UpdateCommand({
       TableName: CUSTOMERS_TABLE,
@@ -95,7 +98,8 @@ async function getCustomerOrders(event: APIGatewayProxyEvent): Promise<APIGatewa
   const phone = event.pathParameters?.phone;
   if (!phone) return res(400, { error: 'phone required' });
 
-  const cleanPhone = phone.replace(/[^0-9]/g, '');
+  const cleanPhone = normalizePhone(phone);
+  if (!cleanPhone) return res(400, { error: 'Invalid phone number' });
 
   const customer = await docClient.send(new GetCommand({
     TableName: CUSTOMERS_TABLE,

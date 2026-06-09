@@ -179,6 +179,10 @@ function startPolling(){ stopPolling(); pollTimer = setInterval(fetchOrders, 700
 function stopPolling(){ if(pollTimer){ clearInterval(pollTimer); pollTimer=null; } }
 
 let prevReceiptCount = 0;
+// Snapshot of the previous fetch keyed by orderId → { updatedAt, status }.
+// Used to detect mutations (updatedAt change) and customer cancellations
+// (visible PENDING order disappearing) between consecutive 7s polls.
+let prevOrdersById = {};
 
 async function fetchOrders(){
   try{
@@ -193,8 +197,48 @@ async function fetchOrders(){
     const newUrgent = urgentIds.filter(id=>!prevUrgentIds.includes(id));
     if(newUrgent.length) playUrgentSound();
     prevUrgentIds = urgentIds;
+
+    // Diff vs previous fetch.
+    const haveSeenPrev = Object.keys(prevOrdersById).length > 0;
+    const currentById = {};
+    const mutatedIds = [];
+    list.forEach(o => {
+      const id = o.orderId || o.id;
+      currentById[id] = { updatedAt: o.updatedAt, status: o.status, customerName: o.customerName };
+      const prev = prevOrdersById[id];
+      if(haveSeenPrev && prev && prev.updatedAt && o.updatedAt && prev.updatedAt !== o.updatedAt){
+        mutatedIds.push(id);
+      }
+    });
+    const cancelledOrders = haveSeenPrev
+      ? Object.keys(prevOrdersById)
+          .filter(id => !currentById[id] && prevOrdersById[id].status === 'PENDING')
+          .map(id => ({ id, customerName: prevOrdersById[id].customerName }))
+      : [];
+
     orders = list;
     renderBoard();
+
+    // Apply flash to mutated cards after they exist in the DOM.
+    if(mutatedIds.length){
+      mutatedIds.forEach(id => {
+        document.querySelectorAll(`.pos-card[data-id="${id}"]`).forEach(card => {
+          card.classList.add('pos-card-mutated');
+          setTimeout(() => card.classList.remove('pos-card-mutated'), 1500);
+        });
+      });
+      playNotifSound();
+    }
+
+    cancelledOrders.forEach(o => {
+      const shortId = String(o.id).slice(-4);
+      const who = o.customerName ? `${o.customerName}'s order` : `Order #${shortId}`;
+      showCancelToast(`${who} was cancelled by customer`);
+    });
+    if(cancelledOrders.length) playCancelSound();
+
+    prevOrdersById = currentById;
+
     updateLastRefresh();
   } catch(e){ if(e.message!=='Unauthorized') showError('Failed to fetch orders'); }
 }
@@ -256,6 +300,53 @@ function playUrgentSound(){
     gain.gain.exponentialRampToValueAtTime(0.01,ctx.currentTime+0.5);
     osc.start(ctx.currentTime); osc.stop(ctx.currentTime+0.5);
   } catch(e){}
+}
+
+// Distinct two-note descending chime for customer cancellations — different
+// timbre from the new-order / receipt / urgent / ready chimes so cashiers
+// can tell at a glance.
+function playCancelSound(){
+  try{
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    const osc = ctx.createOscillator(); const gain = ctx.createGain();
+    osc.type='triangle'; osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.setValueAtTime(660, ctx.currentTime);
+    osc.frequency.setValueAtTime(415, ctx.currentTime+0.18);
+    gain.gain.setValueAtTime(0.25, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime+0.45);
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime+0.45);
+  } catch(e){}
+}
+
+// Lightweight transient toast in the top-right of the POS view. Stacks if
+// multiple cancellations land in the same poll. Auto-dismisses after 5s.
+function showCancelToast(msg){
+  let host = document.getElementById('posToastHost');
+  if(!host){
+    host = document.createElement('div');
+    host.id = 'posToastHost';
+    host.style.cssText = 'position:fixed;top:16px;right:16px;display:flex;flex-direction:column;gap:8px;z-index:500;pointer-events:none';
+    document.body.appendChild(host);
+  }
+  const t = document.createElement('div');
+  t.className = 'pos-toast pos-toast-cancel';
+  t.textContent = '❌ ' + msg;
+  host.appendChild(t);
+  setTimeout(()=>{ t.style.opacity='0'; setTimeout(()=>t.remove(), 300); }, 5000);
+}
+
+// True when an order has been modified within the last `windowMs` ms — used
+// by the approve-guard to ask the cashier to re-verify items first.
+function recentlyModified(o, windowMs){
+  if(!o || !o.modifiedAt) return false;
+  const ms = typeof windowMs === 'number' ? windowMs : 5000;
+  return (Date.now() - new Date(o.modifiedAt)) < ms;
+}
+
+function approveGuardOk(orderId){
+  const o = orders.find(x => (x.orderId||x.id) === orderId);
+  if(!recentlyModified(o)) return true;
+  return confirm('This order was modified moments ago — verify items before approving.');
 }
 
 function playReadySound(){
@@ -424,6 +515,25 @@ function renderBoard(){
 
 function timeAgo(d){ const m=Math.floor((Date.now()-new Date(d))/60000); return m<1?'just now':m<60?`${m}m ago`:`${Math.floor(m/60)}h ${m%60}m ago`; }
 
+// Auto-archive countdown for READY cards. Threshold matches Settings.archiveAfterMinutes
+// (default 15 min). The cron actually performs the archive; this is a UX hint so
+// cashiers know an order will disappear soon.
+const ARCHIVE_AFTER_MIN = 15;
+function archiveHint(o){
+  if(o.status !== 'READY') return '';
+  const anchor = o.readyAt || o.updatedAt;
+  if(!anchor) return '';
+  const elapsedMin = (Date.now() - new Date(anchor)) / 60000;
+  const remaining = Math.max(0, ARCHIVE_AFTER_MIN - elapsedMin);
+  let cls = 'pos-archive-hint';
+  if(remaining <= 0)     cls += ' pos-archive-hint-overdue';
+  else if(remaining < 2) cls += ' pos-archive-hint-soon';
+  const label = remaining <= 0
+    ? 'auto-archives any moment'
+    : `auto-archives in ${Math.ceil(remaining)}m`;
+  return `<div class="${cls}">⏱ ${label}</div>`;
+}
+
 function cardHtml(o){
   const items = (o.items||[]).map(i=>`<div>${i.quantity||i.qty||1}x ${i.name}${i.variant?' ('+i.variant+')':''}</div>`).join('');
   const mins = Math.floor((Date.now()-new Date(o.createdAt))/60000);
@@ -435,9 +545,11 @@ function cardHtml(o){
 
   return `<div class="pos-card pos-card-${o.status.toLowerCase()} ${urgent?'pos-card-urgent':''} ${hasReceipt?'pos-card-receipt':''}" data-id="${o.id||o.orderId}" data-status="${o.status}">
     ${hasReceipt ? `<div class="pos-receipt-badge${Math.abs((o.receiptAmount||0)-(o.total||o.totalAmount||0))>0.01?' pos-receipt-mismatch':''}">💰 Receipt: RM${(o.receiptAmount||0).toFixed(2)}${Math.abs((o.receiptAmount||0)-(o.total||o.totalAmount||0))>0.01?' ⚠️ expected RM'+(o.total||o.totalAmount||0).toFixed(2):''}</div>` : ''}
+    ${o.status==='PENDING' && o.modifiedAt ? '<div class="pos-card-modified">✏️ modified</div>' : ''}
     <div class="pos-card-name">${o.customerName||'Guest'}${o.isWalkUp?' <span class="pos-card-tag">walk-up</span>':''}</div>
     <div class="pos-card-items">${items||'—'}</div>
     ${o.notes ? '<div class="pos-card-note">📝 '+o.notes+'</div>' : ''}
+    ${archiveHint(o)}
     <div class="pos-card-footer"><span>RM ${(o.total||o.totalAmount||0).toFixed(2)}</span><span>${urgent?'⚠️ ':''}${timeAgo(o.createdAt)}</span></div>
     ${quickAction}
   </div>`;
@@ -450,6 +562,7 @@ function bindCards(){
   });
   document.querySelectorAll('.pos-card-quick-approve').forEach(btn=>btn.onclick=async(e)=>{
     e.stopPropagation();
+    if(!approveGuardOk(btn.dataset.quickId)) return;
     btn.disabled=true; btn.textContent='...';
     try{ await api('PUT',`/api/pos/orders/${btn.dataset.quickId}/approve`,{approvedBy:currentUser}); fetchOrders(); }
     catch(err){ btn.disabled=false; btn.textContent='✓ Approve'; showError('Approve failed'); }
@@ -543,8 +656,8 @@ function openDetail(id){
   modal.onclick=e=>{ if(e.target===modal) modal.remove(); };
 
   if(o.status==='PENDING'){
-    modal.querySelector('#btnApprove').onclick=async()=>{ await api('PUT',`/api/pos/orders/${id}/approve`,{approvedBy:currentUser}); modal.remove(); fetchOrders(); };
-    modal.querySelector('#btnNewcomer').onclick=async()=>{ await api('PUT',`/api/pos/orders/${id}/approve`,{approvedBy:currentUser,discountType:'NEWCOMER'}); modal.remove(); fetchOrders(); };
+    modal.querySelector('#btnApprove').onclick=async()=>{ if(!approveGuardOk(id)) return; await api('PUT',`/api/pos/orders/${id}/approve`,{approvedBy:currentUser}); modal.remove(); fetchOrders(); };
+    modal.querySelector('#btnNewcomer').onclick=async()=>{ if(!approveGuardOk(id)) return; await api('PUT',`/api/pos/orders/${id}/approve`,{approvedBy:currentUser,discountType:'NEWCOMER'}); modal.remove(); fetchOrders(); };
     modal.querySelector('#btnReject').onclick=()=>showRejectDialog(id, modal);
   } else if(o.status==='PREPARING'){
     modal.querySelector('#btnReady').onclick=async()=>{ await api('PUT',`/api/pos/orders/${id}/ready`); modal.remove(); playReadySound(); showNameFlash(o.customerName); fetchOrders(); };
@@ -794,7 +907,6 @@ async function openWalkup(){
       const existing = cart.find(c=>c.menuItemId===b.dataset.mid && c.variant===b.dataset.v);
       if(existing){ existing.qty++; }
       else { cart.push({name:item.name, menuItemId:b.dataset.mid, price:variantPrice, qty:1, variant:b.dataset.v, selectedVariants:sv}); }
-      else { cart.push({name:item.name, menuItemId:b.dataset.mid, price:variantPrice, qty:1, variant:b.dataset.v}); }
       cart._name=modal.querySelector('#wkName')?.value||'';
       renderWalkup();
     });
@@ -1070,6 +1182,7 @@ async function openStockCount(location){
       const data = await api('POST','/api/pos/planogram/analyze',{ location, images: photos });
       const counts = data.counts || [];
       const ingredients = data.ingredients || [];
+      const logId = data.logId || null;
 
       let html = '<div class="stock-results-list"><h4 style="margin:16px 0 12px;color:var(--primary,#6B4226)">Results — adjust if needed</h4>';
       counts.forEach((item,i)=>{
@@ -1093,7 +1206,7 @@ async function openStockCount(location){
           if(inp.dataset.ingId) updates.push({ ingredientId: inp.dataset.ingId, count: +inp.value });
         });
         try{
-          await api('POST','/api/pos/planogram/confirm',{ counts: updates });
+          await api('POST','/api/pos/planogram/confirm',{ counts: updates, logId });
           showError(''); // clear any error
           modal.querySelector('.pos-modal').innerHTML = `<div style="text-align:center;padding:40px"><div style="font-size:2rem;margin-bottom:12px">✅</div><h3 style="color:var(--primary,#6B4226)">Stock Updated!</h3><p style="color:var(--text-light,#7A6355);margin-top:8px">${updates.length} items saved</p><button class="pos-btn pos-btn-primary" id="stockDone" style="margin-top:20px">Done</button></div>`;
           modal.querySelector('#stockDone').onclick=()=>modal.remove();

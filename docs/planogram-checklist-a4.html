@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>RLC Café — Planogram Setup Checklist (A4)</title>
+<style>
+  /* ---------- Base (screen + print) ---------- */
+  :root {
+    --ink: #2E2419;
+    --ink-soft: #5A4632;
+    --ink-faint: #7A6355;
+    --rule: #C9B89A;
+    --accent: #6B4226;
+    --warn: #C0392B;
+    --tint: #F8F4ED;
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: #E8E0D2;
+    color: var(--ink);
+    font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.4;
+  }
+
+  .page {
+    background: #fff;
+    width: 210mm;
+    min-height: 297mm;
+    margin: 12mm auto;
+    padding: 14mm 14mm 12mm;
+    box-shadow: 0 4px 16px rgba(0,0,0,.12);
+  }
+
+  header {
+    border-bottom: 2px solid var(--accent);
+    padding-bottom: 8px;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  header h1 {
+    margin: 0;
+    color: var(--accent);
+    font-size: 20px;
+    letter-spacing: .2px;
+  }
+  header .subtitle {
+    color: var(--ink-faint);
+    font-size: 12px;
+  }
+
+  h2 {
+    margin: 14px 0 6px;
+    color: var(--accent);
+    font-size: 15px;
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 2px;
+  }
+  h3 {
+    margin: 10px 0 4px;
+    font-size: 13px;
+    color: var(--ink-soft);
+    text-transform: uppercase;
+    letter-spacing: .8px;
+  }
+
+  /* ---------- Two-column body ---------- */
+  .columns {
+    column-count: 2;
+    column-gap: 9mm;
+    column-rule: 1px dashed var(--rule);
+  }
+  .columns > section {
+    break-inside: avoid;
+    margin-bottom: 10px;
+  }
+
+  /* ---------- Checklist ---------- */
+  ul.check {
+    list-style: none;
+    padding: 0;
+    margin: 4px 0;
+  }
+  ul.check li {
+    padding: 3px 0 3px 22px;
+    position: relative;
+    font-size: 13.5px;
+    line-height: 1.35;
+    break-inside: avoid;
+  }
+  ul.check li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 5px;
+    width: 13px;
+    height: 13px;
+    border: 1.5px solid var(--ink-soft);
+    border-radius: 2px;
+    background: #fff;
+  }
+
+  /* ---------- Rules block ---------- */
+  ol.rules {
+    padding-left: 20px;
+    margin: 6px 0;
+  }
+  ol.rules li {
+    padding: 2px 0;
+    font-size: 13.5px;
+    break-inside: avoid;
+  }
+  ol.rules li strong {
+    color: var(--accent);
+  }
+
+  /* ---------- Photo tips ---------- */
+  .tips {
+    background: var(--tint);
+    border-left: 3px solid var(--accent);
+    padding: 8px 10px 8px 12px;
+    margin: 4px 0 6px;
+    font-size: 13px;
+    break-inside: avoid;
+  }
+  .tips dt {
+    font-weight: 700;
+    color: var(--ink-soft);
+    margin-top: 4px;
+  }
+  .tips dt:first-child { margin-top: 0; }
+  .tips dd {
+    margin: 0 0 4px;
+  }
+
+  /* ---------- Hot-flag callout ---------- */
+  .warn {
+    color: var(--warn);
+    font-weight: 700;
+  }
+
+  /* ---------- Footer ---------- */
+  footer {
+    border-top: 1px solid var(--rule);
+    padding-top: 6px;
+    margin-top: 14px;
+    font-size: 11px;
+    color: var(--ink-faint);
+    display: flex;
+    justify-content: space-between;
+  }
+
+  /* ---------- Print ---------- */
+  @page {
+    size: A4 portrait;
+    margin: 12mm;
+  }
+  @media print {
+    html, body { background: #fff; }
+    .page {
+      width: auto;
+      min-height: auto;
+      margin: 0;
+      padding: 0;
+      box-shadow: none;
+    }
+    header { padding-bottom: 6px; }
+    .no-print { display: none !important; }
+
+    /* Encourage everything onto one page */
+    h2 { font-size: 14px; margin-top: 10px; }
+    ul.check li, ol.rules li { font-size: 12.5px; }
+    .tips { font-size: 12.5px; padding: 6px 8px 6px 10px; }
+  }
+
+  /* ---------- Print button (screen only) ---------- */
+  .print-btn {
+    position: fixed;
+    top: 14px;
+    right: 14px;
+    padding: 8px 14px;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0,0,0,.2);
+  }
+  .print-btn:hover { background: #4F2F18; }
+</style>
+</head>
+<body>
+
+<button class="print-btn no-print" onclick="window.print()">🖨 Print A4</button>
+
+<div class="page">
+  <header>
+    <h1>☕ RLC Café — Planogram Setup</h1>
+    <div class="subtitle">5-minute Sunday checklist · keep beside the fridge</div>
+  </header>
+
+  <div class="columns">
+
+    <!-- ===================== FRIDGE ===================== -->
+    <section>
+      <h2>🧊 Fridge</h2>
+
+      <h3>Top shelf — Milk zone</h3>
+      <ul class="check">
+        <li>Open Milk carton at <strong>front-left</strong>, sealed cartons behind</li>
+        <li>Open Oat carton at front-left of its row, sealed behind</li>
+        <li>Red divider tape visible between Milk row and Oat row</li>
+        <li>All cartons <strong>label forward</strong></li>
+      </ul>
+
+      <h3>Middle shelf — Opened condiments</h3>
+      <ul class="check">
+        <li>Lemon Juice (Liotti), Nata de Coco, Citron Paste — each in its own cell</li>
+        <li>Lids match real state (off if scoop is in use)</li>
+        <li>Liquid level easy to see through the bottle/jar</li>
+      </ul>
+
+      <h3>Bottom shelf — Chilled fizz</h3>
+      <ul class="check">
+        <li>Sprite cluster on the left (label forward)</li>
+        <li>Sparkling Water cluster in the middle</li>
+        <li>Tonic on the <strong>right edge</strong> (visual anchor)</li>
+        <li>No interleaving brands</li>
+      </ul>
+
+      <h3>Door / Freezer</h3>
+      <ul class="check">
+        <li>Ice in <strong>bagged</strong> form (not loose tray) — count bags</li>
+        <li>Whipped cream cans, label forward</li>
+        <li>Door pockets clear of personal items</li>
+      </ul>
+    </section>
+
+    <!-- ===================== STOREROOM ===================== -->
+    <section>
+      <h2>🗄 Storeroom</h2>
+
+      <h3>Shelf 1 — Coffee</h3>
+      <ul class="check">
+        <li>REGULAR cluster on the left, DECAF on the right</li>
+        <li>~30 cm gap between them</li>
+        <li>Big handwritten REGULAR / DECAF signs visible</li>
+        <li>Open bag clipped <strong>upright</strong>, sealed bags behind</li>
+      </ul>
+
+      <h3>Shelf 2 — Powders</h3>
+      <ul class="check">
+        <li>Fixed order: <strong>Tiger 63 → Unicorn 50 → Matcha → Chai</strong></li>
+        <li>Top label visible on every tub (write with marker if missing)</li>
+        <li>Open container in front, sealed reserves behind</li>
+        <li class="warn">Houjicha removed if stock is 0</li>
+      </ul>
+
+      <h3>Shelf 3 — Monin syrups</h3>
+      <ul class="check">
+        <li>Order: Passion → Lemon → Orange → Butterfly Pea → Sugar</li>
+        <li><strong>All labels facing forward</strong> — non-negotiable</li>
+        <li>Pump on the open bottle, sealed bottle behind</li>
+      </ul>
+
+      <h3>Shelf 4 — Teas, jars</h3>
+      <ul class="check">
+        <li>English Breakfast box <strong>open</strong>, sachets visible</li>
+        <li>Spare boxes on the right edge</li>
+      </ul>
+
+      <h3>Shelf 5 / floor — Bulk reserves</h3>
+      <ul class="check">
+        <li>Sprite, Sparkling, Tonic cases — <strong>one row deep</strong></li>
+        <li>If second row needed, plan a second photo at angle</li>
+        <li>Sealed Nata de Coco jars only (open jars live in the fridge)</li>
+      </ul>
+    </section>
+
+    <!-- ===================== RULES ===================== -->
+    <section>
+      <h2>📏 Six rules that matter most</h2>
+      <ol class="rules">
+        <li><strong>Labels forward, always.</strong> Especially Monin syrups, milks, and powders.</li>
+        <li><strong>Open in front, sealed behind.</strong> Same item, two states — the AI counts each differently.</li>
+        <li><strong>One row, one item type.</strong> Don't mix Sprite and Sparkling.</li>
+        <li><strong>Same place, every Sunday.</strong> The reference photo expects it.</li>
+        <li><strong>Three photos max.</strong> Fridge usually 1, storeroom often 2, never more than 3.</li>
+        <li><strong>Edit if the AI is wrong.</strong> Trust your eyes over the model when they disagree.</li>
+      </ol>
+    </section>
+
+    <!-- ===================== PHOTO TIPS ===================== -->
+    <section>
+      <h2>📷 Taking the photo</h2>
+      <dl class="tips">
+        <dt>Distance</dt>
+        <dd>~1 metre back. Every label readable at 100 % zoom on the phone.</dd>
+
+        <dt>Orientation</dt>
+        <dd>Phone landscape (wider field, less skew).</dd>
+
+        <dt>Angle</dt>
+        <dd>Phone parallel to the shelf face — don't tilt up or down.</dd>
+
+        <dt>Lighting</dt>
+        <dd>Door fully open. Use room lights, not the fridge bulb. Avoid backlight from windows.</dd>
+
+        <dt>Framing</dt>
+        <dd>Centre on the middle shelf. Show a little empty space around items so the AI gets spatial reference.</dd>
+
+        <dt>Splitting</dt>
+        <dd>Tall storeroom rack: shelf 1+2 in one frame, 3+4 in another, shelf 5 separately if needed.</dd>
+      </dl>
+    </section>
+
+    <!-- ===================== TROUBLE ===================== -->
+    <section>
+      <h2>🔴 If the AI keeps getting it wrong</h2>
+      <ul class="check">
+        <li>Confidence stays <span class="warn">red</span> on a row for 2+ weeks → fix layout first</li>
+        <li>Re-take reference photo only if a real item changed — not for one-off disruptions</li>
+        <li>Items not on the inventory list will show as "unknown" — keep them out of frame</li>
+        <li>Edit the count manually before tapping Confirm</li>
+      </ul>
+    </section>
+
+  </div>
+
+  <footer>
+    <span>RLC Café POS · Planogram Setup Checklist</span>
+    <span>Full guide: <code>docs/planogram-arrangement-guide.md</code></span>
+  </footer>
+</div>
+
+</body>
+</html>

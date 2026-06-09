@@ -51,6 +51,7 @@ Extracted from church documents. Source: `SOP Set Up & Closing (153) v8.docx` an
 7. Pack away all items — leave nothing exposed
 8. Keep weighing scale on flat surface (don't stack on top)
 9. Check inventory → update stock count
+   - Use POS → Stock Count for AI-assisted counting. Layout, photo angle and rules are documented in [`planogram-arrangement-guide.md`](./planogram-arrangement-guide.md) (printable A4 version: [`planogram-checklist-a4.html`](./planogram-checklist-a4.html)).
 10. Inform if items need restocking / low stock
 11. Bring down to office: iPad, used cloths, leftover food, opened milk
 

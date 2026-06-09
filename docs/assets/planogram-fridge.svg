@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" font-family="-apple-system, system-ui, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" role="img" aria-labelledby="fridge-title fridge-desc">
+  <title id="fridge-title">RLC Café — Fridge planogram</title>
+  <desc id="fridge-desc">Front-on view of the café fridge showing four zones: top milk shelf with whole milk and oat milk separated by a divider, middle shelf for opened condiments, bottom shelf for chilled fizz, and a door pocket for ice and whipped cream.</desc>
+
+  <!-- ==== Palette ==== -->
+  <defs>
+    <linearGradient id="fridgeBody" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#E8EBEE"/>
+      <stop offset="1" stop-color="#C9CFD4"/>
+    </linearGradient>
+    <linearGradient id="shelfFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F8F4ED"/>
+      <stop offset="1" stop-color="#E8E0D2"/>
+    </linearGradient>
+  </defs>
+
+  <style>
+    .label-zone   { font-size:13px; font-weight:700; fill:#5A4632; letter-spacing:.5px; }
+    .label-item   { font-size:11px; font-weight:600; fill:#2E2419; }
+    .label-sub    { font-size:9.5px; fill:#5A4632; }
+    .label-divider{ font-size:10px; font-weight:700; fill:#8C2A2A; }
+    .legend       { font-size:11px; fill:#3D2B1F; }
+  </style>
+
+  <!-- ==== Title ==== -->
+  <text x="400" y="26" text-anchor="middle" font-size="16" font-weight="700" fill="#3D2B1F">FRIDGE — Planogram (front view)</text>
+  <text x="400" y="44" text-anchor="middle" font-size="11" fill="#7A6355">Open carton in front, sealed behind. Labels always face the door.</text>
+
+  <!-- ==== Fridge outer body ==== -->
+  <rect x="40" y="56" width="720" height="430" rx="14" fill="url(#fridgeBody)" stroke="#8B96A1" stroke-width="2"/>
+  <!-- Door handle (right side) -->
+  <rect x="745" y="190" width="8" height="160" rx="4" fill="#8B96A1"/>
+
+  <!-- ============================================================ -->
+  <!-- TOP SHELF — MILK ZONE                                         -->
+  <!-- ============================================================ -->
+  <rect x="56" y="70" width="688" height="92" rx="6" fill="url(#shelfFill)" stroke="#B5A586" stroke-width="1"/>
+  <text x="68" y="86" class="label-zone">SHELF 1 — MILK ZONE</text>
+
+  <!-- Whole Milk row (left half) -->
+  <!-- Open carton (front-left) -->
+  <rect x="76" y="98"  width="56" height="52" rx="4" fill="#F0F6FB" stroke="#5C84B0" stroke-width="2"/>
+  <text x="104" y="120" text-anchor="middle" class="label-item">Open</text>
+  <text x="104" y="134" text-anchor="middle" class="label-item">Milk</text>
+  <text x="104" y="146" text-anchor="middle" class="label-sub">in-use</text>
+  <!-- Sealed milk cartons -->
+  <rect x="138" y="98"  width="56" height="52" rx="4" fill="#D7E6F2" stroke="#5C84B0" stroke-width="1"/>
+  <text x="166" y="124" text-anchor="middle" class="label-item">Milk</text>
+  <text x="166" y="138" text-anchor="middle" class="label-sub">sealed</text>
+  <rect x="200" y="98"  width="56" height="52" rx="4" fill="#D7E6F2" stroke="#5C84B0" stroke-width="1"/>
+  <text x="228" y="124" text-anchor="middle" class="label-item">Milk</text>
+  <text x="228" y="138" text-anchor="middle" class="label-sub">sealed</text>
+
+  <!-- Divider tape -->
+  <rect x="266" y="96" width="6" height="56" fill="#C0392B"/>
+  <text x="304" y="106" text-anchor="middle" class="label-divider">— MILK | OAT —</text>
+  <rect x="338" y="96" width="6" height="56" fill="#C0392B"/>
+
+  <!-- Oat Milk row (right half) -->
+  <rect x="354" y="98"  width="56" height="52" rx="4" fill="#E5DAF0" stroke="#6B4F8E" stroke-width="2"/>
+  <text x="382" y="120" text-anchor="middle" class="label-item">Open</text>
+  <text x="382" y="134" text-anchor="middle" class="label-item">Oat</text>
+  <text x="382" y="146" text-anchor="middle" class="label-sub">in-use</text>
+  <rect x="416" y="98"  width="56" height="52" rx="4" fill="#D2C2E3" stroke="#6B4F8E" stroke-width="1"/>
+  <text x="444" y="124" text-anchor="middle" class="label-item">Oat</text>
+  <text x="444" y="138" text-anchor="middle" class="label-sub">sealed</text>
+  <rect x="478" y="98"  width="56" height="52" rx="4" fill="#D2C2E3" stroke="#6B4F8E" stroke-width="1"/>
+  <text x="506" y="124" text-anchor="middle" class="label-item">Oat</text>
+  <text x="506" y="138" text-anchor="middle" class="label-sub">sealed</text>
+  <rect x="540" y="98"  width="56" height="52" rx="4" fill="#D2C2E3" stroke="#6B4F8E" stroke-width="1"/>
+  <text x="568" y="124" text-anchor="middle" class="label-item">Oat</text>
+  <text x="568" y="138" text-anchor="middle" class="label-sub">sealed</text>
+
+  <!-- ============================================================ -->
+  <!-- SHELF 2 — OPENED CONDIMENTS                                   -->
+  <!-- ============================================================ -->
+  <rect x="56" y="172" width="688" height="92" rx="6" fill="url(#shelfFill)" stroke="#B5A586" stroke-width="1"/>
+  <text x="68" y="188" class="label-zone">SHELF 2 — OPENED CONDIMENTS (each in its own cell)</text>
+
+  <rect x="100" y="200" width="140" height="52" rx="4" fill="#FBE7B3" stroke="#C8923A" stroke-width="2"/>
+  <text x="170" y="222" text-anchor="middle" class="label-item">Lemon Juice (Liotti)</text>
+  <text x="170" y="240" text-anchor="middle" class="label-sub">open · label forward · fill estimate</text>
+
+  <rect x="266" y="200" width="140" height="52" rx="4" fill="#FBE7B3" stroke="#C8923A" stroke-width="2"/>
+  <text x="336" y="222" text-anchor="middle" class="label-item">Nata de Coco (open jar)</text>
+  <text x="336" y="240" text-anchor="middle" class="label-sub">lid off · liquid + chunks visible</text>
+
+  <rect x="432" y="200" width="140" height="52" rx="4" fill="#FBE7B3" stroke="#C8923A" stroke-width="2"/>
+  <text x="502" y="222" text-anchor="middle" class="label-item">Citron Paste (open)</text>
+  <text x="502" y="240" text-anchor="middle" class="label-sub">spoon outside · fill estimate</text>
+
+  <rect x="598" y="200" width="120" height="52" rx="4" fill="#F5DCC0" stroke="#A06A2C" stroke-width="1" stroke-dasharray="3,3"/>
+  <text x="658" y="220" text-anchor="middle" class="label-item">Ribena (open)</text>
+  <text x="658" y="237" text-anchor="middle" class="label-sub">if currently open</text>
+
+  <!-- ============================================================ -->
+  <!-- SHELF 3 — CHILLED FIZZ                                        -->
+  <!-- ============================================================ -->
+  <rect x="56" y="274" width="688" height="108" rx="6" fill="url(#shelfFill)" stroke="#B5A586" stroke-width="1"/>
+  <text x="68" y="290" class="label-zone">SHELF 3 — CHILLED FIZZ (cluster by brand, label-forward)</text>
+
+  <!-- Sprite cluster -->
+  <rect x="76" y="302" width="200" height="68" rx="4" fill="#E0F1D9" stroke="#5C8B3D" stroke-width="2"/>
+  <text x="176" y="320" text-anchor="middle" class="label-item">SPRITE</text>
+  <g fill="#A2D588" stroke="#5C8B3D" stroke-width="1">
+    <rect x="86"  y="328" width="14" height="36" rx="2"/>
+    <rect x="104" y="328" width="14" height="36" rx="2"/>
+    <rect x="122" y="328" width="14" height="36" rx="2"/>
+    <rect x="140" y="328" width="14" height="36" rx="2"/>
+    <rect x="158" y="328" width="14" height="36" rx="2"/>
+    <rect x="176" y="328" width="14" height="36" rx="2"/>
+  </g>
+  <text x="176" y="378" text-anchor="middle" class="label-sub">today's chilled stock</text>
+
+  <!-- Sparkling Water cluster -->
+  <rect x="296" y="302" width="200" height="68" rx="4" fill="#E0EDF5" stroke="#3F7CA8" stroke-width="2"/>
+  <text x="396" y="320" text-anchor="middle" class="label-item">SPARKLING WATER</text>
+  <g fill="#A8CDE3" stroke="#3F7CA8" stroke-width="1">
+    <rect x="306" y="328" width="14" height="36" rx="2"/>
+    <rect x="324" y="328" width="14" height="36" rx="2"/>
+    <rect x="342" y="328" width="14" height="36" rx="2"/>
+    <rect x="360" y="328" width="14" height="36" rx="2"/>
+    <rect x="378" y="328" width="14" height="36" rx="2"/>
+  </g>
+  <text x="396" y="378" text-anchor="middle" class="label-sub">today's chilled stock</text>
+
+  <!-- Tonic Water cluster (right edge — visual anchor) -->
+  <rect x="516" y="302" width="208" height="68" rx="4" fill="#F5F0D6" stroke="#A8902A" stroke-width="2"/>
+  <text x="620" y="320" text-anchor="middle" class="label-item">TONIC WATER</text>
+  <g fill="#E2D88C" stroke="#A8902A" stroke-width="1">
+    <rect x="526" y="332" width="20" height="32" rx="3"/>
+    <rect x="552" y="332" width="20" height="32" rx="3"/>
+    <rect x="578" y="332" width="20" height="32" rx="3"/>
+    <rect x="604" y="332" width="20" height="32" rx="3"/>
+  </g>
+  <text x="620" y="378" text-anchor="middle" class="label-sub">cans · right edge anchor</text>
+
+  <!-- ============================================================ -->
+  <!-- SHELF 4 / DOOR — ICE + WHIPPED CREAM                          -->
+  <!-- ============================================================ -->
+  <rect x="56" y="392" width="688" height="80" rx="6" fill="url(#shelfFill)" stroke="#B5A586" stroke-width="1"/>
+  <text x="68" y="408" class="label-zone">DOOR / FREEZER COMPARTMENT</text>
+
+  <rect x="100" y="420" width="180" height="40" rx="4" fill="#E1F0F5" stroke="#3F7CA8" stroke-width="1"/>
+  <text x="190" y="437" text-anchor="middle" class="label-item">Ice (bagged)</text>
+  <text x="190" y="452" text-anchor="middle" class="label-sub">count bags, not fill</text>
+
+  <rect x="300" y="420" width="180" height="40" rx="4" fill="#FAF2E6" stroke="#A78463" stroke-width="1"/>
+  <text x="390" y="437" text-anchor="middle" class="label-item">Whipped Cream</text>
+  <text x="390" y="452" text-anchor="middle" class="label-sub">cans, label-forward</text>
+
+  <rect x="500" y="420" width="220" height="40" rx="4" fill="#F4F4F4" stroke="#999" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="610" y="437" text-anchor="middle" class="label-item">— keep door pockets clear —</text>
+  <text x="610" y="452" text-anchor="middle" class="label-sub">no personal items</text>
+
+  <!-- ==== Legend ==== -->
+  <g transform="translate(56, 480)">
+    <rect x="0"   y="-7" width="14" height="10" fill="#D7E6F2" stroke="#5C84B0"/>
+    <text x="20"  y="2" class="legend">Whole Milk</text>
+    <rect x="100" y="-7" width="14" height="10" fill="#D2C2E3" stroke="#6B4F8E"/>
+    <text x="120" y="2" class="legend">Oat Milk</text>
+    <rect x="190" y="-7" width="14" height="10" fill="#FBE7B3" stroke="#C8923A"/>
+    <text x="210" y="2" class="legend">Open condiments</text>
+    <rect x="320" y="-7" width="14" height="10" fill="#A2D588" stroke="#5C8B3D"/>
+    <text x="340" y="2" class="legend">Sprite</text>
+    <rect x="390" y="-7" width="14" height="10" fill="#A8CDE3" stroke="#3F7CA8"/>
+    <text x="410" y="2" class="legend">Sparkling</text>
+    <rect x="475" y="-7" width="14" height="10" fill="#E2D88C" stroke="#A8902A"/>
+    <text x="495" y="2" class="legend">Tonic</text>
+    <text x="565" y="2" class="legend" font-style="italic">Open front · sealed behind</text>
+  </g>
+</svg>

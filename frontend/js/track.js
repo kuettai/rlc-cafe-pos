@@ -4,6 +4,7 @@ const orderId = new URLSearchParams(window.location.search).get('id') || localSt
 let pollTimer = null;
 let prevStatus = null;
 let queueSize = 0;
+let isEditing = false;
 
 function showError(msg) {
   errorBanner.textContent = msg;
@@ -131,13 +132,19 @@ function renderOrder(order) {
 
   // Bind cancel
   document.getElementById('cancelBtn')?.addEventListener('click', async () => {
-    if (!confirm('Cancel this order?')) return;
+    const prompt = order.receiptUrl
+      ? "You've already uploaded a payment receipt. Cancellation may require a refund from the cashier. Continue?"
+      : 'Cancel this order?';
+    if (!confirm(prompt)) return;
     try {
-      await fetch(`${API_BASE}/api/orders/${orderId}`, {
+      const res = await fetch(`${API_BASE}/api/orders/${orderId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'cancel' })
       });
+      if (res.status === 409) {
+        showError('This order can no longer be modified.');
+      }
       pollOrder();
     } catch { showError('Failed to cancel, try again'); }
   });
@@ -153,24 +160,92 @@ function renderOrder(order) {
 }
 
 function enterEditMode(order) {
-  clearInterval(pollTimer);
+  // Keep polling running but read-only — pollOrder() guards on isEditing
+  // and only redraws (or bails out) when status drifts away from PENDING.
+  isEditing = true;
   const items = [...(order.items || [])];
+  let notes = order.notes || '';
+  let menuCache = null;
   const listEl = document.getElementById('orderItemsList');
   const actionsRow = document.querySelector('.order-actions-row');
 
+  // Inject "+ Add item" button + notes textarea between the items list and
+  // the action buttons. Defensive cleanup in case a previous edit session
+  // left a stray block behind.
+  document.querySelectorAll('.edit-extras').forEach(el => el.remove());
+  actionsRow.insertAdjacentHTML('beforebegin', `
+    <div class="edit-extras" style="margin-top:14px">
+      <button id="addItemBtn" type="button" style="width:100%;padding:12px;background:#fff;border:1px dashed var(--primary,#6B4226);color:var(--primary,#6B4226);border-radius:10px;font-size:.95rem;font-weight:600;cursor:pointer">+ Add item</button>
+      <div style="margin-top:14px">
+        <label for="editNotes" style="display:block;font-size:.85rem;color:var(--text-light,#7A6355);margin-bottom:4px">Notes (optional)</label>
+        <textarea id="editNotes" maxlength="200" rows="2" placeholder="Special requests…" style="width:100%;padding:10px;border:1px solid var(--cream-dark,#ddd);border-radius:8px;font-size:.9rem;resize:none;font-family:inherit;box-sizing:border-box"></textarea>
+        <div style="display:flex;justify-content:flex-end;font-size:.75rem;color:var(--text-light,#7A6355);margin-top:2px"><span id="editNotesCount">0</span>/200</div>
+      </div>
+    </div>
+  `);
+
+  // Set notes value via .value (not HTML) so user input is safe from injection.
+  const notesEl = document.getElementById('editNotes');
+  const notesCountEl = document.getElementById('editNotesCount');
+  notesEl.value = notes;
+  notesCountEl.textContent = notes.length;
+  notesEl.addEventListener('input', () => {
+    notes = notesEl.value;
+    notesCountEl.textContent = notes.length;
+  });
+
+  document.getElementById('addItemBtn').addEventListener('click', openAddItemPicker);
+
+  // Pre-load the menu so variant pickers can appear inline on items that
+  // have variantGroups. The first re-render runs as soon as the menu lands.
+  ensureMenuLoaded().then(() => renderEditItems());
+
+  async function ensureMenuLoaded() {
+    if (menuCache) return menuCache;
+    try {
+      const r = await fetch(`${API_BASE}/api/menu`);
+      const data = await r.json();
+      menuCache = (data.items || data || []).filter(m => m.isActive && m.isEnabledToday);
+    } catch {
+      menuCache = [];
+    }
+    return menuCache;
+  }
+
+  function lookupMenuItem(menuItemId) {
+    return (menuCache || []).find(m => (m.menuItemId || m.id) === menuItemId);
+  }
+
+  function recomputeTotalRow() {
+    const total = items.reduce((s, i) => s + (i.unitPrice || i.price || 0) * (i.quantity || 1), 0);
+    const totalLi = listEl.querySelector('.edit-total');
+    if (totalLi) totalLi.innerHTML = `<strong>New Total: RM ${total.toFixed(2)}</strong>`;
+  }
+
   function renderEditItems() {
-    const total = items.reduce((s, i) => s + (i.price || i.unitPrice || 0) * (i.quantity || 1), 0);
+    const total = items.reduce((s, i) => s + (i.unitPrice || i.price || 0) * (i.quantity || 1), 0);
     listEl.innerHTML = items.map((i, idx) => {
       const label = i.variant ? `${i.name} (${i.variant})` : i.name;
-      const price = (i.price || i.unitPrice || 0) * (i.quantity || 1);
-      return `<li class="edit-item-row">
-        <span class="edit-item-name">${label}</span>
-        <div class="edit-item-controls">
-          <button class="edit-qty-btn" data-idx="${idx}" data-action="dec">−</button>
-          <span class="edit-qty">${i.quantity || 1}</span>
-          <button class="edit-qty-btn" data-idx="${idx}" data-action="inc">+</button>
-          <button class="edit-remove-btn" data-idx="${idx}">✕</button>
+      const menuItem = lookupMenuItem(i.menuItemId);
+      const hasVariants = !!(menuItem && menuItem.variantGroups && menuItem.variantGroups.length);
+      const toggleBtn = hasVariants
+        ? `<button class="edit-variant-toggle" data-idx="${idx}" title="Edit variants" style="background:none;border:none;color:var(--primary,#6B4226);font-size:1rem;cursor:pointer;padding:4px 8px">▾</button>`
+        : '';
+      const pickerDiv = hasVariants
+        ? `<div class="edit-variant-picker" data-idx="${idx}" style="display:none;margin-top:8px;padding:10px 12px;background:var(--cream,#f9f5f0);border-radius:8px"></div>`
+        : '';
+      return `<li class="edit-item-row" data-idx="${idx}">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <span class="edit-item-name">${label}</span>
+          <div class="edit-item-controls">
+            <button class="edit-qty-btn" data-idx="${idx}" data-action="dec">−</button>
+            <span class="edit-qty">${i.quantity || 1}</span>
+            <button class="edit-qty-btn" data-idx="${idx}" data-action="inc">+</button>
+            <button class="edit-remove-btn" data-idx="${idx}">✕</button>
+            ${toggleBtn}
+          </div>
         </div>
+        ${pickerDiv}
       </li>`;
     }).join('');
     listEl.innerHTML += `<li class="edit-total"><strong>New Total: RM ${total.toFixed(2)}</strong></li>`;
@@ -193,6 +268,103 @@ function enterEditMode(order) {
         renderEditItems();
       });
     });
+
+    // Tap-to-expand variant picker per row.
+    listEl.querySelectorAll('.edit-variant-toggle').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = parseInt(btn.dataset.idx);
+        const row = btn.closest('.edit-item-row');
+        const pickerEl = row.querySelector('.edit-variant-picker');
+        if (!pickerEl) return;
+
+        const isHidden = pickerEl.style.display === 'none' || !pickerEl.style.display;
+        if (!isHidden) {
+          pickerEl.style.display = 'none';
+          btn.textContent = '▾';
+          return;
+        }
+
+        const menuItem = lookupMenuItem(items[idx].menuItemId);
+        if (!menuItem) {
+          pickerEl.innerHTML = '<p style="color:var(--text-light,#7A6355);font-size:.85rem;margin:0">Variants unavailable</p>';
+        } else {
+          // Initial preselection comes from the working item's selectedVariants
+          // if it was edited earlier in this session; otherwise the picker
+          // defaults to the first option of each single-select group.
+          const seed = { ...menuItem, selectedVariants: items[idx].selectedVariants || null };
+          RLCVariants.renderVariantPicker(seed, pickerEl, (selected) => {
+            items[idx].selectedVariants = selected;
+            const variantSum = selected.reduce((s, v) => s + (v.price || 0), 0);
+            items[idx].unitPrice = (menuItem.basePrice || 0) + variantSum;
+            items[idx].variant = selected.map(v => v.option).join(', ') || null;
+            // Update the displayed name + total in place — full re-render
+            // would collapse the picker the user just opened.
+            const nameEl = row.querySelector('.edit-item-name');
+            if (nameEl) {
+              nameEl.textContent = items[idx].variant
+                ? `${items[idx].name} (${items[idx].variant})`
+                : items[idx].name;
+            }
+            recomputeTotalRow();
+          });
+        }
+        pickerEl.style.display = '';
+        btn.textContent = '▴';
+      });
+    });
+  }
+
+  async function openAddItemPicker() {
+    await ensureMenuLoaded();
+    if (!menuCache.length) {
+      showError('Menu unavailable');
+      return;
+    }
+
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(61,43,31,.6);backdrop-filter:blur(4px);z-index:400;display:flex;align-items:center;justify-content:center;padding:16px';
+    overlay.innerHTML = `<div style="background:#fff;border-radius:16px;width:100%;max-width:440px;max-height:80vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 8px 24px rgba(74,44,23,.15)">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--cream-dark,#ddd)">
+        <h3 style="margin:0;color:var(--primary,#6B4226)">Add an item</h3>
+        <button id="closePickerBtn" type="button" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--text-light,#7A6355);padding:4px 8px">✕</button>
+      </div>
+      <ul id="pickerItemsList" style="margin:0;padding:0;list-style:none;overflow-y:auto;flex:1"></ul>
+    </div>`;
+    document.body.appendChild(overlay);
+
+    const pickerListEl = overlay.querySelector('#pickerItemsList');
+    if (!menuCache.length) {
+      pickerListEl.innerHTML = '<li style="padding:20px;text-align:center;color:var(--text-light,#7A6355)">No items available</li>';
+    } else {
+      pickerListEl.innerHTML = menuCache.map((m, idx) => `
+        <li data-pick-idx="${idx}" style="padding:14px 20px;border-bottom:1px solid var(--cream-dark,#eee);cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px">
+          <div style="flex:1;min-width:0"><div style="font-weight:600;color:var(--text,#3D2B1F)">${m.name}</div>${m.category ? `<div style="font-size:.75rem;color:var(--text-light,#7A6355);margin-top:2px">${m.category === 'DRINK' ? '🥤 Drink' : '🍔 Food'}</div>` : ''}</div>
+          <span style="color:var(--primary,#6B4226);font-weight:700;white-space:nowrap">RM ${(m.basePrice || 0).toFixed(2)}</span>
+        </li>
+      `).join('');
+
+      pickerListEl.querySelectorAll('li').forEach(li => {
+        li.addEventListener('click', () => {
+          const m = menuCache[parseInt(li.dataset.pickIdx)];
+          // Add to working list with default variants (none). Backend
+          // will revalidate and assign canonical variant labels on Save.
+          items.push({
+            menuItemId: m.menuItemId || m.id,
+            name: m.name,
+            variant: null,
+            quantity: 1,
+            unitPrice: m.basePrice || 0,
+            category: m.category,
+            selectedVariants: null,
+          });
+          overlay.remove();
+          renderEditItems();
+        });
+      });
+    }
+
+    overlay.querySelector('#closePickerBtn').onclick = () => overlay.remove();
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
   }
 
   renderEditItems();
@@ -218,9 +390,16 @@ function enterEditMode(order) {
             variant: i.variant,
             quantity: i.quantity || 1,
             selectedVariants: i.selectedVariants || null,
-          }))
+          })),
+          notes,
         })
       });
+      if (res.status === 409) {
+        isEditing = false;
+        showError('This order can no longer be modified.');
+        pollOrder();
+        return;
+      }
       if (!res.ok) {
         const err = await res.json();
         showError(err.error || 'Failed to update order');
@@ -228,14 +407,14 @@ function enterEditMode(order) {
         btn.textContent = '💾 Save Changes';
         return;
       }
+      isEditing = false;
       showSuccess('Order updated!');
-      pollTimer = setInterval(pollOrder, 7000);
       pollOrder();
     } catch { showError('Connection error'); btn.disabled = false; btn.textContent = '💾 Save Changes'; }
   });
 
   document.getElementById('cancelEditBtn').addEventListener('click', () => {
-    pollTimer = setInterval(pollOrder, 7000);
+    isEditing = false;
     pollOrder();
   });
 }

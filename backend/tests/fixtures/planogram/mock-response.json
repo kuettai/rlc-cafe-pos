@@ -1,0 +1,23 @@
+{
+  "_comment": "Canned Bedrock-equivalent response used when PLANOGRAM_MOCK=true. Items mirror the real ingredient list seeded from .ref/stock-check.csv. The handler accepts either this {counts: [...]} envelope or a bare array.",
+  "counts": [
+    { "name": "Oat Milk",         "count": 3,    "confidence": "high",   "notes": "1L cartons, 3 sealed" },
+    { "name": "Whole Milk",       "count": 2,    "confidence": "high",   "notes": "2L bottles" },
+    { "name": "Coffee Beans",     "count": 1.5,  "confidence": "medium", "notes": "1 sealed bag + ~50% in grinder hopper" },
+    { "name": "Chocolate Syrup",  "count": 0.7,  "confidence": "high",   "notes": "Bottle ~70% full" },
+    { "name": "Vanilla Syrup",    "count": 0.4,  "confidence": "high",   "notes": "Bottle ~40% full" },
+    { "name": "Caramel Syrup",    "count": 0.9,  "confidence": "medium", "notes": "Nearly full" },
+    { "name": "Hazelnut Syrup",   "count": 0,    "confidence": "low",    "notes": "Not visible — may be in storeroom" },
+    { "name": "Earl Grey Tea",    "count": 12,   "confidence": "high",   "notes": "Tea bags, individual sachets" },
+    { "name": "English Breakfast","count": 18,   "confidence": "high",   "notes": "Tea bags" },
+    { "name": "Chamomile Tea",    "count": 6,    "confidence": "medium", "notes": "Partial box" },
+    { "name": "Lemon",            "count": 4,    "confidence": "high",   "notes": "Whole lemons" },
+    { "name": "Lime",             "count": 2,    "confidence": "medium", "notes": "Possibly 3 — partly hidden behind lemons" },
+    { "name": "Sparkling Water",  "count": 8,    "confidence": "high",   "notes": "330ml cans" },
+    { "name": "Ice Cubes",        "count": 0.6,  "confidence": "low",    "notes": "Ice tray ~60% — hard to tell through frost" },
+    { "name": "Sugar Sticks",     "count": 45,   "confidence": "medium", "notes": "Approximate count from container" },
+    { "name": "Honey",            "count": 0.3,  "confidence": "high",   "notes": "Squeeze bottle ~30%" },
+    { "name": "Whipped Cream",    "count": 1,    "confidence": "high",   "notes": "1 unopened can" },
+    { "name": "Cinnamon Powder",  "count": 0.8,  "confidence": "medium", "notes": "Shaker mostly full" }
+  ]
+}

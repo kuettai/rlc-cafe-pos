@@ -2,6 +2,7 @@ import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { v4 as uuid } from 'uuid';
 import { docClient, ORDERS_TABLE, MENU_TABLE, SETTINGS_TABLE, GetCommand, PutCommand, UpdateCommand, ScanCommand } from '../lib/db';
 import { linkOrderToCustomer } from './customers';
+import { normalizePhone } from '../lib/phone';
 
 const res = (statusCode: number, body: object): APIGatewayProxyResult => ({
   statusCode, headers: {}, body: JSON.stringify(body),
@@ -34,6 +35,11 @@ async function createOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
   const body = JSON.parse(event.body || '{}');
   const { customerName, items, notes, customerId } = body;
   if (!customerName || !items?.length) return res(400, { error: 'customerName and items required' });
+
+  // If a customerId (phone) is supplied, normalize it so the order's
+  // GSI key matches the customer record's PK exactly. An invalid value
+  // is dropped silently — anonymous orders are always allowed.
+  const normalizedCustomerId = customerId ? normalizePhone(customerId) : null;
 
   const settings = await getSettings();
   if (!settings || settings.cafeStatus !== 'OPEN') return res(403, { error: 'Cafe is not open' });
@@ -90,12 +96,12 @@ async function createOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
     createdAt: now, updatedAt: now, expiresAt,
     isWalkUp: false, flaggedItems: [],
   };
-  if (customerId) orderItem.customerId = customerId;
+  if (normalizedCustomerId) orderItem.customerId = normalizedCustomerId;
 
   await docClient.send(new PutCommand({ TableName: ORDERS_TABLE, Item: orderItem }));
 
-  if (customerId) {
-    await linkOrderToCustomer(customerId, orderId, totalAmount);
+  if (normalizedCustomerId) {
+    await linkOrderToCustomer(normalizedCustomerId, orderId, totalAmount);
   }
 
   return res(201, { orderId, totalAmount, status: 'PENDING' });
@@ -109,7 +115,7 @@ async function getOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxyRes
   if (!r.Item) return res(404, { error: 'Order not found' });
 
   const o = r.Item;
-  return res(200, { orderId: o.orderId, customerName: o.customerName, items: o.items, totalAmount: o.totalAmount, status: o.status, notes: o.notes || '', flaggedItems: o.flaggedItems, createdAt: o.createdAt, receiptUrl: o.receiptUrl, receiptAmount: o.receiptAmount });
+  return res(200, { orderId: o.orderId, customerName: o.customerName, items: o.items, totalAmount: o.totalAmount, status: o.status, notes: o.notes || '', flaggedItems: o.flaggedItems, createdAt: o.createdAt, updatedAt: o.updatedAt, modifiedAt: o.modifiedAt, receiptUrl: o.receiptUrl, receiptAmount: o.receiptAmount });
 }
 
 async function modifyOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
@@ -122,23 +128,40 @@ async function modifyOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
   if (r.Item.status !== 'PENDING') return res(400, { error: 'Order cannot be modified' });
 
   const order = r.Item;
+  const now = new Date().toISOString();
 
+  // ─── CANCEL ────────────────────────────────────────────────────────
   if (body.action === 'cancel') {
+    // Atomic status flip first; only release food if the flip succeeds.
+    // ConditionExpression catches the race where a cashier just approved.
+    try {
+      await docClient.send(new UpdateCommand({
+        TableName: ORDERS_TABLE,
+        Key: { PK: `ORDER#${id}`, SK: 'META' },
+        UpdateExpression: 'SET #s = :s, updatedAt = :u',
+        ExpressionAttributeNames: { '#s': 'status' },
+        ExpressionAttributeValues: { ':s': 'CANCELLED', ':u': now, ':pending': 'PENDING' },
+        ConditionExpression: '#s = :pending',
+      }));
+    } catch (e: any) {
+      if (e.name === 'ConditionalCheckFailedException') {
+        return res(409, { error: 'Order is no longer modifiable' });
+      }
+      throw e;
+    }
     await releaseFood(order.items);
-    await docClient.send(new UpdateCommand({
-      TableName: ORDERS_TABLE,
-      Key: { PK: `ORDER#${id}`, SK: 'META' },
-      UpdateExpression: 'SET #s = :s, updatedAt = :u',
-      ExpressionAttributeNames: { '#s': 'status' },
-      ExpressionAttributeValues: { ':s': 'CANCELLED', ':u': new Date().toISOString() },
-    }));
     return res(200, { orderId: id, status: 'CANCELLED' });
   }
 
+  // ─── UPDATE ────────────────────────────────────────────────────────
   if (body.action === 'update' && body.items?.length) {
-    // Release old food reservations
-    await releaseFood(order.items);
+    // Validate optional notes (max 200 chars, must be string).
+    if (body.notes !== undefined) {
+      if (typeof body.notes !== 'string') return res(400, { error: 'notes must be a string' });
+      if (body.notes.length > 200) return res(400, { error: 'notes cannot exceed 200 characters' });
+    }
 
+    // Validate new items + compute new total. No DB writes yet.
     const settings = await getSettings();
     const newItems: any[] = [];
     let totalAmount = 0;
@@ -168,7 +191,41 @@ async function modifyOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
       totalAmount += unitPrice * item.quantity;
     }
 
-    // Reserve new food
+    // Build the conditional update. modifiedAt is stamped so the cashier UI
+    // can show a "modified moments ago" indicator + approve guard.
+    const exprValues: Record<string, any> = {
+      ':items': newItems,
+      ':t': totalAmount,
+      ':u': now,
+      ':pending': 'PENDING',
+    };
+    let updateExpr = 'SET items = :items, totalAmount = :t, updatedAt = :u, modifiedAt = :u';
+    if (body.notes !== undefined) {
+      updateExpr += ', notes = :n';
+      exprValues[':n'] = body.notes;
+    }
+
+    try {
+      await docClient.send(new UpdateCommand({
+        TableName: ORDERS_TABLE,
+        Key: { PK: `ORDER#${id}`, SK: 'META' },
+        UpdateExpression: updateExpr,
+        ExpressionAttributeNames: { '#s': 'status' },
+        ExpressionAttributeValues: exprValues,
+        ConditionExpression: '#s = :pending',
+      }));
+    } catch (e: any) {
+      if (e.name === 'ConditionalCheckFailedException') {
+        return res(409, { error: 'Order is no longer modifiable' });
+      }
+      throw e;
+    }
+
+    // Adjust food reservations only after the order update committed.
+    // If a foodReserved write fails partway, we accept the inconsistency
+    // — the cron will release stale reservations on EXPIRED orders, and
+    // the alternative (rolling back the order update) is worse.
+    await releaseFood(order.items);
     for (const oi of newItems) {
       if (oi.category === 'FOOD') {
         await docClient.send(new UpdateCommand({
@@ -180,14 +237,7 @@ async function modifyOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
       }
     }
 
-    await docClient.send(new UpdateCommand({
-      TableName: ORDERS_TABLE,
-      Key: { PK: `ORDER#${id}`, SK: 'META' },
-      UpdateExpression: 'SET items = :items, totalAmount = :t, updatedAt = :u',
-      ExpressionAttributeValues: { ':items': newItems, ':t': totalAmount, ':u': new Date().toISOString() },
-    }));
-
-    return res(200, { orderId: id, totalAmount, status: 'PENDING' });
+    return res(200, { orderId: id, totalAmount, status: 'PENDING', modifiedAt: now });
   }
 
   return res(400, { error: 'Invalid action' });

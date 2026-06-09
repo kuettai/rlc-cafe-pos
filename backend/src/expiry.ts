@@ -35,29 +35,70 @@ export async function handler(_event: ScheduledEvent): Promise<void> {
     }
   }
 
-  // Auto-archive READY orders older than 15 minutes
-  const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
-
-  const readyResult = await docClient.send(new QueryCommand({
-    TableName: ORDERS_TABLE,
-    IndexName: 'status-createdAt-index',
-    KeyConditionExpression: '#s = :status AND createdAt < :cutoff',
-    ExpressionAttributeNames: { '#s': 'status' },
-    ExpressionAttributeValues: { ':status': 'READY', ':cutoff': fifteenMinAgo },
-  }));
-
-  for (const order of readyResult.Items || []) {
-    await docClient.send(new UpdateCommand({
-      TableName: ORDERS_TABLE,
-      Key: { PK: order.PK, SK: 'META' },
-      UpdateExpression: 'SET #s = :archived, updatedAt = :now',
-      ExpressionAttributeNames: { '#s': 'status' },
-      ExpressionAttributeValues: { ':archived': 'ARCHIVED', ':now': new Date().toISOString() },
-    }));
-  }
+  // Auto-archive READY orders older than archiveAfterMinutes (default 15).
+  await autoArchiveReadyOrders();
 
   // Check low stock and send alert (max once per hour)
   await checkLowStock();
+}
+
+/**
+ * Archive READY orders that have been ready longer than the configured
+ * threshold. Reads `archiveAfterMinutes` from the Settings record (fallback 15).
+ *
+ * Threshold is computed from `readyAt`. Orders predating this feature won't
+ * have a `readyAt` attribute; for those we fall back to `updatedAt` and
+ * backfill `readyAt` so the next pass uses the correct field.
+ *
+ * The Update is guarded by a status precondition so a cashier "Undo" mid-cron
+ * silently no-ops instead of clobbering the order.
+ */
+async function autoArchiveReadyOrders(): Promise<void> {
+  const settingsResult = await docClient.send(new GetCommand({
+    TableName: SETTINGS_TABLE,
+    Key: { PK: 'SETTINGS', SK: 'CONFIG' },
+  }));
+  const archiveAfterMinutes = Number(settingsResult.Item?.archiveAfterMinutes) || 15;
+  const cutoffMs = Date.now() - archiveAfterMinutes * 60 * 1000;
+
+  // Query all current READY orders. At any point during service this is
+  // typically <20 orders, so an in-memory filter is cheaper than maintaining
+  // a second GSI on readyAt.
+  const readyResult = await docClient.send(new QueryCommand({
+    TableName: ORDERS_TABLE,
+    IndexName: 'status-createdAt-index',
+    KeyConditionExpression: '#s = :status',
+    ExpressionAttributeNames: { '#s': 'status' },
+    ExpressionAttributeValues: { ':status': 'READY' },
+  }));
+
+  const now = new Date().toISOString();
+
+  for (const order of readyResult.Items || []) {
+    const readyAt: string | undefined = order.readyAt || order.updatedAt;
+    if (!readyAt) continue;
+    if (new Date(readyAt).getTime() >= cutoffMs) continue;
+
+    const needsBackfill = !order.readyAt && order.updatedAt;
+
+    try {
+      await docClient.send(new UpdateCommand({
+        TableName: ORDERS_TABLE,
+        Key: { PK: order.PK, SK: 'META' },
+        UpdateExpression: needsBackfill
+          ? 'SET #s = :archived, updatedAt = :now, readyAt = :readyAt'
+          : 'SET #s = :archived, updatedAt = :now',
+        ExpressionAttributeNames: { '#s': 'status' },
+        ExpressionAttributeValues: needsBackfill
+          ? { ':archived': 'ARCHIVED', ':now': now, ':prev': 'READY', ':readyAt': order.updatedAt }
+          : { ':archived': 'ARCHIVED', ':now': now, ':prev': 'READY' },
+        ConditionExpression: '#s = :prev',
+      }));
+    } catch (e: any) {
+      if (e.name !== 'ConditionalCheckFailedException') throw e;
+      // Status changed (e.g. cashier undid back to PREPARING) — silently skip.
+    }
+  }
 }
 
 async function checkLowStock() {

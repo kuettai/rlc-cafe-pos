@@ -132,10 +132,9 @@ cafepos/
 
 ### TODO — Remaining
 - [ ] Email notifications (low stock alert, end-of-day summary to admin)
-- [ ] Customer order modify UI (change items while order is still PENDING)
+- ✅ Customer order modify UI (change items while order is still PENDING) — Tier 1 (race-safe + cashier indicators), Tier 2 (add items + notes), Tier 3 (variant editing via shared variants.js)
 - [ ] Stock history & consumption trends (graph of usage over weeks)
 - [ ] Weekly/monthly sales summary report
-- [ ] Ready orders auto-archive after 15 minutes (currently manual/on-close only)
 - [ ] Item-disabled notification to customers with that item in pending orders
 - [ ] Better error handling, loading states
 

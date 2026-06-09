@@ -3,10 +3,19 @@ import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import { docClient, SETTINGS_TABLE, INGREDIENTS_TABLE, GetCommand, PutCommand, ScanCommand, UpdateCommand } from '../lib/db';
+import * as fs from 'fs';
+import * as path from 'path';
 
 const s3 = new S3Client({});
 const bedrock = new BedrockRuntimeClient({ region: process.env.AWS_REGION || 'ap-southeast-5' });
 const PLANOGRAM_BUCKET = process.env.PLANOGRAM_BUCKET || 'rlc-cafe-planogram';
+const BEDROCK_MODEL_ID = 'global.anthropic.claude-sonnet-4-6';
+
+const VALID_LOCATIONS = ['fridge', 'storeroom'] as const;
+type PlanogramLocation = typeof VALID_LOCATIONS[number];
+function isValidLocation(loc: unknown): loc is PlanogramLocation {
+  return typeof loc === 'string' && (VALID_LOCATIONS as readonly string[]).includes(loc);
+}
 
 function res(statusCode: number, body: unknown): APIGatewayProxyResult {
   return { statusCode, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
@@ -21,8 +30,11 @@ export async function handlePlanogram(event: APIGatewayProxyEvent): Promise<APIG
     // POST /api/pos/planogram/analyze — upload photos and get AI stock count
     if (method === 'POST' && path.endsWith('/planogram/analyze')) {
       const { location, images } = body;
-      if (!location || !images || !images.length) {
-        return res(400, { error: 'location and images[] required' });
+      if (!isValidLocation(location)) {
+        return res(400, { error: `location must be one of: ${VALID_LOCATIONS.join(', ')}` });
+      }
+      if (!images || !images.length) {
+        return res(400, { error: 'images[] required' });
       }
 
       // Save photos to S3
@@ -31,8 +43,15 @@ export async function handlePlanogram(event: APIGatewayProxyEvent): Promise<APIG
       const s3Keys: string[] = [];
 
       for (let i = 0; i < images.length; i++) {
-        const base64Match = images[i].match(/^data:([^;]+);base64,(.+)$/);
-        const imgData = base64Match ? Buffer.from(base64Match[2], 'base64') : Buffer.from(images[i], 'base64');
+        const raw = images[i];
+        if (typeof raw !== 'string' || !raw) {
+          return res(400, { error: `images[${i}] must be a non-empty string` });
+        }
+        const base64Match = raw.match(/^data:([^;]+);base64,(.+)$/);
+        const imgData = base64Match ? Buffer.from(base64Match[2], 'base64') : Buffer.from(raw, 'base64');
+        if (!imgData.length) {
+          return res(400, { error: `images[${i}] could not be decoded` });
+        }
         const contentType = base64Match ? base64Match[1] : 'image/jpeg';
         const key = `stock-count/${today}/${location}/${timestamp}-${i}.jpg`;
 
@@ -106,11 +125,13 @@ export async function handlePlanogram(event: APIGatewayProxyEvent): Promise<APIG
       const aiResult = await analyzeStock(imageContents, ingredientList, location);
 
       // Save the analysis log
+      const logId = `${today}#${timestamp}`;
       await docClient.send(new PutCommand({
         TableName: SETTINGS_TABLE,
         Item: {
           PK: `PLANOGRAM_LOG#${today}#${timestamp}`,
           SK: 'META',
+          logId,
           date: today,
           location,
           s3Keys,
@@ -121,6 +142,7 @@ export async function handlePlanogram(event: APIGatewayProxyEvent): Promise<APIG
       }));
 
       return res(200, {
+        logId,
         counts: aiResult,
         s3Keys,
         ingredients: relevantIngredients.map((i: any) => ({
@@ -134,7 +156,7 @@ export async function handlePlanogram(event: APIGatewayProxyEvent): Promise<APIG
 
     // POST /api/pos/planogram/confirm — confirm AI results and update stock
     if (method === 'POST' && path.endsWith('/planogram/confirm')) {
-      const { counts } = body;
+      const { counts, logId } = body;
       if (!counts || !Array.isArray(counts)) return res(400, { error: 'counts[] required' });
 
       for (const item of counts) {
@@ -147,16 +169,36 @@ export async function handlePlanogram(event: APIGatewayProxyEvent): Promise<APIG
         }));
       }
 
-      return res(200, { updated: counts.length });
+      // Mark the analyze log as confirmed (best-effort: a missing or invalid
+      // logId is not fatal — confirms can still happen if the log was lost).
+      if (typeof logId === 'string' && logId.includes('#')) {
+        try {
+          await docClient.send(new UpdateCommand({
+            TableName: SETTINGS_TABLE,
+            Key: { PK: `PLANOGRAM_LOG#${logId}`, SK: 'META' },
+            UpdateExpression: 'SET confirmedAt = :now',
+            ExpressionAttributeValues: { ':now': new Date().toISOString() },
+            ConditionExpression: 'attribute_exists(PK)',
+          }));
+        } catch (e: any) {
+          if (e.name !== 'ConditionalCheckFailedException') throw e;
+        }
+      }
+
+      return res(200, { updated: counts.length, logId: logId || null });
     }
 
     // POST /api/admin/planogram/reference — upload reference photo
     if (method === 'POST' && path.endsWith('/planogram/reference')) {
       const { location, image } = body;
-      if (!location || !image) return res(400, { error: 'location and image required' });
+      if (!isValidLocation(location)) {
+        return res(400, { error: `location must be one of: ${VALID_LOCATIONS.join(', ')}` });
+      }
+      if (!image) return res(400, { error: 'image required' });
 
       const base64Match = image.match(/^data:([^;]+);base64,(.+)$/);
       const imgData = base64Match ? Buffer.from(base64Match[2], 'base64') : Buffer.from(image, 'base64');
+      if (!imgData.length) return res(400, { error: 'image could not be decoded' });
       const contentType = base64Match ? base64Match[1] : 'image/jpeg';
       const key = `reference/${location}.jpg`;
 
@@ -206,6 +248,13 @@ export async function handlePlanogram(event: APIGatewayProxyEvent): Promise<APIG
 }
 
 async function analyzeStock(imageContents: any[], ingredientList: string, location: string) {
+  // Mock mode: skip Bedrock entirely. Used for local dev and unit tests so
+  // the rest of the pipeline (S3 upload, log creation, response shape) can
+  // be exercised without invoking a paid model.
+  if (process.env.PLANOGRAM_MOCK === 'true') {
+    return loadMockResult();
+  }
+
   const prompt = `You are a stock counting assistant for a church café. Analyze the ${location} photos and count the items visible.
 
 These are multiple views of the SAME ${location}. Combine counts across all images but DO NOT double-count items visible in overlapping views.
@@ -238,7 +287,7 @@ Be precise. Count carefully. If unsure about an item, set confidence to "low".`;
   };
 
   const response = await bedrock.send(new InvokeModelCommand({
-    modelId: 'anthropic.claude-sonnet-4-5-v1',
+    modelId: BEDROCK_MODEL_ID,
     body: JSON.stringify(payload),
     contentType: 'application/json',
   }));
@@ -250,6 +299,33 @@ Be precise. Count carefully. If unsure about an item, set confidence to "low".`;
     const jsonMatch = text.match(/\[[\s\S]*\]/);
     if (jsonMatch) return JSON.parse(jsonMatch[0]);
   } catch {}
+
+  return [];
+}
+
+/**
+ * Load mock counts when PLANOGRAM_MOCK=true.
+ *
+ * - If PLANOGRAM_MOCK_FIXTURE_PATH is set, that path is used exclusively.
+ *   A bad/missing path returns []; we do not silently fall back, because
+ *   that would mask test misconfiguration.
+ * - Otherwise, the bundled default fixture is used.
+ *
+ * The fixture may be either a bare array or `{ counts: [...] }`.
+ */
+function loadMockResult(): any[] {
+  const fixturePath =
+    process.env.PLANOGRAM_MOCK_FIXTURE_PATH ||
+    path.join(__dirname, '..', '..', 'tests', 'fixtures', 'planogram', 'mock-response.json');
+
+  try {
+    const raw = fs.readFileSync(fixturePath, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed;
+    if (Array.isArray(parsed?.counts)) return parsed.counts;
+  } catch {
+    // Fall through to empty array.
+  }
 
   return [];
 }

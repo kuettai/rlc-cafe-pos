@@ -116,13 +116,21 @@ async function approveOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProx
     totalAmount = newTotal;
   }
 
-  await docClient.send(new UpdateCommand({
-    TableName: ORDERS_TABLE,
-    Key: { PK: `ORDER#${id}`, SK: 'META' },
-    UpdateExpression: 'SET #s = :s, approvedBy = :a, discountType = :dt, discountOffset = :do, totalAmount = :t, updatedAt = :u',
-    ExpressionAttributeNames: { '#s': 'status' },
-    ExpressionAttributeValues: { ':s': 'PREPARING', ':a': body.approvedBy, ':dt': discountType, ':do': discountOffset, ':t': totalAmount, ':u': new Date().toISOString() },
-  }));
+  try {
+    await docClient.send(new UpdateCommand({
+      TableName: ORDERS_TABLE,
+      Key: { PK: `ORDER#${id}`, SK: 'META' },
+      UpdateExpression: 'SET #s = :s, approvedBy = :a, discountType = :dt, discountOffset = :do, totalAmount = :t, updatedAt = :u',
+      ExpressionAttributeNames: { '#s': 'status' },
+      ExpressionAttributeValues: { ':s': 'PREPARING', ':a': body.approvedBy, ':dt': discountType, ':do': discountOffset, ':t': totalAmount, ':u': new Date().toISOString(), ':pending': 'PENDING' },
+      ConditionExpression: '#s = :pending',
+    }));
+  } catch (e: any) {
+    if (e.name === 'ConditionalCheckFailedException') {
+      return res(409, { error: 'Order was just cancelled or modified by the customer' });
+    }
+    throw e;
+  }
 
   // Deduct ingredients based on recipes
   await deductIngredients(order.items);
@@ -209,16 +217,17 @@ async function markReady(event: APIGatewayProxyEvent): Promise<APIGatewayProxyRe
   const id = event.pathParameters?.id;
   if (!id) return res(400, { error: 'Missing order id' });
 
+  const now = new Date().toISOString();
   await docClient.send(new UpdateCommand({
     TableName: ORDERS_TABLE,
     Key: { PK: `ORDER#${id}`, SK: 'META' },
-    UpdateExpression: 'SET #s = :s, updatedAt = :u',
+    UpdateExpression: 'SET #s = :s, updatedAt = :u, readyAt = :u',
     ExpressionAttributeNames: { '#s': 'status' },
-    ExpressionAttributeValues: { ':s': 'READY', ':u': new Date().toISOString(), ':prev': 'PREPARING' },
+    ExpressionAttributeValues: { ':s': 'READY', ':u': now, ':prev': 'PREPARING' },
     ConditionExpression: '#s = :prev',
   }));
 
-  return res(200, { orderId: id, status: 'READY' });
+  return res(200, { orderId: id, status: 'READY', readyAt: now });
 }
 
 async function undoToPending(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {

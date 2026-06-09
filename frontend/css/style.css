@@ -1111,10 +1111,76 @@ header h1{
   text-overflow:ellipsis;
   white-space:nowrap;
 }
+/* "✏️ modified" pill on PENDING cards whose customer just edited the order. */
+.pos-card-modified{
+  display:inline-block;
+  background:#FFF4E0;
+  color:#8C5A1F;
+  border:1px solid #E0B380;
+  border-radius:999px;
+  padding:2px 10px;
+  font-size:.7rem;
+  font-weight:700;
+  letter-spacing:.3px;
+  margin-bottom:6px;
+}
+
+/* Brief flash applied to a card whose updatedAt changed between polls. */
+.pos-card-mutated{
+  animation:pos-card-mutate 1.4s ease-in-out;
+}
+@keyframes pos-card-mutate{
+  0%   { box-shadow:0 0 0 2px transparent; background-color:inherit; }
+  20%  { box-shadow:0 0 0 3px #E8B466; background-color:#FFF8EC; }
+  100% { box-shadow:0 0 0 2px transparent; background-color:inherit; }
+}
+
+/* Top-right toast host for cancellation notices. */
+.pos-toast{
+  background:#fff;
+  color:#3D2B1F;
+  border-left:4px solid #C0392B;
+  border-radius:8px;
+  padding:10px 14px;
+  font-size:.9rem;
+  font-weight:600;
+  box-shadow:0 4px 14px rgba(74,44,23,.18);
+  pointer-events:auto;
+  max-width:300px;
+  transition:opacity .3s ease;
+}
+.pos-toast-cancel{
+  background:#FBEAE6;
+  color:#7A1F12;
+}
+
 .pos-card-note{
   font-size:.75rem;
   color:#7C3AED;
   margin-top:2px;
+}
+/* Auto-archive countdown shown on READY cards. */
+.pos-archive-hint{
+  font-size:.72rem;
+  color:#7A6355;
+  margin-top:4px;
+  letter-spacing:.2px;
+  opacity:.85;
+}
+.pos-archive-hint-soon{
+  color:#A85A1F;
+  font-weight:600;
+  opacity:1;
+}
+.pos-archive-hint-overdue{
+  color:#C0392B;
+  font-weight:700;
+  opacity:1;
+  animation:pos-archive-pulse 1.4s ease-in-out infinite;
+}
+@keyframes pos-archive-pulse{
+  0%, 100% { opacity:.7; }
+  50%      { opacity:1; }
 }
 .pos-card-footer{
   display:flex;

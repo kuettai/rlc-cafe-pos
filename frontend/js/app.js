@@ -95,26 +95,9 @@ function renderMenu() {
         html += `<div class="item-stock">${soldOut ? 'Sold out' : avail + ' left'}</div>`;
       }
 
-      if (item.variantGroups && item.variantGroups.length) {
-        html += `<div class="variant-groups" data-item-id="${item.id}">`;
-        item.variantGroups.forEach(g => {
-          html += `<div class="variant-group" data-group="${g.group}" data-type="${g.type}">`;
-          g.options.forEach((o, i) => {
-            const priceTag = o.price ? ` (+RM${o.price})` : '';
-            const isActive = g.type === 'single' ? i === 0 : false;
-            html += `<button class="vg-btn ${isActive?'active':''}" data-option="${o.name}" data-price="${o.price||0}">${o.name}${priceTag}</button>`;
-          });
-          html += `</div>`;
-        });
-        html += `</div>`;
-      } else if (item.variants && item.variants.length) {
-        html += `<div class="variants" data-item-id="${item.id}">`;
-        item.variants.forEach((v, i) => {
-          const isActive = cart.some(c => c.id === item.id && c.variant === v.id) || (i === 0 && !cart.some(c => c.id === item.id));
-          const priceTag = v.priceModifier ? ` (+RM${v.priceModifier})` : '';
-          html += `<button class="${isActive ? 'active' : ''}" data-variant="${v.id}" aria-pressed="${isActive}">${v.name}${priceTag}</button>`;
-        });
-        html += `</div>`;
+      if ((item.variantGroups && item.variantGroups.length) ||
+          (item.variants && item.variants.length)) {
+        html += RLCVariants.pickerHtml(item, { itemId: item.id });
       }
 
       html += `<div class="qty-controls">`;
@@ -180,49 +163,12 @@ function bindShellEvents() {
   });
 }
 
-function getSelectedVariant(itemId) {
-  const variantContainer = document.querySelector(`.variants[data-item-id="${itemId}"]`);
-  if (!variantContainer) return null;
-  const active = variantContainer.querySelector('.active');
-  return active ? active.dataset.variant : variantContainer.querySelector('button')?.dataset.variant || null;
-}
-
-function getSelectedVariants(itemId) {
-  const container = document.querySelector(`.variant-groups[data-item-id="${itemId}"]`);
-  if (!container) return [];
-  const selected = [];
-  container.querySelectorAll('.variant-group').forEach(g => {
-    const group = g.dataset.group;
-    g.querySelectorAll('.vg-btn.active').forEach(btn => {
-      selected.push({ group, option: btn.dataset.option, price: parseFloat(btn.dataset.price) || 0 });
-    });
-  });
-  return selected;
-}
-
 function bindItemEvents() {
-  // Old flat variant buttons
-  document.querySelectorAll('.variants button').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const container = btn.closest('.variants');
-      container.querySelectorAll('button').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-pressed', 'false'); });
-      btn.classList.add('active');
-      btn.setAttribute('aria-pressed', 'true');
-    });
-  });
-
-  // New variant group buttons
-  document.querySelectorAll('.vg-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const group = btn.closest('.variant-group');
-      if (group.dataset.type === 'single') {
-        group.querySelectorAll('.vg-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-      } else {
-        btn.classList.toggle('active');
-      }
-    });
-  });
+  // Variant buttons (both new variant-groups and legacy .variants markup)
+  // are wired by the shared module so the customer page and the order edit
+  // page behave identically.
+  const menuRoot = document.getElementById('menuItems');
+  if (menuRoot && window.RLCVariants) RLCVariants.bindPicker(menuRoot);
 
   document.querySelectorAll('.qty-controls button').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -456,8 +402,8 @@ function showPhoneLookup() {
   input.focus();
 
   async function doLookup() {
-    const phone = input.value.replace(/[^0-9]/g, '');
-    if (phone.length < 9) { errEl.textContent = 'Please enter a valid phone number'; errEl.style.display = 'block'; return; }
+    const phone = normalizePhone(input.value);
+    if (!phone) { errEl.textContent = 'Please enter a valid Malaysian phone number'; errEl.style.display = 'block'; return; }
     btn.disabled = true; btn.textContent = 'Looking up...';
     try {
       const res = await fetch(`${API_BASE}/api/customers/${phone}`);
@@ -501,8 +447,8 @@ function showRegistrationPrompt(orderId) {
   phoneInput.focus();
 
   async function doRegister() {
-    const phone = phoneInput.value.replace(/[^0-9]/g, '');
-    if (phone.length < 9) { errEl.textContent = 'Please enter a valid phone number'; errEl.style.display = 'block'; return; }
+    const phone = normalizePhone(phoneInput.value);
+    if (!phone) { errEl.textContent = 'Please enter a valid Malaysian phone number'; errEl.style.display = 'block'; return; }
     const birthday = birthdayInput.value.trim();
     if (birthday && !/^\d{2}-\d{2}$/.test(birthday)) { errEl.textContent = 'Birthday format: MM-DD (e.g. 03-15)'; errEl.style.display = 'block'; return; }
 

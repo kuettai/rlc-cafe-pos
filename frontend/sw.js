@@ -1,8 +1,8 @@
-const CACHE_NAME = 'rlc-cafe-v17';
+const CACHE_NAME = 'rlc-cafe-v21';
 const SHELL = [
   './', './index.html', './track.html', './pos.html', './admin.html',
   './css/style.css', './css/admin.css',
-  './js/config.js', './js/app.js', './js/track.js', './js/pos.js', './js/admin.js'
+  './js/config.js', './js/phone.js', './js/variants.js', './js/app.js', './js/track.js', './js/pos.js', './js/admin.js'
 ];
 
 self.addEventListener('install', e => {
