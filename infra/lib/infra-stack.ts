@@ -77,7 +77,19 @@ export class InfraStack extends cdk.Stack {
       sortKey: { name: 'createdAt', type: dynamodb.AttributeType.STRING },
     });
 
-    // ─── S3 Buckets ────────────────────────────────────────────────────
+    const vouchersTable = new dynamodb.Table(this, 'VouchersTable', {
+      tableName: 'rlc-cafe-vouchers',
+      partitionKey: { name: 'PK', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'SK', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    vouchersTable.addGlobalSecondaryIndex({
+      indexName: 'campaignId-issuedAt-index',
+      partitionKey: { name: 'campaignId', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'issuedAt', type: dynamodb.AttributeType.STRING },
+    });    // ─── S3 Buckets ────────────────────────────────────────────────────
 
     const receiptsBucket = new s3.Bucket(this, 'ReceiptsBucket', {
       bucketName: `rlc-cafe-receipts-${this.account}`,
@@ -133,6 +145,7 @@ export class InfraStack extends cdk.Stack {
         USERS_TABLE: usersTable.tableName,
         SETTINGS_TABLE: settingsTable.tableName,
         CUSTOMERS_TABLE: customersTable.tableName,
+        VOUCHERS_TABLE: vouchersTable.tableName,
         RECEIPTS_BUCKET: receiptsBucket.bucketName,
         PLANOGRAM_BUCKET: planogramBucket.bucketName,
         JWT_SECRET: 'CHANGE_ME_BEFORE_DEPLOY',
@@ -148,6 +161,7 @@ export class InfraStack extends cdk.Stack {
     usersTable.grantReadWriteData(apiHandler);
     settingsTable.grantReadWriteData(apiHandler);
     customersTable.grantReadWriteData(apiHandler);
+    vouchersTable.grantReadWriteData(apiHandler);
     receiptsBucket.grantReadWrite(apiHandler);
     planogramBucket.grantReadWrite(apiHandler);
 

@@ -10,6 +10,7 @@ import { handleChecklist } from './routes/checklist';
 import { handleReceipt } from './routes/receipt';
 import { handlePlanogram } from './routes/planogram';
 import { handleCustomers } from './routes/customers';
+import { handleVouchers } from './routes/vouchers';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -85,6 +86,13 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
     return res;
   }
 
+  if (path.startsWith('/api/admin/vouchers')) {
+    if (user.role !== 'ADMIN') return respond(403, { error: 'Forbidden' });
+    const res = await handleVouchers(event, user.name);
+    res.headers = { ...CORS_HEADERS, ...res.headers };
+    return res;
+  }
+
   if (path.startsWith('/api/admin')) {
     if (user.role !== 'ADMIN') return respond(403, { error: 'Forbidden' });
     const res = await handleAdmin(event);
@@ -100,6 +108,12 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
 
   if (path.startsWith('/api/pos/planogram')) {
     const res = await handlePlanogram(event);
+    res.headers = { ...CORS_HEADERS, ...res.headers };
+    return res;
+  }
+
+  if (path.startsWith('/api/pos/vouchers')) {
+    const res = await handleVouchers(event, user.name);
     res.headers = { ...CORS_HEADERS, ...res.headers };
     return res;
   }
