@@ -638,7 +638,8 @@ function openDetail(id){
     <button class="pos-btn pos-btn-danger pos-btn-lg" id="btnReject">✗ Reject</button>`;
   else if(o.status==='PREPARING') actions=`<button class="pos-btn pos-btn-primary pos-btn-lg" id="btnReady">✓ Ready</button>
     <button class="pos-btn pos-btn-lg" id="btnUndo" style="background:#6b7280;color:#fff">↩ Undo</button>`;
-  else if(o.status==='READY') actions=`<button class="pos-btn pos-btn-primary pos-btn-lg" id="btnCollected">✓ Collected</button>`;
+  else if(o.status==='READY') actions=`<button class="pos-btn pos-btn-primary pos-btn-lg" id="btnCollected">✓ Collected</button>
+    <button class="pos-btn pos-btn-danger pos-btn-lg" id="btnCancelCompleted">✗ Cancel / Refund</button>`;
 
   const orderTime = new Date(o.createdAt).toLocaleTimeString('en-MY',{hour:'2-digit',minute:'2-digit'});
 
@@ -666,6 +667,7 @@ function openDetail(id){
     modal.querySelector('#btnUndo').onclick=async()=>{ await api('PUT',`/api/pos/orders/${id}/undo`); modal.remove(); fetchOrders(); };
   } else if(o.status==='READY'){
     modal.querySelector('#btnCollected').onclick=async()=>{ await api('PUT',`/api/pos/orders/${id}/archive`); modal.remove(); fetchOrders(); };
+    modal.querySelector('#btnCancelCompleted').onclick=()=> showCancelCompletedDialog(id, modal);
   }
 }
 
@@ -679,6 +681,68 @@ function showRejectDialog(id, parentModal){
     await api('PUT',`/api/pos/orders/${id}/reject`,{reason:b.textContent});
     parentModal.remove(); fetchOrders();
   });
+}
+
+// Cashier-driven cancel for READY/ARCHIVED orders. Distinct from Reject
+// (which only acts on PENDING) — this records cancelReason + cancelledBy
+// on the order so daily reports can flag it as a refund line.
+function showCancelCompletedDialog(id, parentModal){
+  const presetReasons = ['Wrong order made', 'Customer no-show', 'Duplicate', 'Made by mistake'];
+  const overlay = document.createElement('div');
+  overlay.className = 'pos-modal-overlay';
+  overlay.style.zIndex = '600';
+  overlay.innerHTML = `<div class="pos-modal" style="max-width:420px">
+    <button class="pos-modal-close">✕</button>
+    <h3 style="color:#B91C1C">Cancel / Refund Order</h3>
+    <p style="font-size:.85rem;color:var(--text-light,#7A6355);margin:8px 0 14px">
+      This marks the order as cancelled for reporting (refund line).
+      Ingredients already used will not be returned to stock.
+    </p>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">
+      ${presetReasons.map(r=>`<button class="pos-btn pos-btn-sm" data-preset="${r}">${r}</button>`).join('')}
+    </div>
+    <input id="ccReason" class="pos-input" placeholder="Reason (required)" maxlength="200" style="margin-bottom:12px">
+    <div style="display:flex;gap:8px">
+      <button class="pos-btn" id="ccBack" style="flex:1">Back</button>
+      <button class="pos-btn pos-btn-danger pos-btn-lg" id="ccConfirm" style="flex:2">Confirm Cancel</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+  overlay.onclick = e => { if(e.target === overlay) overlay.remove(); };
+  overlay.querySelector('.pos-modal-close').onclick = ()=> overlay.remove();
+  overlay.querySelector('#ccBack').onclick = ()=> overlay.remove();
+
+  const reasonInput = overlay.querySelector('#ccReason');
+  reasonInput.focus();
+  overlay.querySelectorAll('[data-preset]').forEach(b=>{
+    b.onclick = ()=>{
+      reasonInput.value = b.dataset.preset;
+      reasonInput.focus();
+    };
+  });
+
+  overlay.querySelector('#ccConfirm').onclick = async ()=>{
+    const reason = reasonInput.value.trim();
+    if(!reason){ showError('Reason is required'); reasonInput.focus(); return; }
+    const btn = overlay.querySelector('#ccConfirm');
+    btn.disabled = true; btn.textContent = 'Cancelling…';
+    try{
+      await api('POST', `/api/pos/orders/${id}/cancel-completed`, { reason });
+      overlay.remove();
+      if(parentModal) parentModal.remove();
+      try{ showSuccessToast('Order cancelled — will show as refund in reports'); }
+      catch(e){ /* helper may not exist on older builds */ }
+      fetchOrders();
+    } catch(e){
+      btn.disabled = false; btn.textContent = 'Confirm Cancel';
+      const msg = String(e && e.message || '');
+      if(msg.includes('no longer in a cancellable state')){
+        showError('Order is no longer cancellable');
+      } else {
+        showError('Cancel failed');
+      }
+    }
+  };
 }
 
 // --- Cafe toggle with checklist ---
@@ -1073,16 +1137,20 @@ async function openHistory(){
         <div class="pos-history-list">${completed.map(o=>{
           const items = (o.items||[]).map(i=>`${i.quantity||i.qty||1}x ${i.name}`).join(', ');
           const statusClass = o.status==='CANCELLED'||o.status==='EXPIRED' ? 'badge-inactive' : 'badge-active';
+          const oid = o.orderId || o.id;
+          const canCancel = (o.status === 'READY' || o.status === 'ARCHIVED');
           return `<div class="pos-history-item">
             <div class="pos-history-header">
               <strong>${o.customerName||'Guest'}</strong>
               <span class="admin-card-badge ${statusClass}">${o.status}</span>
             </div>
             <div class="pos-history-details">${items}</div>
+            ${o.cancelReason ? `<div style="font-size:.75rem;color:var(--text-light,#7A6355);margin-top:4px">Cancelled: ${o.cancelReason}${o.cancelledBy?' · by '+o.cancelledBy:''}</div>` : ''}
             <div class="pos-history-footer">
               <span>RM ${(o.total||o.totalAmount||0).toFixed(2)}</span>
               <span>${new Date(o.createdAt).toLocaleTimeString('en-MY',{hour:'2-digit',minute:'2-digit'})}</span>
               <button class="pos-btn pos-btn-sm" data-reorder='${JSON.stringify({name:o.customerName,items:o.items})}'>Reorder</button>
+              ${canCancel ? `<button class="pos-btn pos-btn-sm pos-btn-danger" data-cancel-completed="${oid}">Cancel / Refund</button>` : ''}
             </div>
           </div>`;
         }).join('')}</div>`;
@@ -1096,6 +1164,10 @@ async function openHistory(){
         modal.remove();
         fetchOrders();
       } catch(e){ showError('Reorder failed'); }
+    });
+
+    content.querySelectorAll('[data-cancel-completed]').forEach(btn=>{
+      btn.onclick = ()=> showCancelCompletedDialog(btn.dataset.cancelCompleted, modal);
     });
   } catch(e){ showError('Failed to load history'); modal.remove(); }
 }

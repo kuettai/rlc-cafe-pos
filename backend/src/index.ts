@@ -119,7 +119,7 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
   }
 
   if (path.startsWith('/api/pos')) {
-    const res = await handlePos(event);
+    const res = await handlePos(event, user.name);
     res.headers = { ...CORS_HEADERS, ...res.headers };
     return res;
   }

@@ -284,6 +284,60 @@ async function rejectOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
   return res(200, { orderId: id, status: 'CANCELLED' });
 }
 
+// Cashier/admin-initiated cancel for orders that are already READY or
+// ARCHIVED. Used as a "refund" mechanism when a wrong order was completed
+// or never actually produced. Distinct from rejectOrder (which only acts
+// on PENDING) and the customer-side cancel (also PENDING-only).
+//
+// Food reservations are intentionally NOT released — the items were
+// physically prepared/consumed by the time the order reached READY, so
+// returning them to inventory would double-count.
+async function cancelCompletedOrder(event: APIGatewayProxyEvent, actor: string): Promise<APIGatewayProxyResult> {
+  const id = event.pathParameters?.id;
+  if (!id) return res(400, { error: 'Missing order id' });
+
+  const body = JSON.parse(event.body || '{}');
+  const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+  if (!reason) return res(400, { error: 'reason is required' });
+  if (reason.length > 200) return res(400, { error: 'reason cannot exceed 200 characters' });
+
+  const existing = await docClient.send(new GetCommand({ TableName: ORDERS_TABLE, Key: { PK: `ORDER#${id}`, SK: 'META' } }));
+  if (!existing.Item) return res(404, { error: 'Order not found' });
+  if (existing.Item.status !== 'READY' && existing.Item.status !== 'ARCHIVED') {
+    return res(400, { error: `Only READY or ARCHIVED orders can be cancelled here (current: ${existing.Item.status})` });
+  }
+
+  const now = new Date().toISOString();
+  try {
+    await docClient.send(new UpdateCommand({
+      TableName: ORDERS_TABLE,
+      Key: { PK: `ORDER#${id}`, SK: 'META' },
+      UpdateExpression:
+        'SET #s = :cancelled, cancelledAt = :now, cancelReason = :reason, ' +
+        'cancelledBy = :actor, updatedAt = :now, postCompletionCancel = :true',
+      ExpressionAttributeNames: { '#s': 'status' },
+      ExpressionAttributeValues: {
+        ':cancelled': 'CANCELLED',
+        ':now': now,
+        ':reason': reason,
+        ':actor': actor,
+        ':true': true,
+        ':ready': 'READY',
+        ':archived': 'ARCHIVED',
+      },
+      ConditionExpression: '#s = :ready OR #s = :archived',
+    }));
+  } catch (e: any) {
+    if (e.name === 'ConditionalCheckFailedException') {
+      return res(409, { error: 'Order is no longer in a cancellable state' });
+    }
+    throw e;
+  }
+
+  const fresh = await docClient.send(new GetCommand({ TableName: ORDERS_TABLE, Key: { PK: `ORDER#${id}`, SK: 'META' } }));
+  return res(200, fresh.Item || { orderId: id, status: 'CANCELLED' });
+}
+
 async function createWalkUp(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
   const body = JSON.parse(event.body || '{}');
   const { customerName, items, discountType, notes } = body;
@@ -601,7 +655,7 @@ function extractSegment(path: string, pattern: RegExp, index: number): string | 
   return match ? match[index] : null;
 }
 
-export async function handlePos(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+export async function handlePos(event: APIGatewayProxyEvent, actor: string = ''): Promise<APIGatewayProxyResult> {
   const method = event.httpMethod;
   const path = event.path;
 
@@ -627,6 +681,10 @@ export async function handlePos(event: APIGatewayProxyEvent): Promise<APIGateway
   if (method === 'PUT' && path.endsWith('/reject')) {
     const id = extractSegment(path, /\/api\/pos\/orders\/([^/]+)\/reject/, 1);
     if (id) { event.pathParameters = { id }; return rejectOrder(event); }
+  }
+  if (method === 'POST' && path.endsWith('/cancel-completed')) {
+    const id = extractSegment(path, /\/api\/pos\/orders\/([^/]+)\/cancel-completed/, 1);
+    if (id) { event.pathParameters = { id }; return cancelCompletedOrder(event, actor); }
   }
   if (method === 'PUT' && path === '/api/pos/cafe/open') return openCafe();
   if (method === 'PUT' && path === '/api/pos/cafe/close') return closeCafe();

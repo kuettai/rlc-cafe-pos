@@ -230,6 +230,58 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
     }
 
     // Reports
+    // Date-range report — returns the orders we treat as "completed activity"
+    // for reconciliation: ARCHIVED + READY (sale lines) and post-completion
+    // CANCELLED (refund lines). Pure PENDING / PREPARING orders are excluded
+    // because they're not yet committed; PENDING-stage rejections are also
+    // excluded because they never produced a real transaction.
+    if (method === 'GET' && path === '/api/admin/reports') {
+      const qs = event.queryStringParameters || {};
+      const startDate = qs.startDate;
+      const endDate = qs.endDate;
+      if (!startDate || !endDate) {
+        return res(400, { error: 'startDate and endDate query params required (YYYY-MM-DD)' });
+      }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+        return res(400, { error: 'startDate / endDate must be YYYY-MM-DD' });
+      }
+      if (endDate < startDate) {
+        return res(400, { error: 'endDate must be on or after startDate' });
+      }
+
+      // Inclusive whole-day range. createdAt is stored as UTC ISO; the
+      // YYYY-MM-DD prefix is treated as a UTC day boundary which matches
+      // the rest of the reporting code (see /reports/daily).
+      const startIso = `${startDate}T00:00:00.000Z`;
+      const endIso   = `${endDate}T23:59:59.999Z`;
+
+      const statuses = ['ARCHIVED', 'READY', 'CANCELLED'];
+      const allOrders: any[] = [];
+      for (const status of statuses) {
+        const result = await docClient.send(new QueryCommand({
+          TableName: ORDERS_TABLE,
+          IndexName: 'status-createdAt-index',
+          KeyConditionExpression: '#s = :s AND createdAt BETWEEN :start AND :end',
+          ExpressionAttributeNames: { '#s': 'status' },
+          ExpressionAttributeValues: { ':s': status, ':start': startIso, ':end': endIso },
+        }));
+        const items = result.Items || [];
+        if (status === 'CANCELLED') {
+          // Only post-completion cancels are reportable as refunds.
+          // PENDING-stage rejections also land in CANCELLED but carry
+          // rejectionReason instead of postCompletionCancel.
+          for (const o of items) {
+            if (o.postCompletionCancel === true) allOrders.push(o);
+          }
+        } else {
+          allOrders.push(...items);
+        }
+      }
+
+      allOrders.sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+      return res(200, { orders: allOrders, startDate, endDate });
+    }
+
     if (method === 'GET' && path.endsWith('/admin/reports/discounts')) {
       const result = await docClient.send(new ScanCommand({ TableName: ORDERS_TABLE }));
       const orders = (result.Items || []).filter(o => o.discountType && o.discountType !== 'NONE');
