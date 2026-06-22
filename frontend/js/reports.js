@@ -230,28 +230,31 @@ async function ensureMonthData() {
 // ─── Summary tab ──────────────────────────────────────────────────────
 
 function renderSummary(container) {
-  const sundays = sundaysInMonth(selectedMonth);
   const orders = cachedOrders || [];
 
-  // Group orders by their local createdAt date.
+  // Group orders by their actual local createdAt date. Columns are
+  // data-driven — whatever dates have orders become columns, in order.
+  // (Avoids pre-computing "expected" Sundays which can drift if browser TZ
+  // doesn't line up with the order timestamps.)
   const byDate = {};
   for (const o of orders) {
     const d = localDateStr(o.createdAt);
+    if (!d) continue;
     (byDate[d] = byDate[d] || []).push(o);
   }
 
-  // Per-Sunday metrics + totals.
-  const cols = sundays.map(d => buildSummaryCol(byDate[d] || []));
+  const dates = Object.keys(byDate).sort();
+  const cols = dates.map(d => buildSummaryCol(byDate[d]));
   const totalCol = aggregateCols(cols);
 
-  if (!sundays.length) {
-    container.innerHTML = '<div class="admin-empty"><p>No Sundays in this month — pick another month.</p></div>';
+  if (!dates.length) {
+    container.innerHTML = '<div class="admin-empty"><p>No orders found in this month.</p></div>';
     return;
   }
 
   const headerCells = [
     '<th style="text-align:left;padding:8px 10px;border-bottom:2px solid var(--cream-dark,#E5DACB)">Metric</th>',
-    ...sundays.map(d => `<th style="text-align:right;padding:8px 10px;border-bottom:2px solid var(--cream-dark,#E5DACB);font-variant-numeric:tabular-nums">${formatSundayHeader(d)}</th>`),
+    ...dates.map(d => `<th style="text-align:right;padding:8px 10px;border-bottom:2px solid var(--cream-dark,#E5DACB);font-variant-numeric:tabular-nums">${formatDateHeader(d)}</th>`),
     '<th style="text-align:right;padding:8px 10px;border-bottom:2px solid var(--cream-dark,#E5DACB);font-variant-numeric:tabular-nums">Total</th>',
   ].join('');
 
@@ -331,12 +334,13 @@ function aggregateCols(cols) {
   return total;
 }
 
-function formatSundayHeader(d) {
-  // d is YYYY-MM-DD; render as "Sun 02 Jun" using local time.
+function formatDateHeader(d) {
+  // d is YYYY-MM-DD; render as e.g. "Sun 02 Jun" using local time.
   const [y, m, day] = d.split('-').map(Number);
   const dt = new Date(y, m - 1, day);
+  const dow = dt.toLocaleString('en-MY', { weekday: 'short' });
   const month = dt.toLocaleString('en-MY', { month: 'short' });
-  return `Sun ${pad2(day)} ${month}`;
+  return `${dow} ${pad2(day)} ${month}`;
 }
 
 // ─── Detail tab ───────────────────────────────────────────────────────

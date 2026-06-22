@@ -75,6 +75,7 @@ function renderApp(){
     <button data-tab="planogram">📷 Planogram</button>
     <button data-tab="users">👥 Users</button>
     <button data-tab="vouchers">🎟️ Vouchers</button>
+    <button id="navReports" type="button">📊 Reports</button>
     <button data-tab="settings">⚙️ Settings</button>
   </nav>
   <div class="sidebar-footer">
@@ -112,6 +113,8 @@ function renderApp(){
     };
   });
   app.querySelector('.nav-logout').onclick = logout;
+  const navReportsBtn = app.querySelector('#navReports');
+  if (navReportsBtn) navReportsBtn.onclick = () => { window.location.href = 'reports.html'; };
   loadTab();
 }
 
