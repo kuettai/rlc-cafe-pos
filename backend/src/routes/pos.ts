@@ -47,6 +47,8 @@ async function getShiftSummary(): Promise<APIGatewayProxyResult> {
   }
 
   const totalOrders = allOrders.length;
+  // `totalAmount` is already stored as net (post-discount) by approveOrder /
+  // createWalkUp. Summing it directly gives the correct collected revenue.
   const totalRevenue = allOrders.reduce((s, o) => s + (o.totalAmount || 0), 0);
   const newcomersServed = allOrders.filter(o => o.discountType === 'NEWCOMER').length;
 

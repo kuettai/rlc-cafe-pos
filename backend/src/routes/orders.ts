@@ -116,11 +116,20 @@ async function createOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
         // ── Pre-order: PREPARING immediately, always free, expires at
         // serviceEndTime (ISO). DynamoDB TTL ignores non-numeric values
         // so the record persists through service.
+        //
+        // Storage convention (matches approveOrder / createWalkUp): `totalAmount`
+        // is stored as NET (what's actually collected — RM 0 here) and
+        // `discountOffset` records the discount applied (the full item price
+        // sum). This keeps aggregation formulas across the codebase valid
+        // without special-casing pre-orders.
         PK: `ORDER#${orderId}`, SK: 'META', orderId, customerName,
-        items: orderItems, totalAmount, status: 'PREPARING',
+        items: orderItems,
+        totalAmount: 0,
+        status: 'PREPARING',
         notes: composedNotes,
         discountType: 'MINISTRY_PREORDER',
-        discountOffset: totalAmount, // net = 0
+        discountOffset: totalAmount, // full gross → net 0
+        grossAmount: totalAmount,    // kept for auditability / reports
         createdAt: now, updatedAt: now,
         expiresAt: preorderRecord.serviceEndTime,
         isPreOrder: true,
@@ -148,7 +157,7 @@ async function createOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
 
   return res(201, {
     orderId,
-    totalAmount,
+    totalAmount: orderItem.totalAmount,
     status: orderItem.status,
     isPreOrder: !!preorderRecord,
   });
