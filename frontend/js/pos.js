@@ -917,6 +917,10 @@ async function openWalkup(){
   const cart=[];
   let wkFilter = '';
   let wkCategory = 'ALL';
+  // Discount is preserved across re-renders since renderWalkup() rewrites
+  // innerHTML each time. Kept in closure state so the pill selection sticks
+  // when a user adds items or searches after picking a discount.
+  let selectedDiscount = '';
   const modal=document.createElement('div');
   modal.className='pos-modal-overlay';
 
@@ -967,7 +971,15 @@ async function openWalkup(){
       }).join('') : '<div style="padding:16px;text-align:center;color:var(--text-light,#7A6355)">No items match</div>'}</div>
       <div class="pos-walkup-cart"><h4>Cart${cart.length ? ' — RM'+cartTotal.toFixed(2) : ''}</h4><ul>${cartHtml||'<li>Empty</li>'}</ul></div>
       <input id="wkNotes" class="pos-input" placeholder="Special requests (less sugar, extra hot)" style="margin-bottom:12px">
-      <select id="wkDiscount" class="pos-input"><option value="">No Discount</option><option value="STAFF">Staff (RM5)</option><option value="PASTOR">Pastor (Free)</option><option value="NEWCOMER">Newcomer (Free)</option></select>
+      <fieldset class="pos-chip-group" id="wkDiscountGroup" aria-label="Discount">
+        <legend class="pos-chip-legend">Discount</legend>
+        ${[
+          {value:'',         label:'No Discount'},
+          {value:'STAFF',    label:'Staff (RM5)'},
+          {value:'PASTOR',   label:'Pastor (Free)'},
+          {value:'NEWCOMER', label:'Newcomer (Free)'},
+        ].map(o=>`<label class="pos-chip"><input type="radio" name="wkDiscount" value="${o.value}" ${selectedDiscount===o.value?'checked':''}><span>${o.label}</span></label>`).join('')}
+      </fieldset>
       <button id="wkSubmit" class="pos-btn pos-btn-primary pos-btn-lg" ${cart.length?'':'disabled'}>Submit Order</button></div>`;
 
     modal.querySelector('.pos-modal-close').onclick=()=>modal.remove();
@@ -1006,10 +1018,14 @@ async function openWalkup(){
     });
     modal.querySelectorAll('.pos-remove-item').forEach(b=>b.onclick=()=>{ cart.splice(+b.dataset.ri,1); cart._name=modal.querySelector('#wkName')?.value||''; renderWalkup(); });
 
+    modal.querySelectorAll('input[name="wkDiscount"]').forEach(r=>{
+      r.onchange=()=>{ if(r.checked) selectedDiscount = r.value; };
+    });
+
     const submitBtn=modal.querySelector('#wkSubmit');
     if(submitBtn) submitBtn.onclick=async()=>{
       const name=modal.querySelector('#wkName').value||'Walk-up';
-      const disc=modal.querySelector('#wkDiscount').value||undefined;
+      const disc=(modal.querySelector('input[name="wkDiscount"]:checked')?.value)||undefined;
       const notes=modal.querySelector('#wkNotes')?.value||'';
       try{
         await api('POST','/api/pos/orders',{customerName:name, items:cart.map(c=>({menuItemId:c.menuItemId,name:c.name,variant:c.variant,selectedVariants:c.selectedVariants||[],quantity:c.qty,price:c.price})), discountType:disc, notes});

@@ -1387,6 +1387,67 @@ header h1{
   font-size:.82rem;
   font-weight:500;
 }
+
+/* Pill/chip radio group — used by the walk-up discount selector.
+   Real <input type="radio"> lives inside the label for keyboard + a11y;
+   its own visual is hidden and the sibling <span> is styled as the chip. */
+.pos-chip-group{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  border:none;
+  padding:0;
+  margin:0 0 12px 0;
+  align-items:center;
+}
+.pos-chip-legend{
+  color:var(--text-light,#7A6355);
+  font-size:.8rem;
+  font-weight:600;
+  padding:0;
+  margin:0 8px 0 0;
+  letter-spacing:.02em;
+  text-transform:uppercase;
+}
+.pos-chip{
+  position:relative;
+  display:inline-flex;
+  cursor:pointer;
+  user-select:none;
+}
+.pos-chip input[type="radio"]{
+  position:absolute;
+  opacity:0;
+  pointer-events:none;
+  width:0;
+  height:0;
+}
+.pos-chip > span{
+  display:inline-block;
+  border-radius:24px;
+  padding:8px 14px;
+  font-size:.82rem;
+  font-weight:600;
+  border:2px solid var(--cream-dark,#e8e0d8);
+  background:#fff;
+  color:var(--primary,#6B4226);
+  transition:var(--transition,all .15s);
+  line-height:1;
+}
+.pos-chip:hover > span{
+  background:var(--cream,#f9f5f0);
+  border-color:var(--accent,#B08968);
+}
+.pos-chip input[type="radio"]:checked + span{
+  background:var(--primary,#6B4226);
+  color:#fff;
+  border-color:var(--primary,#6B4226);
+  box-shadow:0 2px 6px rgba(107,66,38,.3);
+}
+.pos-chip input[type="radio"]:focus-visible + span{
+  outline:2px solid var(--accent,#B08968);
+  outline-offset:2px;
+}
 .pos-walkup-cart{margin:16px 0}
 .pos-walkup-cart h4{
   color:var(--primary);
