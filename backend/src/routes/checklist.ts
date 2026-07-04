@@ -14,9 +14,16 @@ export async function handleChecklist(event: APIGatewayProxyEvent): Promise<APIG
     // GET /api/pos/checklist — get checklist config + today's completion status
     if (method === 'GET' && path.endsWith('/checklist')) {
       const config = await getChecklistConfig();
+      // POS only sees enabled items (enabled === false hides them).
+      // Missing 'enabled' is treated as enabled for backward compat.
+      const filterEnabled = (list: any[]) => list.filter((i: any) => i.enabled !== false);
+      const posConfig = {
+        open: filterEnabled(config.open || []),
+        close: filterEnabled(config.close || []),
+      };
       const today = new Date().toISOString().split('T')[0];
       const log = await getChecklistLog(today);
-      return res(200, { config, log });
+      return res(200, { config: posConfig, log });
     }
 
     // PUT /api/pos/checklist/check — mark an item as checked
@@ -145,25 +152,25 @@ async function getChecklistConfig() {
   // Default checklist if none configured
   return {
     open: [
-      { id: 'open-1', label: 'Turn on coffee machine', type: 'checkbox' },
-      { id: 'open-2', label: 'Fill ice container', type: 'checkbox' },
-      { id: 'open-3', label: 'Fill hot water in kettle', type: 'checkbox' },
-      { id: 'open-4', label: 'Set out food items', type: 'checkbox' },
-      { id: 'open-5', label: 'Enable menu items in POS', type: 'checkbox' },
-      { id: 'open-6', label: 'Confirm QR code is visible', type: 'checkbox' },
-      { id: 'open-7', label: 'Test shot (machine warm-up)', type: 'checkbox' },
-      { id: 'open-8', label: 'Capture fridge photo (stock count)', type: 'image' },
-      { id: 'open-9', label: 'Capture store room photo (stock count)', type: 'image' },
+      { id: 'open-1', label: 'Turn on coffee machine', type: 'checkbox', enabled: true },
+      { id: 'open-2', label: 'Fill ice container', type: 'checkbox', enabled: true },
+      { id: 'open-3', label: 'Fill hot water in kettle', type: 'checkbox', enabled: true },
+      { id: 'open-4', label: 'Set out food items', type: 'checkbox', enabled: true },
+      { id: 'open-5', label: 'Enable menu items in POS', type: 'checkbox', enabled: true },
+      { id: 'open-6', label: 'Confirm QR code is visible', type: 'checkbox', enabled: true },
+      { id: 'open-7', label: 'Test shot (machine warm-up)', type: 'checkbox', enabled: true },
+      { id: 'open-8', label: 'Capture fridge photo (stock count)', type: 'image', enabled: true },
+      { id: 'open-9', label: 'Capture store room photo (stock count)', type: 'image', enabled: true },
     ],
     close: [
-      { id: 'close-1', label: 'Clean up', type: 'checkbox' },
-      { id: 'close-2', label: 'Empty coffee grounds', type: 'checkbox' },
-      { id: 'close-3', label: 'Return unused milk to fridge', type: 'checkbox' },
-      { id: 'close-4', label: 'Close aircon & music', type: 'checkbox' },
-      { id: 'close-5', label: 'Turn off fridge light', type: 'checkbox' },
-      { id: 'close-6', label: 'Turn off coffee machines & cover up', type: 'checkbox' },
-      { id: 'close-7', label: 'Capture fridge photo (stock count)', type: 'image' },
-      { id: 'close-8', label: 'Capture store room photo (stock count)', type: 'image' },
+      { id: 'close-1', label: 'Clean up', type: 'checkbox', enabled: true },
+      { id: 'close-2', label: 'Empty coffee grounds', type: 'checkbox', enabled: true },
+      { id: 'close-3', label: 'Return unused milk to fridge', type: 'checkbox', enabled: true },
+      { id: 'close-4', label: 'Close aircon & music', type: 'checkbox', enabled: true },
+      { id: 'close-5', label: 'Turn off fridge light', type: 'checkbox', enabled: true },
+      { id: 'close-6', label: 'Turn off coffee machines & cover up', type: 'checkbox', enabled: true },
+      { id: 'close-7', label: 'Capture fridge photo (stock count)', type: 'image', enabled: true },
+      { id: 'close-8', label: 'Capture store room photo (stock count)', type: 'image', enabled: true },
     ],
   };
 }

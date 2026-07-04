@@ -23,6 +23,16 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
 
   try {
     // Menu
+    if (method === 'GET' && path.endsWith('/admin/menu')) {
+      // Admin sees ALL items (active + inactive) — unlike GET /api/menu
+      // which filters to isActive && isEnabledToday for customers.
+      const scan = await docClient.send(new ScanCommand({ TableName: MENU_TABLE }));
+      const items = (scan.Items || [])
+        .filter(i => i.SK === 'META')
+        .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+      return res(200, { items });
+    }
+
     if (method === 'POST' && path.endsWith('/admin/menu')) {
       const menuItemId = uuid();
       const item: any = {
@@ -67,6 +77,25 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
         duplicated.push({ name: item.name, foodQuantityToday: qty });
       }
       return res(200, { duplicated: duplicated.length, items: duplicated });
+    }
+
+    if (method === 'PUT' && /\/admin\/menu\/[^/]+\/toggle-active$/.test(path)) {
+      // Flip isActive on a single menu item. Must come BEFORE the generic
+      // /admin/menu/{id} PUT so the path doesn't get swallowed.
+      const parts = path.split('/');
+      const id = parts[parts.length - 2]; // .../menu/{id}/toggle-active
+      const existing = await docClient.send(new GetCommand({
+        TableName: MENU_TABLE, Key: { PK: `MENU#${id}`, SK: 'META' }
+      }));
+      if (!existing.Item) return res(404, { error: 'Menu item not found' });
+      const next = !(existing.Item.isActive === true);
+      const updated = await docClient.send(new UpdateCommand({
+        TableName: MENU_TABLE, Key: { PK: `MENU#${id}`, SK: 'META' },
+        UpdateExpression: 'SET isActive = :a',
+        ExpressionAttributeValues: { ':a': next },
+        ReturnValues: 'ALL_NEW'
+      }));
+      return res(200, updated.Attributes || { menuItemId: id, isActive: next });
     }
 
     if (method === 'PUT' && /\/admin\/menu\/[^/]+$/.test(path)) {
