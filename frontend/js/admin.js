@@ -75,6 +75,7 @@ function renderApp(){
     <button data-tab="planogram">📷 Planogram</button>
     <button data-tab="users">👥 Users</button>
     <button data-tab="vouchers">🎟️ Vouchers</button>
+    <button data-tab="preorder">🔗 Pre-Order Links</button>
     <button id="navReports" type="button">📊 Monthly Summary</button>
     <button data-tab="settings">⚙️ Settings</button>
   </nav>
@@ -128,6 +129,7 @@ function loadTab(){
     case 'checklist': loadChecklist(c); break;
     case 'planogram': loadPlanogram(c); break;
     case 'vouchers': loadVouchers(c); break;
+    case 'preorder': loadPreorderCodes(c); break;
     case 'settings': loadSettings(c); break;
     case 'reports': loadReports(c); break;
   }
@@ -1550,6 +1552,167 @@ function escapeHtml(s){
     .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 function escapeAttr(s){ return escapeHtml(s); }
+
+// --- Pre-Order Links ---
+// Ministry volunteers pre-order free drinks via a link with an 8-char
+// code. Admins create, view, and deactivate codes here.
+async function loadPreorderCodes(container){
+  container.innerHTML = '<div class="loading">Loading pre-order codes...</div>';
+  try{
+    const data = await api('GET','/api/admin/preorder-codes');
+    renderPreorderCodes(container, data.codes || []);
+  } catch(e){
+    container.innerHTML = '<div class="admin-empty"><p>Failed to load pre-order codes</p></div>';
+  }
+}
+
+function preorderStatus(code, nowIso){
+  if (code.isActive === false) return { label: 'Deactivated', cls: 'badge-inactive' };
+  if (code.opensAt && nowIso < code.opensAt) return { label: 'Not yet open', cls: 'badge-cashier' };
+  if (code.expiresAt && nowIso > code.expiresAt) return { label: 'Expired', cls: 'badge-inactive' };
+  return { label: 'Active', cls: 'badge-active' };
+}
+
+function fmtDT(iso){
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return escapeHtml(iso);
+  return escapeHtml(d.toLocaleString());
+}
+
+function renderPreorderCodes(container, codes){
+  const nowIso = new Date().toISOString();
+  let html = `<div class="admin-section">
+    <div class="admin-section-header">
+      <h2>Pre-Order Links</h2>
+      <button class="pos-btn pos-btn-primary" id="btnAddPreorder">+ Create Link</button>
+    </div>
+    <p style="color:var(--text-light);font-size:.85rem;margin-bottom:16px">
+      Share these links with ministry volunteers. Only drinks. Bypass café-open check.
+    </p>`;
+  if (!codes.length){
+    html += '<div class="admin-empty"><p>No pre-order codes yet — create one for the next service.</p></div>';
+  } else {
+    codes.forEach(c => {
+      const st = preorderStatus(c, nowIso);
+      const link = c.link || `https://153.oasisofcare.org/?code=${encodeURIComponent(c.code)}`;
+      html += `<div class="admin-card">
+        <div class="admin-card-header">
+          <div style="min-width:0;flex:1">
+            <div class="admin-card-title">${escapeHtml(c.name || '(unnamed)')}</div>
+            <div class="admin-card-subtitle">
+              Code: <strong style="font-family:monospace;letter-spacing:.05em">${escapeHtml(c.code)}</strong>
+              · Service: ${escapeHtml(c.serviceDate || '—')}
+              · Opens: ${fmtDT(c.opensAt)}
+              · Expires: ${fmtDT(c.expiresAt)}
+              · Cutoff: ${fmtDT(c.serviceEndTime)}
+              <div style="margin-top:6px;font-family:monospace;font-size:.75rem;color:var(--text-light);word-break:break-all">${escapeHtml(link)}</div>
+            </div>
+          </div>
+          <div class="admin-card-actions" style="flex-shrink:0">
+            <span class="admin-card-badge ${st.cls}">${st.label}</span>
+            <button class="pos-btn pos-btn-sm" data-copy-link="${escapeAttr(link)}">📋 Copy</button>
+            ${c.isActive !== false ? `<button class="pos-btn pos-btn-sm pos-btn-danger" data-deactivate-code="${escapeAttr(c.code)}">Deactivate</button>` : ''}
+          </div>
+        </div>
+      </div>`;
+    });
+  }
+  html += '</div>';
+  container.innerHTML = html;
+
+  $('#btnAddPreorder').onclick = () => openPreorderForm(container);
+  container.querySelectorAll('[data-copy-link]').forEach(btn => {
+    btn.onclick = async () => {
+      const link = btn.dataset.copyLink;
+      try {
+        await navigator.clipboard.writeText(link);
+        btn.textContent = '✓ Copied';
+        setTimeout(() => { btn.textContent = '📋 Copy'; }, 1500);
+      } catch(e){
+        // Fallback: select-and-alert if clipboard API is blocked
+        window.prompt('Copy this link:', link);
+      }
+    };
+  });
+  container.querySelectorAll('[data-deactivate-code]').forEach(btn => {
+    btn.onclick = async () => {
+      const code = btn.dataset.deactivateCode;
+      if (!confirm(`Deactivate code ${code}?\nExisting orders remain, but new orders with this code will be rejected.`)) return;
+      try {
+        await api('DELETE', `/api/admin/preorder-codes/${encodeURIComponent(code)}`);
+        loadPreorderCodes(container);
+      } catch(e){ showError('Deactivate failed'); }
+    };
+  });
+}
+
+function openPreorderForm(container){
+  // Default: opens now, expires 8 days from now, service date next Sunday
+  const now = new Date();
+  const nextSunday = new Date(now);
+  const daysUntilSun = (7 - now.getDay()) % 7 || 7; // next Sunday, not today
+  nextSunday.setDate(now.getDate() + daysUntilSun);
+  const serviceDate = nextSunday.toISOString().split('T')[0];
+  // datetime-local inputs want local ISO without timezone (YYYY-MM-DDTHH:MM)
+  const toLocalInput = d => {
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+  const expiresGuess = new Date(nextSunday);
+  expiresGuess.setHours(15, 0, 0, 0); // Sunday 3PM local
+
+  const form = document.createElement('div');
+  form.className = 'admin-form';
+  form.innerHTML = `<h3>Create Pre-Order Link</h3>
+    <div class="admin-form-group"><label>Event Name</label>
+      <input id="pfName" class="pos-input" placeholder="e.g. Sunday 6 Jul Service" value="Sunday ${nextSunday.toLocaleDateString(undefined,{day:'numeric',month:'short'})} Service">
+    </div>
+    <div class="admin-form-row">
+      <div class="admin-form-group"><label>Service Date</label>
+        <input id="pfDate" type="date" class="pos-input" value="${serviceDate}">
+      </div>
+      <div class="admin-form-group"><label>Opens At</label>
+        <input id="pfOpens" type="datetime-local" class="pos-input" value="${toLocalInput(now)}">
+      </div>
+      <div class="admin-form-group"><label>Expires At</label>
+        <input id="pfExpires" type="datetime-local" class="pos-input" value="${toLocalInput(expiresGuess)}">
+      </div>
+    </div>
+    <p style="font-size:.8rem;color:var(--text-light);margin-top:4px">
+      Service auto-cutoff is fixed at 3PM MYT on service date — pre-orders auto-expire then.
+    </p>
+    <div class="admin-form-actions">
+      <button class="pos-btn pos-btn-primary" id="pfSubmit">Create Link</button>
+      <button class="pos-btn" id="pfCancel">Cancel</button>
+    </div>`;
+
+  showFormModal(form);
+  form.querySelector('#pfCancel').onclick = () => form._overlay.remove();
+  form.querySelector('#pfSubmit').onclick = async () => {
+    const name = form.querySelector('#pfName').value.trim();
+    const serviceDate = form.querySelector('#pfDate').value;
+    const opensLocal = form.querySelector('#pfOpens').value;
+    const expiresLocal = form.querySelector('#pfExpires').value;
+    if (!name){ showError('Event name is required'); return; }
+    if (!serviceDate){ showError('Service date is required'); return; }
+    if (!opensLocal || !expiresLocal){ showError('Opens/Expires are required'); return; }
+    // datetime-local values are interpreted in browser's local zone; new Date()
+    // parses them as local and toISOString() converts to UTC for storage.
+    const opensAt = new Date(opensLocal).toISOString();
+    const expiresAt = new Date(expiresLocal).toISOString();
+    if (new Date(opensAt) >= new Date(expiresAt)){
+      showError('Expires must be after Opens');
+      return;
+    }
+    try {
+      const result = await api('POST', '/api/admin/preorder-codes', { name, serviceDate, opensAt, expiresAt });
+      form._overlay.remove();
+      showSuccess(`Link created: ${result.code}`);
+      loadPreorderCodes(container);
+    } catch(e){ showError('Failed to create link'); }
+  };
+}
 
 // --- Stock History Modal ---
 // Browse cashier-submitted stock-count snapshots by date. Shows each

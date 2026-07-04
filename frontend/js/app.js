@@ -19,6 +19,30 @@ let menuFilter = '';
 let menuCategory = 'ALL';
 let customerProfile = JSON.parse(localStorage.getItem('customerProfile') || 'null');
 
+// ─── Pre-order mode ─────────────────────────────────────────────────
+// Activated when the customer opens the page with ?code=<PREORDER_CODE>.
+// In this mode: drinks-only, prices shown but zeroed on submit, café-open
+// check bypassed, collection-time picker required.
+const _preorderCodeParam = new URLSearchParams(window.location.search).get('code');
+let preorderMode = false;
+let preorderCode = null;
+let preorderInfo = null;   // { name, serviceDate, opensAt, expiresAt } from validate endpoint
+let collectionTime = '';   // e.g. "9:15 AM" — required before submit in preorder mode
+
+// 15-minute slots from 9:00 AM to 2:00 PM (inclusive), formatted 12-hour.
+function generateCollectionSlots() {
+  const slots = [];
+  // 09:00 through 14:00 in 15-min steps.
+  for (let mins = 9 * 60; mins <= 14 * 60; mins += 15) {
+    const h24 = Math.floor(mins / 60);
+    const m = mins % 60;
+    const h12 = ((h24 + 11) % 12) + 1;
+    const suffix = h24 < 12 ? 'AM' : 'PM';
+    slots.push(`${h12}:${String(m).padStart(2, '0')} ${suffix}`);
+  }
+  return slots;
+}
+
 // Strip leading emoji + whitespace from a display name. The DynamoDB items
 // have legacy emoji prefixes (e.g. "☕ Latte", "🍔 Food") which are now
 // redundant since each item has a real image. The slug helper below already
@@ -85,13 +109,42 @@ function renderMenu() {
   // Only build the shell if it doesn't exist yet
   if (!document.getElementById('menuItems')) {
     let shell = '';
+    // Pre-order banner takes precedence over the celebration banner —
+    // ministry volunteers already order for free, so celebration pricing
+    // is moot in this mode.
+    if (preorderMode) {
+      const svcDateDisplay = preorderInfo?.serviceDate
+        ? new Date(preorderInfo.serviceDate + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' })
+        : '';
+      const label = preorderInfo?.name ? String(preorderInfo.name) : 'Sunday Service';
+      shell += `<div class="preorder-banner" role="status" aria-live="polite">
+        <span class="preorder-banner-icon">🎉</span>
+        <div class="preorder-banner-text">
+          <div><strong>Ministry Pre-Order</strong> — Free drinks for service volunteers!</div>
+          <div class="preorder-banner-sub">${label.replace(/[<>&]/g, s => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[s]))}${svcDateDisplay ? ' · Collect ' + svcDateDisplay : ''}</div>
+        </div>
+      </div>`;
+    }
     if (customerProfile) {
       shell += `<section class="name-section"><div class="profile-badge"><span class="profile-icon">👤</span><span class="profile-name">${customerProfile.name}</span><span class="profile-orders">${customerProfile.orderCount || 0} orders</span><button id="profileLogout" class="profile-logout">✕</button></div><div style="display:flex;gap:8px;align-items:center;margin-top:8px"><a href="track" class="layout-toggle" aria-label="My Orders" title="My Orders" style="text-decoration:none">📋</a><button id="layoutToggle" class="layout-toggle" aria-label="Toggle view">${menuLayout === 'grid' ? '☰' : '⊞'}</button></div></section>`;
     } else {
       shell += `<section class="name-section"><label for="nameInput">Your Name</label><div style="display:flex;gap:8px;align-items:center"><input type="text" id="nameInput" value="${name}" placeholder="Enter your name" aria-required="true" style="flex:1"><a href="track" class="layout-toggle" aria-label="My Orders" title="My Orders" style="text-decoration:none">📋</a><button id="layoutToggle" class="layout-toggle" aria-label="Toggle view">${menuLayout === 'grid' ? '☰' : '⊞'}</button></div><button id="returningBtn" class="returning-btn">Returning customer? Tap here</button></section>`;
     }
-    shell += `<div class="menu-filter"><input type="text" id="menuSearch" placeholder="🔍 Search menu..." value="${menuFilter}" class="menu-search-input"><div class="menu-filter-tabs"><button class="menu-filter-tab${menuCategory==='ALL'?' active':''}" data-cat="ALL">All</button><button class="menu-filter-tab${menuCategory==='DRINK'?' active':''}" data-cat="DRINK">Drinks</button><button class="menu-filter-tab${menuCategory==='FOOD'?' active':''}" data-cat="FOOD">Food</button></div></div>`;
-    if (celebrationMode) {
+    // Collection-time picker — required in pre-order mode. Sits between
+    // the name section and the menu filter so it's hard to miss.
+    if (preorderMode) {
+      const slots = generateCollectionSlots();
+      shell += `<section class="collection-section">
+        <label for="collectionTime">Estimated Collection Time <span style="color:var(--danger,#C0392B)">*</span></label>
+        <select id="collectionTime" class="collection-picker" required>
+          <option value="">Select a time…</option>
+          ${slots.map(t => `<option value="${t}"${collectionTime === t ? ' selected' : ''}>${t}</option>`).join('')}
+        </select>
+        <p class="collection-hint">Drinks are prepared to be ready around this time.</p>
+      </section>`;
+    }
+    shell += `<div class="menu-filter"><input type="text" id="menuSearch" placeholder="🔍 Search menu..." value="${menuFilter}" class="menu-search-input"><div class="menu-filter-tabs"><button class="menu-filter-tab${menuCategory==='ALL'?' active':''}" data-cat="ALL">All</button><button class="menu-filter-tab${menuCategory==='DRINK'?' active':''}" data-cat="DRINK">Drinks</button>${preorderMode ? '' : `<button class="menu-filter-tab${menuCategory==='FOOD'?' active':''}" data-cat="FOOD">Food</button>`}</div></div>`;
+    if (!preorderMode && celebrationMode) {
       shell += `<div class="celebration-banner" aria-live="polite">🎉 Celebration Day! Selected drinks at <strong>RM ${celebrationPrice.toFixed(2)}</strong></div>`;
     }
     if (queueSize > 0) {
@@ -106,6 +159,8 @@ function renderMenu() {
   // Render only the menu items
   const categories = ['DRINK', 'FOOD'];
   const filteredMenu = menu.filter(i => {
+    // Pre-order mode is drinks-only, regardless of the tab selection.
+    if (preorderMode && i.category !== 'DRINK') return false;
     if (menuCategory !== 'ALL' && i.category !== menuCategory) return false;
     if (menuFilter && !i.name.toLowerCase().includes(menuFilter.toLowerCase())) return false;
     return true;
@@ -132,7 +187,13 @@ function renderMenu() {
       const slug = slugifyMenuName(item.name);
       const displayName = stripEmoji(item.name);
       const tagline = MENU_DESCRIPTIONS[slug];
-      const priceHtml = `${celebrationMode && item.category === 'DRINK' && item.celebrationEligible === true ? '<s style="opacity:.5;font-size:.8em">RM '+item.basePrice.toFixed(2)+'</s> ' : ''}RM ${displayPrice.toFixed(2)}`;
+      let priceHtml;
+      if (preorderMode) {
+        // Ministry pre-order: real price is struck through and a FREE badge sits next to it.
+        priceHtml = `<s style="opacity:.5">RM ${item.basePrice.toFixed(2)}</s> <span class="free-badge">FREE</span>`;
+      } else {
+        priceHtml = `${celebrationMode && item.category === 'DRINK' && item.celebrationEligible === true ? '<s style="opacity:.5;font-size:.8em">RM '+item.basePrice.toFixed(2)+'</s> ' : ''}RM ${displayPrice.toFixed(2)}`;
+      }
 
       html += `<div class="menu-item${item.isPinned ? ' menu-item-pinned' : ''}${soldOut ? ' sold-out' : ''}" data-id="${item.id}">`;
 
@@ -217,6 +278,10 @@ function bindShellEvents() {
     });
   });
 
+  document.getElementById('collectionTime')?.addEventListener('change', e => {
+    collectionTime = e.target.value;
+  });
+
   document.getElementById('layoutToggle')?.addEventListener('click', () => {
     menuLayout = menuLayout === 'list' ? 'grid' : 'list';
     localStorage.setItem('menuLayout', menuLayout);
@@ -279,8 +344,11 @@ function updateCartBar() {
   const count = cart.reduce((s, c) => s + c.qty, 0);
   const total = cart.reduce((s, c) => s + c.qty * c.price, 0);
   cartCount.textContent = `${count} item${count !== 1 ? 's' : ''}`;
-  cartTotal.textContent = `RM ${total.toFixed(2)}`;
-  cartTotalExpanded.textContent = `Total: RM ${total.toFixed(2)}`;
+  // Pre-order mode: total is always zero for the customer; show a hint.
+  cartTotal.textContent = preorderMode ? 'FREE' : `RM ${total.toFixed(2)}`;
+  cartTotalExpanded.textContent = preorderMode
+    ? 'Total: RM 0.00 (Ministry Pre-Order)'
+    : `Total: RM ${total.toFixed(2)}`;
   const wasHidden = cartBar.classList.contains('hidden');
   cartBar.classList.toggle('hidden', count === 0);
   if (wasHidden && count > 0) {
@@ -359,6 +427,14 @@ cartSubmit.addEventListener('click', async () => {
   }
   if (!cart.length) return;
 
+  if (preorderMode && !collectionTime) {
+    showError('Please select a collection time');
+    // Reopen the cart so the user can see the top-of-page picker call-out
+    cartOverlay.classList.remove('open');
+    document.getElementById('collectionTime')?.focus();
+    return;
+  }
+
   const existingOrderId = localStorage.getItem('lastOrderId');
   if (existingOrderId) {
     try {
@@ -382,6 +458,10 @@ cartSubmit.addEventListener('click', async () => {
     const items = cart.map(c => ({ menuItemId: c.id, variant: c.variant, selectedVariants: c.selectedVariants || [], quantity: c.qty }));
     const orderPayload = { customerName: name, items, notes: document.getElementById('orderNotes')?.value?.trim() || '' };
     if (customerProfile?.phone) orderPayload.customerId = customerProfile.phone;
+    if (preorderMode) {
+      orderPayload.preorderCode = preorderCode;
+      orderPayload.collectionTime = collectionTime;
+    }
 
     const res = await fetch(`${API_BASE}/api/orders`, {
       method: 'POST',
@@ -419,11 +499,29 @@ async function loadMenu() {
 
 async function init() {
   try {
+    // Detect & validate pre-order code first. Invalid/expired codes just
+    // show a message and fall back to the normal customer flow.
+    if (_preorderCodeParam) {
+      try {
+        const validate = await apiFetch(`/api/preorder/validate?code=${encodeURIComponent(_preorderCodeParam)}`);
+        if (validate.valid) {
+          preorderMode = true;
+          preorderCode = _preorderCodeParam.trim().toUpperCase();
+          preorderInfo = validate;
+          menuCategory = 'DRINK';
+        }
+      } catch (e) {
+        showError('This pre-order link is no longer valid');
+      }
+    }
+
     const status = await apiFetch('/api/cafe/status');
     queueSize = status.queueSize || 0;
     celebrationMode = status.celebrationMode || false;
     celebrationPrice = status.celebrationPrice || 5;
-    if (status.cafeStatus === 'CLOSED') {
+    // Pre-order bypass: skip the café-closed lockout so ministry volunteers
+    // can order ahead of Sunday service.
+    if (!preorderMode && status.cafeStatus === 'CLOSED') {
       app.innerHTML = `<div class="closed-msg">
         <h2>Café is closed</h2>
         <p>See you next Sunday! ☕</p>
@@ -435,7 +533,13 @@ async function init() {
     }
     await loadMenu();
     const prevLen = cart.length;
-    cart = cart.filter(c => { const m = menu.find(i => i.id === c.id); return m && m.isActive && m.isEnabledToday; });
+    cart = cart.filter(c => {
+      const m = menu.find(i => i.id === c.id);
+      if (!m || !m.isActive || !m.isEnabledToday) return false;
+      // In pre-order mode, drop any FOOD leftovers from a prior session.
+      if (preorderMode && m.category !== 'DRINK') return false;
+      return true;
+    });
     if (cart.length !== prevLen) saveCart();
     renderMenu();
   } catch (e) {

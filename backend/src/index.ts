@@ -11,6 +11,7 @@ import { handleReceipt } from './routes/receipt';
 import { handlePlanogram } from './routes/planogram';
 import { handleCustomers } from './routes/customers';
 import { handleVouchers } from './routes/vouchers';
+import { handleAdminPreorder, handleValidatePreorder } from './routes/preorder';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -62,6 +63,12 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
     res.headers = { ...CORS_HEADERS, ...res.headers };
     return res;
   }
+  if (path.startsWith('/api/preorder')) {
+    // Public — customers hit /api/preorder/validate?code=... with no auth
+    const res = await handleValidatePreorder(event);
+    res.headers = { ...CORS_HEADERS, ...res.headers };
+    return res;
+  }
   if (path.startsWith('/api/orders')) {
     const res = await handleOrders(event);
     res.headers = { ...CORS_HEADERS, ...res.headers };
@@ -89,6 +96,13 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
   if (path.startsWith('/api/admin/vouchers')) {
     if (user.role !== 'ADMIN') return respond(403, { error: 'Forbidden' });
     const res = await handleVouchers(event, user.name);
+    res.headers = { ...CORS_HEADERS, ...res.headers };
+    return res;
+  }
+
+  if (path.startsWith('/api/admin/preorder-codes')) {
+    if (user.role !== 'ADMIN') return respond(403, { error: 'Forbidden' });
+    const res = await handleAdminPreorder(event, user.name);
     res.headers = { ...CORS_HEADERS, ...res.headers };
     return res;
   }

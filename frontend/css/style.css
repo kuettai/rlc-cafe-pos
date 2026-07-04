@@ -127,6 +127,76 @@ header h1{
 }
 @keyframes celebPulse{0%,100%{box-shadow:0 0 0 0 rgba(245,158,11,.2)}50%{box-shadow:0 0 0 8px rgba(245,158,11,0)}}
 
+/* === Pre-order banner === */
+/* Indigo/purple to distinguish from the amber celebration banner. Sits
+   at the top of the customer page whenever a valid ?code= is present. */
+.preorder-banner{
+  background:linear-gradient(135deg,#4F46E5 0%,#7C3AED 60%,#A855F7 100%);
+  color:#fff;
+  border-radius:var(--radius);
+  padding:14px 16px;
+  margin-bottom:16px;
+  display:flex;
+  align-items:flex-start;
+  gap:12px;
+  box-shadow:0 4px 12px rgba(124,58,237,.35);
+}
+.preorder-banner-icon{font-size:1.6rem;line-height:1;flex-shrink:0}
+.preorder-banner-text{flex:1;line-height:1.35;font-size:.95rem}
+.preorder-banner-sub{font-size:.82rem;opacity:.92;margin-top:2px}
+
+/* Collection-time picker section */
+.collection-section{
+  background:#F5F3FF;
+  border:1px solid #C4B5FD;
+  border-radius:var(--radius);
+  padding:14px 16px;
+  margin-bottom:20px;
+}
+.collection-section label{
+  display:block;
+  font-weight:700;
+  font-size:.9rem;
+  color:#4C1D95;
+  margin-bottom:8px;
+}
+.collection-picker{
+  width:100%;
+  padding:12px 14px;
+  border:2px solid #C4B5FD;
+  border-radius:12px;
+  font-size:1rem;
+  background:#fff;
+  color:var(--text,#3D2B1F);
+  font-family:inherit;
+}
+.collection-picker:focus{
+  outline:none;
+  border-color:#7C3AED;
+  box-shadow:0 0 0 3px rgba(124,58,237,.15);
+}
+.collection-hint{
+  font-size:.78rem;
+  color:#6D28D9;
+  opacity:.85;
+  margin-top:6px;
+}
+
+/* Green FREE pill next to prices in pre-order mode */
+.free-badge{
+  display:inline-block;
+  background:linear-gradient(180deg,#10B981 0%,#059669 100%);
+  color:#fff;
+  font-size:.72rem;
+  font-weight:800;
+  letter-spacing:.05em;
+  padding:2px 8px;
+  border-radius:999px;
+  vertical-align:baseline;
+  margin-left:4px;
+  box-shadow:0 1px 3px rgba(16,185,129,.35);
+}
+
 /* === Queue info === */
 .queue-info{
   background:var(--warning-bg);

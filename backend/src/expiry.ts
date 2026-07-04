@@ -15,6 +15,11 @@ export async function handler(_event: ScheduledEvent): Promise<void> {
   }));
 
   for (const order of pendingResult.Items || []) {
+    // Defensive: pre-orders skip PENDING entirely, but if one ever lands
+    // there we don't want the 1-hour sweep to nuke it — it has its own
+    // longer expiry tied to the service end time.
+    if (order.isPreOrder === true) continue;
+
     await docClient.send(new UpdateCommand({
       TableName: ORDERS_TABLE,
       Key: { PK: order.PK, SK: 'META' },
@@ -38,8 +43,52 @@ export async function handler(_event: ScheduledEvent): Promise<void> {
   // Auto-archive READY orders older than archiveAfterMinutes (default 15).
   await autoArchiveReadyOrders();
 
+  // Expire pre-orders that are past their service-end time.
+  await expirePreOrders();
+
   // Check low stock and send alert (max once per hour)
   await checkLowStock();
+}
+
+/**
+ * Expire pre-orders (isPreOrder = true) whose `expiresAt` (ISO datetime,
+ * usually 3PM MYT on service date) is in the past. Only active states
+ * (PREPARING / READY) are eligible — completed and cancelled orders are
+ * already terminal.
+ *
+ * Pre-order expiresAt is stored as an ISO string (unlike the numeric
+ * unix-seconds TTL on regular orders), so the comparison is by string
+ * ordering of ISO timestamps, which is lexicographically valid.
+ */
+async function expirePreOrders(): Promise<void> {
+  const nowIso = new Date().toISOString();
+  for (const status of ['PREPARING', 'READY']) {
+    const r = await docClient.send(new QueryCommand({
+      TableName: ORDERS_TABLE,
+      IndexName: 'status-createdAt-index',
+      KeyConditionExpression: '#s = :s',
+      ExpressionAttributeNames: { '#s': 'status' },
+      ExpressionAttributeValues: { ':s': status },
+    }));
+    for (const order of r.Items || []) {
+      if (order.isPreOrder !== true) continue;
+      if (!order.expiresAt || typeof order.expiresAt !== 'string') continue;
+      if (order.expiresAt >= nowIso) continue;
+      try {
+        await docClient.send(new UpdateCommand({
+          TableName: ORDERS_TABLE,
+          Key: { PK: order.PK, SK: 'META' },
+          UpdateExpression: 'SET #s = :expired, updatedAt = :now',
+          ExpressionAttributeNames: { '#s': 'status' },
+          ExpressionAttributeValues: { ':expired': 'EXPIRED', ':now': nowIso, ':prev': status },
+          ConditionExpression: '#s = :prev',
+        }));
+      } catch (e: any) {
+        if (e.name !== 'ConditionalCheckFailedException') throw e;
+        // Status changed under us — skip.
+      }
+    }
+  }
 }
 
 /**

@@ -3,6 +3,7 @@ import { v4 as uuid } from 'uuid';
 import { docClient, ORDERS_TABLE, MENU_TABLE, SETTINGS_TABLE, GetCommand, PutCommand, UpdateCommand, ScanCommand } from '../lib/db';
 import { linkOrderToCustomer } from './customers';
 import { normalizePhone } from '../lib/phone';
+import { validatePreorderCode } from './preorder';
 
 const res = (statusCode: number, body: object): APIGatewayProxyResult => ({
   statusCode, headers: {}, body: JSON.stringify(body),
@@ -33,7 +34,7 @@ async function releaseFood(items: { menuItemId: string; quantity: number; catego
 
 async function createOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
   const body = JSON.parse(event.body || '{}');
-  const { customerName, items, notes, customerId } = body;
+  const { customerName, items, notes, customerId, preorderCode, collectionTime } = body;
   if (!customerName || !items?.length) return res(400, { error: 'customerName and items required' });
 
   // If a customerId (phone) is supplied, normalize it so the order's
@@ -42,7 +43,19 @@ async function createOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
   const normalizedCustomerId = customerId ? normalizePhone(customerId) : null;
 
   const settings = await getSettings();
-  if (!settings || settings.cafeStatus !== 'OPEN') return res(403, { error: 'Cafe is not open' });
+
+  // ─── Pre-order branch ────────────────────────────────────────────
+  // Ministry pre-orders (link with a code) bypass the café-open check
+  // and are always free. Drinks only — the workflow does not reserve
+  // FOOD stock ahead of Sunday.
+  let preorderRecord: any = null;
+  if (preorderCode) {
+    const v = await validatePreorderCode(String(preorderCode));
+    if (!v.valid) return res(400, { error: `Pre-order code ${v.reason}` });
+    preorderRecord = v.code;
+  } else {
+    if (!settings || settings.cafeStatus !== 'OPEN') return res(403, { error: 'Cafe is not open' });
+  }
 
   const orderItems: any[] = [];
   let totalAmount = 0;
@@ -50,6 +63,10 @@ async function createOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
   for (const item of items) {
     const menu = await getMenuItem(item.menuItemId);
     if (!menu || !menu.isActive || !menu.isEnabledToday) return res(400, { error: `Item ${item.menuItemId} unavailable` });
+
+    if (preorderRecord && menu.category !== 'DRINK') {
+      return res(400, { error: `Pre-orders can only include drinks (${menu.name} is ${menu.category})` });
+    }
 
     if (menu.category === 'FOOD') {
       const available = (menu.foodQuantityToday || 0) - (menu.foodReserved || 0);
@@ -66,13 +83,13 @@ async function createOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
       if (variant) unitPrice += (variant.priceModifier || 0);
       variantLabel = item.variant;
     }
-    if (settings.celebrationMode && menu.category === 'DRINK') unitPrice = settings.celebrationPrice;
+    if (settings?.celebrationMode && menu.category === 'DRINK') unitPrice = settings.celebrationPrice;
 
     orderItems.push({ menuItemId: item.menuItemId, name: menu.name, variant: variantLabel, quantity: item.quantity, unitPrice, category: menu.category });
     totalAmount += unitPrice * item.quantity;
   }
 
-  // Reserve food
+  // Reserve food (pre-orders are drinks-only so this loop is a no-op there)
   for (const oi of orderItems) {
     if (oi.category === 'FOOD') {
       await docClient.send(new UpdateCommand({
@@ -86,16 +103,41 @@ async function createOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
 
   const orderId = uuid();
   const now = new Date().toISOString();
-  const expiresAt = Math.floor(Date.now() / 1000) + (settings.orderExpiryMinutes || 30) * 60;
 
-  const orderItem: any = {
-    PK: `ORDER#${orderId}`, SK: 'META', orderId, customerName,
-    items: orderItems, totalAmount, status: 'PENDING',
-    notes: notes || '',
-    discountType: 'NONE', discountOffset: 0,
-    createdAt: now, updatedAt: now, expiresAt,
-    isWalkUp: false, flaggedItems: [],
-  };
+  // Compose notes (prepend collection time for pre-orders so the cashier
+  // sees it at a glance in the queue).
+  const trimmedNotes = typeof notes === 'string' ? notes : '';
+  const composedNotes = preorderRecord && collectionTime
+    ? `Collect: ${collectionTime} | ${trimmedNotes}`.trim().replace(/\|\s*$/, '').trim()
+    : trimmedNotes;
+
+  const orderItem: any = preorderRecord
+    ? {
+        // ── Pre-order: PREPARING immediately, always free, expires at
+        // serviceEndTime (ISO). DynamoDB TTL ignores non-numeric values
+        // so the record persists through service.
+        PK: `ORDER#${orderId}`, SK: 'META', orderId, customerName,
+        items: orderItems, totalAmount, status: 'PREPARING',
+        notes: composedNotes,
+        discountType: 'MINISTRY_PREORDER',
+        discountOffset: totalAmount, // net = 0
+        createdAt: now, updatedAt: now,
+        expiresAt: preorderRecord.serviceEndTime,
+        isPreOrder: true,
+        preorderCode: preorderRecord.code,
+        isWalkUp: false, flaggedItems: [],
+      }
+    : {
+        // ── Regular customer order: PENDING with a short (30-min) TTL
+        // for auto-cleanup if the cashier never approves.
+        PK: `ORDER#${orderId}`, SK: 'META', orderId, customerName,
+        items: orderItems, totalAmount, status: 'PENDING',
+        notes: composedNotes,
+        discountType: 'NONE', discountOffset: 0,
+        createdAt: now, updatedAt: now,
+        expiresAt: Math.floor(Date.now() / 1000) + ((settings?.orderExpiryMinutes || 30) * 60),
+        isWalkUp: false, flaggedItems: [],
+      };
   if (normalizedCustomerId) orderItem.customerId = normalizedCustomerId;
 
   await docClient.send(new PutCommand({ TableName: ORDERS_TABLE, Item: orderItem }));
@@ -104,7 +146,12 @@ async function createOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
     await linkOrderToCustomer(normalizedCustomerId, orderId, totalAmount);
   }
 
-  return res(201, { orderId, totalAmount, status: 'PENDING' });
+  return res(201, {
+    orderId,
+    totalAmount,
+    status: orderItem.status,
+    isPreOrder: !!preorderRecord,
+  });
 }
 
 async function getOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
