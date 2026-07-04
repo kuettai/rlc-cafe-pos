@@ -5,7 +5,9 @@ import { comparePin, signToken, hashPin, verifyToken } from '../lib/auth';
 export async function handleAuth(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
   if (event.httpMethod === 'POST' && event.path === '/api/auth/login') {
     const body = JSON.parse(event.body || '{}');
-    const { userId, pin } = body;
+    const rawUserId = body.userId;
+    const userId = rawUserId ? rawUserId.toLowerCase().trim() : '';
+    const pin = body.pin;
     if (!userId || !pin) {
       return { statusCode: 400, headers: {}, body: JSON.stringify({ error: 'userId and pin required' }) };
     }
