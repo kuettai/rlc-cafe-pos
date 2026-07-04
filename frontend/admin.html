@@ -18,7 +18,54 @@
 <div class="error-banner" id="errorBanner" role="alert"></div>
 <div class="admin-app" id="app"></div>
 
+<footer class="app-footer" id="appFooter">
+  <span class="app-version">v34</span>
+  <button id="checkUpdateBtn" class="check-update-btn">Check for update</button>
+</footer>
+
 <script src="js/config.js"></script>
 <script src="js/admin.js"></script>
+<script>
+let swRegistration = null;
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js').then(reg=>{
+    swRegistration = reg;
+    reg.addEventListener('updatefound',()=>{
+      const newWorker=reg.installing;
+      newWorker.addEventListener('statechange',()=>{
+        if(newWorker.state==='activated'&&navigator.serviceWorker.controller){
+          const banner=document.createElement('div');
+          banner.style.cssText='position:fixed;bottom:70px;left:50%;transform:translateX(-50%);background:#6B4226;color:#fff;padding:12px 20px;border-radius:12px;z-index:999;font-size:.9rem;box-shadow:0 4px 12px rgba(0,0,0,.2);display:flex;gap:10px;align-items:center';
+          banner.innerHTML='<span>New version available</span><button onclick="location.reload()" style="background:#fff;color:#6B4226;border:none;padding:6px 12px;border-radius:8px;font-weight:700;cursor:pointer">Refresh</button>';
+          document.body.appendChild(banner);
+        }
+      });
+    });
+  });
+}
+document.getElementById('checkUpdateBtn').addEventListener('click',async function(){
+  const btn=this;
+  btn.textContent='Checking...';
+  btn.disabled=true;
+  try{
+    if(swRegistration){
+      await swRegistration.update();
+      const waiting=swRegistration.waiting;
+      if(waiting){
+        location.reload();
+      } else {
+        btn.textContent='You\'re up to date ✓';
+        setTimeout(()=>{btn.textContent='Check for update';btn.disabled=false},3000);
+      }
+    } else {
+      btn.textContent='No service worker';
+      setTimeout(()=>{btn.textContent='Check for update';btn.disabled=false},2000);
+    }
+  }catch(e){
+    btn.textContent='Check failed';
+    setTimeout(()=>{btn.textContent='Check for update';btn.disabled=false},2000);
+  }
+});
+</script>
 </body>
 </html>
