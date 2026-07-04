@@ -635,6 +635,27 @@ async function getInventory(): Promise<APIGatewayProxyResult> {
   return res(200, { ingredients: r.Items || [] });
 }
 
+// Cashier view of the menu: every item that's still admin-active
+// (isActive = true), regardless of the day's isEnabledToday flag. Distinct
+// from the public GET /api/menu which additionally filters by isEnabledToday
+// — cashiers need to see disabled items so they can toggle them back on.
+async function listCashierMenu(): Promise<APIGatewayProxyResult> {
+  const result = await docClient.send(new ScanCommand({
+    TableName: MENU_TABLE,
+    FilterExpression: 'isActive = :active',
+    ExpressionAttributeValues: { ':active': true },
+  }));
+  const items = (result.Items || [])
+    .filter((i: any) => i.SK === 'META')
+    .sort((a: any, b: any) => {
+      const ca = a.category || '';
+      const cb = b.category || '';
+      if (ca !== cb) return ca.localeCompare(cb);
+      return (a.sortOrder || 0) - (b.sortOrder || 0);
+    });
+  return res(200, { items });
+}
+
 // Slim ingredient list for the cashier stock-count GUI. Only the fields the
 // counter UI needs, plus lastCountedAt for the "last updated" hint.
 async function listIngredientsForCount(): Promise<APIGatewayProxyResult> {
@@ -789,6 +810,7 @@ export async function handlePos(event: APIGatewayProxyEvent, actor: string = '')
     if (id) { event.pathParameters = { id }; return togglePin(event); }
   }
   if (method === 'GET' && path === '/api/pos/inventory') return getInventory();
+  if (method === 'GET' && path === '/api/pos/menu') return listCashierMenu();
   if (method === 'GET' && path === '/api/pos/ingredients') return listIngredientsForCount();
   if (method === 'PUT' && path === '/api/pos/ingredients/bulk-update') return bulkUpdateStock(event, actor);
   if (method === 'GET' && path === '/api/pos/usage') return getUsageToday();

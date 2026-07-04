@@ -1044,7 +1044,10 @@ async function openWalkup(){
 // --- Menu Toggle ---
 async function openMenuToggle(){
   let menu=[];
-  try{ const d=await api('GET','/api/menu'); menu=Array.isArray(d)?d:d.items||[]; } catch(e){ showError('Failed to load menu'); return; }
+  // /api/pos/menu returns every admin-active item (isActive=true) regardless
+  // of today's toggle, so the cashier can see + re-enable items that have
+  // been switched off for the day. The public /api/menu would hide them.
+  try{ const d=await api('GET','/api/pos/menu'); menu=Array.isArray(d)?d:d.items||[]; } catch(e){ showError('Failed to load menu'); return; }
   const drinks = menu.filter(m=>m.category==='DRINK').sort((a,b)=>{
     const top=['Long Black','Latte'];
     const strip=s=>s.replace(/^[\p{Emoji}\p{Emoji_Presentation}\s]+/u,'');
@@ -1072,7 +1075,7 @@ async function openMenuToggle(){
       <h3>Menu & Food Quantity</h3>
       <div style="margin-top:16px">
         <h4 style="margin-bottom:10px;color:var(--primary,#6B4226)">🥤 Drinks</h4>
-        <div class="pos-menu-toggles">${drinks.map(m=>`<div class="pos-menu-toggle-row">
+        <div class="pos-menu-toggles">${drinks.map(m=>`<div class="pos-menu-toggle-row${m.isEnabledToday===false?' is-disabled':''}" data-row-id="${m.menuItemId||m.id}">
           <span>${m.name}</span>
           <div style="display:flex;align-items:center;gap:8px">
             <button class="pos-pin-btn ${m.isPinned?'pinned':''}" data-pin-id="${m.menuItemId||m.id}" title="${m.isPinned?'Unpin':'Pin to top'}">📌</button>
@@ -1086,7 +1089,7 @@ async function openMenuToggle(){
           const qty = m.foodQuantityToday || 0;
           const reserved = m.foodReserved || 0;
           const enabled = m.isEnabledToday !== false;
-          return `<div class="pos-menu-toggle-row" style="flex-wrap:wrap;gap:8px">
+          return `<div class="pos-menu-toggle-row${enabled?'':' is-disabled'}" data-row-id="${m.menuItemId||m.id}" style="flex-wrap:wrap;gap:8px">
             <span style="flex:1;min-width:120px">${m.name}</span>
             <div style="display:flex;align-items:center;gap:8px">
               <button class="pos-pin-btn ${m.isPinned?'pinned':''}" data-pin-id="${m.menuItemId||m.id}" title="${m.isPinned?'Unpin':'Pin to top'}">📌</button>
@@ -1115,7 +1118,16 @@ async function openMenuToggle(){
     });
 
     modal.querySelectorAll('input[data-type="toggle"]').forEach(cb=>cb.onchange=async()=>{
-      try{ await api('PUT',`/api/pos/menu/${cb.dataset.id}/toggle`); }
+      const id = cb.dataset.id;
+      const item = menu.find(m=>(m.menuItemId||m.id)===id);
+      const nextEnabled = cb.checked;
+      try{
+        await api('PUT',`/api/pos/menu/${id}/toggle`);
+        if(item) item.isEnabledToday = nextEnabled;
+        // Reflect greyed-out state on the row without a full re-render
+        const row = modal.querySelector(`.pos-menu-toggle-row[data-row-id="${CSS.escape(id)}"]`);
+        if(row) row.classList.toggle('is-disabled', !nextEnabled);
+      }
       catch(e){ showError('Toggle failed'); cb.checked=!cb.checked; }
     });
 

@@ -1485,6 +1485,13 @@ header h1{
   border-bottom:1px solid var(--cream-dark);
   font-weight:500;
 }
+/* Row for an item that's toggled OFF for today — visually muted so
+   cashiers can tell at a glance which items are hidden from customers. */
+.pos-menu-toggle-row.is-disabled{opacity:.5}
+.pos-menu-toggle-row.is-disabled > span{text-decoration:line-through;color:var(--text-light,#7A6355)}
+.pos-menu-toggle-row.is-disabled .pos-food-qty-input,
+.pos-menu-toggle-row.is-disabled [data-food-inc],
+.pos-menu-toggle-row.is-disabled [data-food-dec]{opacity:.6}
 .pos-switch{position:relative;width:52px;height:30px;display:inline-block}
 .pos-switch input{opacity:0;width:0;height:0}
 .pos-slider{
