@@ -90,8 +90,8 @@ function renderMain(){
   <div class="pos-sidebar-actions">
     <button id="btnWalkup" class="pos-action-btn pos-action-primary">➕ Walk-up</button>
     <button id="btnVoucher" class="pos-action-btn pos-action-primary">🎟️ Voucher</button>
-    <button id="btnCelebration" class="pos-action-btn pos-action-toggle ${celebrationMode?'active':''}">🎉 Celebration</button>
-    <button id="btnCafeToggle" class="pos-action-btn pos-action-danger">${cafeOpen?'🔒 Close Café':'🔓 Open Café'}</button>
+    <button id="btnCelebration" class="pos-action-btn pos-action-toggle ${celebrationMode?'active':''}" aria-pressed="${celebrationMode?'true':'false'}">${celebrationMode?'🎉 Celebration: ON':'🎉 Celebration: OFF'}</button>
+    <button id="btnCafeToggle" class="pos-action-btn ${cafeOpen?'pos-action-cafe-open':'pos-action-cafe-closed'}">${cafeOpen?'☕ Café Open ✓':'☕ Open Café'}</button>
   </div>
   <div class="pos-sidebar-section-label">Navigation</div>
   <nav class="pos-sidebar-nav">
@@ -108,6 +108,8 @@ function renderMain(){
 </aside>
 <div class="pos-sidebar-overlay" id="posSidebarOverlay"></div>
 <main class="pos-main">
+  <div id="closedBanner" class="pos-closed-banner${cafeOpen?'':' visible'}" role="alert" aria-live="assertive">⚠️ CAFÉ IS CLOSED — Customers cannot order. Tap Open to start service.</div>
+  <div id="celebBanner" class="pos-celeb-banner${celebrationMode?' visible':''}" role="status" aria-live="polite">🎉 CELEBRATION MODE — All eligible drinks discounted</div>
   <div id="posStats" class="pos-stats-bar"></div>
   <div class="pos-controls">
     <input id="orderSearch" class="pos-input pos-search" placeholder="Search customer...">
@@ -174,8 +176,32 @@ async function fetchCafeStatus(){
     celebrationMode = s.celebrationMode || false;
     const toggle = $('#btnCafeToggle');
     const celeb = $('#btnCelebration');
-    if(toggle) toggle.textContent = cafeOpen ? 'Close Café' : 'Open Café';
-    if(celeb) celeb.classList.toggle('active', celebrationMode);
+    if(toggle){
+      toggle.textContent = cafeOpen ? '☕ Café Open ✓' : '☕ Open Café';
+      toggle.classList.toggle('pos-action-cafe-open', cafeOpen);
+      toggle.classList.toggle('pos-action-cafe-closed', !cafeOpen);
+      // Clean up any legacy variant class that a previous render may have left
+      toggle.classList.remove('pos-action-danger');
+    }
+    if(celeb){
+      celeb.classList.toggle('active', celebrationMode);
+      celeb.textContent = celebrationMode ? '🎉 Celebration: ON' : '🎉 Celebration: OFF';
+      celeb.setAttribute('aria-pressed', celebrationMode ? 'true' : 'false');
+    }
+    const banner = $('#celebBanner');
+    if(banner) banner.classList.toggle('visible', celebrationMode);
+    const closedBanner = $('#closedBanner');
+    if(closedBanner) closedBanner.classList.toggle('visible', !cafeOpen);
+    const headerBadge = document.getElementById('headerCafeBadge');
+    if(headerBadge){
+      if(cafeOpen){
+        headerBadge.textContent = '● OPEN';
+        headerBadge.classList.add('is-open');
+      } else {
+        headerBadge.textContent = '';
+        headerBadge.classList.remove('is-open');
+      }
+    }
   } catch(e){}
 }
 

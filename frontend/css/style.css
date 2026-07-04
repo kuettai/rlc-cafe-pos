@@ -1711,8 +1711,122 @@ header h1{
 .pos-action-btn{display:block;width:100%;text-align:center;padding:10px 12px;border:2px solid transparent;border-radius:8px;cursor:pointer;font-size:.85rem;font-weight:700;transition:all .15s}
 .pos-action-primary{background:var(--primary,#6B4226);color:#fff;border-color:var(--primary,#6B4226)}
 .pos-action-primary:hover{opacity:.9}
-.pos-action-toggle{background:var(--cream,#f9f5f0);color:var(--text,#3D2B1F);border-color:var(--cream-dark,#e8e0d8)}
-.pos-action-toggle.active{background:#FEF3C7;border-color:#F59E0B;color:#B45309}
+.pos-action-toggle{background:#f4efe8;color:#8a7d6d;border-color:#e3dcd1;opacity:.9}
+.pos-action-toggle:hover{opacity:1}
+.pos-action-toggle.active{background:linear-gradient(180deg,#FCD34D 0%,#F59E0B 100%);border-color:#B45309;color:#5C2E00;box-shadow:0 0 0 2px rgba(245,158,11,.35),0 2px 6px rgba(245,158,11,.35);text-shadow:0 1px 0 rgba(255,255,255,.4);animation:celeb-pulse 2s ease-in-out infinite}
+.pos-action-toggle.active:hover{opacity:.95;filter:brightness(1.05)}
+@keyframes celeb-pulse{0%,100%{box-shadow:0 0 0 2px rgba(245,158,11,.35),0 2px 6px rgba(245,158,11,.35)}50%{box-shadow:0 0 0 4px rgba(245,158,11,.5),0 2px 10px rgba(245,158,11,.5)}}
+@media (prefers-reduced-motion: reduce){.pos-action-toggle.active{animation:none}}
+
+/* Celebration banner — persistent visual cue on the main POS view so a
+   cashier always knows celebration pricing is active. Hidden by default,
+   shown when #celebBanner has .visible. */
+.pos-celeb-banner{
+  display:none;
+  background:linear-gradient(90deg,#FCD34D 0%,#F59E0B 50%,#FCD34D 100%);
+  background-size:200% 100%;
+  color:#5C2E00;
+  font-weight:800;
+  font-size:.95rem;
+  letter-spacing:.02em;
+  text-align:center;
+  padding:10px 14px;
+  border-bottom:2px solid #B45309;
+  box-shadow:0 2px 6px rgba(245,158,11,.35);
+  text-shadow:0 1px 0 rgba(255,255,255,.4);
+  animation:celeb-shimmer 4s linear infinite;
+  position:sticky;
+  top:0;
+  z-index:20;
+}
+.pos-celeb-banner.visible{display:block}
+@keyframes celeb-shimmer{
+  0%{background-position:0% 0}
+  100%{background-position:200% 0}
+}
+@media (prefers-reduced-motion: reduce){
+  .pos-celeb-banner{animation:none;background:#F59E0B}
+}
+
+/* Café-closed banner — urgent red alert shown whenever the café is not
+   OPEN. Sticks above the celebration banner (higher z-index + rendered
+   first in DOM so both can coexist when needed). Pulsing animation
+   ensures cashier notices they need to open before taking orders. */
+.pos-closed-banner{
+  display:none;
+  background:linear-gradient(90deg,#DC2626 0%,#B91C1C 50%,#DC2626 100%);
+  color:#fff;
+  font-weight:800;
+  font-size:.95rem;
+  letter-spacing:.02em;
+  text-align:center;
+  padding:12px 14px;
+  border-bottom:2px solid #7F1D1D;
+  box-shadow:0 2px 8px rgba(220,38,38,.45);
+  text-shadow:0 1px 0 rgba(0,0,0,.25);
+  animation:closed-pulse 1.4s ease-in-out infinite;
+  position:sticky;
+  top:0;
+  z-index:25;
+}
+.pos-closed-banner.visible{display:block}
+@keyframes closed-pulse{
+  0%,100%{filter:brightness(1);box-shadow:0 2px 8px rgba(220,38,38,.45)}
+  50%{filter:brightness(1.15);box-shadow:0 2px 14px rgba(220,38,38,.75)}
+}
+@media (prefers-reduced-motion: reduce){
+  .pos-closed-banner{animation:none;background:#B91C1C}
+}
+
+/* Header café-open badge — subtle reassurance in the top bar. Hidden
+   when the café is closed (the red banner is loud enough on its own). */
+.pos-header-badge{
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  font-size:.72rem;
+  font-weight:700;
+  letter-spacing:.06em;
+  padding:3px 10px;
+  border-radius:999px;
+  margin-left:10px;
+  color:transparent;
+  background:transparent;
+  border:1px solid transparent;
+  transition:background .2s ease,color .2s ease,border-color .2s ease;
+}
+.pos-header-badge.is-open{
+  color:#065F46;
+  background:#D1FAE5;
+  border-color:#10B981;
+  box-shadow:0 0 0 2px rgba(16,185,129,.25);
+}
+
+/* Café-open sidebar action — reassuring green state */
+.pos-action-cafe-open{
+  background:#D1FAE5;
+  color:#065F46;
+  border-color:#10B981;
+  box-shadow:inset 0 0 0 1px rgba(16,185,129,.4);
+}
+.pos-action-cafe-open:hover{background:#A7F3D0}
+
+/* Café-closed sidebar action — urgent red, matches the banner */
+.pos-action-cafe-closed{
+  background:#DC2626;
+  color:#fff;
+  border-color:#B91C1C;
+  box-shadow:0 2px 6px rgba(220,38,38,.35);
+  animation:closed-btn-pulse 1.6s ease-in-out infinite;
+}
+.pos-action-cafe-closed:hover{background:#B91C1C}
+@keyframes closed-btn-pulse{
+  0%,100%{box-shadow:0 2px 6px rgba(220,38,38,.35)}
+  50%{box-shadow:0 2px 12px rgba(220,38,38,.7)}
+}
+@media (prefers-reduced-motion: reduce){
+  .pos-action-cafe-closed{animation:none}
+}
 .pos-action-danger{background:#fff;color:var(--danger,#DC2626);border-color:var(--danger,#DC2626)}
 .pos-action-danger:hover{background:var(--danger-bg,#fef2f2)}
 
