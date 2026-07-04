@@ -199,7 +199,9 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
       const userId = uuid();
       const item = {
         PK: `USER#${userId}`, SK: 'META', userId,
-        name: body.name, pinHash: hashPin(body.pin), role: body.role, isActive: true, forceUpdatePin: true
+        name: body.name,
+        nameLower: typeof body.name === 'string' ? body.name.toLowerCase().trim() : body.name,
+        pinHash: hashPin(body.pin), role: body.role, isActive: true, forceUpdatePin: true
       };
       await docClient.send(new PutCommand({ TableName: USERS_TABLE, Item: item }));
       return res(201, { userId, name: body.name, role: body.role });
@@ -212,6 +214,11 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
         updates.pinHash = hashPin(updates.pin);
         updates.forceUpdatePin = true;
         delete updates.pin;
+      }
+      // Keep nameLower in sync with name so the login fallback scan can
+      // match case-insensitively without touching every existing record.
+      if (typeof updates.name === 'string') {
+        updates.nameLower = updates.name.toLowerCase().trim();
       }
       const fields: string[] = [];
       const names: Record<string, string> = {};

@@ -22,12 +22,14 @@ export async function handleAuth(event: APIGatewayProxyEvent): Promise<APIGatewa
       user = directGet.Item;
     }
 
-    // Fallback: query by name (only if direct lookup failed, still a scan but unavoidable without GSI)
+    // Fallback: query by nameLower (only if direct lookup failed, still a
+    // scan but unavoidable without a GSI). nameLower is maintained by the
+    // admin user create/update paths; legacy records were backfilled via
+    // scripts/backfill-user-namelower.mjs.
     if (!user) {
       const result = await docClient.send(new ScanCommand({
         TableName: USERS_TABLE,
-        FilterExpression: '#n = :name AND isActive = :active',
-        ExpressionAttributeNames: { '#n': 'name' },
+        FilterExpression: 'nameLower = :name AND isActive = :active',
         ExpressionAttributeValues: { ':name': userId, ':active': true },
       }));
       user = result.Items?.[0];
