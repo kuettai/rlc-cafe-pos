@@ -635,6 +635,93 @@ async function getInventory(): Promise<APIGatewayProxyResult> {
   return res(200, { ingredients: r.Items || [] });
 }
 
+// Slim ingredient list for the cashier stock-count GUI. Only the fields the
+// counter UI needs, plus lastCountedAt for the "last updated" hint.
+async function listIngredientsForCount(): Promise<APIGatewayProxyResult> {
+  const r = await docClient.send(new ScanCommand({
+    TableName: INGREDIENTS_TABLE,
+    FilterExpression: 'begins_with(PK, :prefix) AND SK = :sk',
+    ExpressionAttributeValues: { ':prefix': 'INGREDIENT#', ':sk': 'META' },
+  }));
+  const ingredients = (r.Items || []).map((i: any) => ({
+    ingredientId: i.ingredientId,
+    name: i.name,
+    unit: i.unit,
+    currentStock: typeof i.currentStock === 'number' ? i.currentStock : Number(i.currentStock) || 0,
+    storageLocation: i.storageLocation || null,
+    lowStockThreshold: i.lowStockThreshold || 0,
+    lastCountedAt: i.lastCountedAt || null,
+    lastCountedBy: i.lastCountedBy || null,
+  }));
+  // Sort: by location then by name for deterministic UI ordering
+  ingredients.sort((a: any, b: any) => {
+    const la = (a.storageLocation || '~').toString();
+    const lb = (b.storageLocation || '~').toString();
+    if (la !== lb) return la.localeCompare(lb);
+    return (a.name || '').localeCompare(b.name || '');
+  });
+  return res(200, { ingredients });
+}
+
+// Bulk stock-count update from the cashier UI. Writes each new
+// currentStock and appends a snapshot record so admins can backtrace
+// end-of-day counts. Snapshots live in SETTINGS_TABLE under a new PK
+// pattern (STOCK_SNAPSHOT#<date>) with the ISO timestamp as SK.
+async function bulkUpdateStock(event: APIGatewayProxyEvent, actor: string): Promise<APIGatewayProxyResult> {
+  const body = JSON.parse(event.body || '{}');
+  const counts: any[] = Array.isArray(body.counts) ? body.counts : [];
+  if (counts.length === 0) return res(400, { error: 'counts array required' });
+
+  const now = new Date().toISOString();
+  const today = now.split('T')[0];
+  const snapshotEntries: any[] = [];
+  const errors: any[] = [];
+
+  for (const c of counts) {
+    if (!c || !c.ingredientId) { errors.push({ ingredientId: c?.ingredientId, error: 'missing ingredientId' }); continue; }
+    const cnt = typeof c.count === 'number' ? c.count : Number(c.count);
+    if (!isFinite(cnt) || cnt < 0) { errors.push({ ingredientId: c.ingredientId, error: 'invalid count' }); continue; }
+
+    const existing = await docClient.send(new GetCommand({
+      TableName: INGREDIENTS_TABLE,
+      Key: { PK: `INGREDIENT#${c.ingredientId}`, SK: 'META' },
+    }));
+    if (!existing.Item) { errors.push({ ingredientId: c.ingredientId, error: 'not found' }); continue; }
+
+    await docClient.send(new UpdateCommand({
+      TableName: INGREDIENTS_TABLE,
+      Key: { PK: `INGREDIENT#${c.ingredientId}`, SK: 'META' },
+      UpdateExpression: 'SET currentStock = :s, lastCountedAt = :t, lastCountedBy = :u',
+      ExpressionAttributeValues: { ':s': cnt, ':t': now, ':u': actor || 'Unknown' },
+    }));
+
+    snapshotEntries.push({
+      ingredientId: c.ingredientId,
+      name: existing.Item.name,
+      unit: existing.Item.unit,
+      storageLocation: existing.Item.storageLocation || null,
+      count: cnt,
+      previousCount: typeof existing.Item.currentStock === 'number' ? existing.Item.currentStock : null,
+    });
+  }
+
+  if (snapshotEntries.length > 0) {
+    await docClient.send(new PutCommand({
+      TableName: SETTINGS_TABLE,
+      Item: {
+        PK: `STOCK_SNAPSHOT#${today}`,
+        SK: now,
+        date: today,
+        timestamp: now,
+        submittedBy: actor || 'Unknown',
+        counts: snapshotEntries,
+      },
+    }));
+  }
+
+  return res(200, { updated: snapshotEntries.length, timestamp: now, errors });
+}
+
 async function adjustStock(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
   const id = event.pathParameters?.id;
   if (!id) return res(400, { error: 'Missing ingredient id' });
@@ -702,6 +789,8 @@ export async function handlePos(event: APIGatewayProxyEvent, actor: string = '')
     if (id) { event.pathParameters = { id }; return togglePin(event); }
   }
   if (method === 'GET' && path === '/api/pos/inventory') return getInventory();
+  if (method === 'GET' && path === '/api/pos/ingredients') return listIngredientsForCount();
+  if (method === 'PUT' && path === '/api/pos/ingredients/bulk-update') return bulkUpdateStock(event, actor);
   if (method === 'GET' && path === '/api/pos/usage') return getUsageToday();
   if (method === 'PUT' && path.match(/\/api\/pos\/inventory\/[^/]+$/)) {
     const id = extractSegment(path, /\/api\/pos\/inventory\/([^/]+)/, 1);

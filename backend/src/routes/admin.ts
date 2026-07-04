@@ -491,6 +491,44 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
       return res(200, { message: 'Coming soon' });
     }
 
+    // Stock History (from cashier stock-count snapshots)
+    // NOTE: /snapshots must be matched before the generic /stock-history so
+    // the more specific path wins.
+    if (method === 'GET' && path.endsWith('/admin/stock-history/snapshots')) {
+      const result = await docClient.send(new ScanCommand({
+        TableName: SETTINGS_TABLE,
+        FilterExpression: 'begins_with(PK, :prefix)',
+        ExpressionAttributeValues: { ':prefix': 'STOCK_SNAPSHOT#' },
+      }));
+      const items = result.Items || [];
+      // Bucket by date so the picker can show which dates have data + how many
+      const byDate: Record<string, number> = {};
+      for (const it of items) {
+        const d = it.date || (typeof it.PK === 'string' ? it.PK.replace(/^STOCK_SNAPSHOT#/, '') : null);
+        if (!d) continue;
+        byDate[d] = (byDate[d] || 0) + 1;
+      }
+      const dates = Object.entries(byDate)
+        .map(([date, count]) => ({ date, count }))
+        .sort((a, b) => b.date.localeCompare(a.date));
+      return res(200, { dates, totalSnapshots: items.length });
+    }
+
+    if (method === 'GET' && path.endsWith('/admin/stock-history')) {
+      const qs = event.queryStringParameters || {};
+      const date = qs.date;
+      if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return res(400, { error: 'date query param required (YYYY-MM-DD)' });
+      }
+      const result = await docClient.send(new QueryCommand({
+        TableName: SETTINGS_TABLE,
+        KeyConditionExpression: 'PK = :pk',
+        ExpressionAttributeValues: { ':pk': `STOCK_SNAPSHOT#${date}` },
+        ScanIndexForward: false, // newest snapshot first (SK is ISO timestamp)
+      }));
+      return res(200, { date, snapshots: result.Items || [] });
+    }
+
     return res(404, { error: 'Not found', path, method });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Internal error';
