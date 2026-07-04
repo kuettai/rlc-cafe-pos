@@ -1255,7 +1255,13 @@ async function openManualStockCount(){
 
   function render(){
     const body = modal.querySelector('#mscBody');
-    const filtered = filter === 'ALL' ? ingredients : ingredients.filter(i => (i.storageLocation||'') === filter);
+    // Items marked BOTH appear under either Fridge or Storeroom filter (and ALL).
+    const filtered = filter === 'ALL'
+      ? ingredients
+      : ingredients.filter(i => {
+          const loc = i.storageLocation || '';
+          return loc === filter || loc === 'BOTH';
+        });
     if (!filtered.length){
       body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-light,#7A6355)">No ingredients in this location</div>';
       updateSaveState();

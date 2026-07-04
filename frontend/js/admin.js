@@ -469,7 +469,11 @@ async function loadIngredients(container){
 let ingLocationFilter = 'ALL';
 
 function renderIngredientsSection(container, items, menuItems, recipes){
-  const filtered = ingLocationFilter === 'ALL' ? items : items.filter(i=>i.storageLocation===ingLocationFilter);
+  // Items marked BOTH appear under either Fridge or Storeroom filter (and ALL),
+  // matching the POS stock-count filter behavior.
+  const filtered = ingLocationFilter === 'ALL'
+    ? items
+    : items.filter(i => i.storageLocation === ingLocationFilter || i.storageLocation === 'BOTH');
   let html = `<div class="admin-section">
     <div class="admin-section-header">
       <h2>Ingredients</h2>
@@ -680,6 +684,7 @@ function openIngredientForm(container, ing, allItems){
       <div class="admin-form-group"><label>Storage Location</label><select id="ifLocation" class="pos-input">
         <option value="FRIDGE" ${ing?.storageLocation==='FRIDGE'?'selected':''}>Fridge</option>
         <option value="STOREROOM" ${ing?.storageLocation==='STOREROOM'?'selected':''}>Storeroom</option>
+        <option value="BOTH" ${ing?.storageLocation==='BOTH'?'selected':''}>Both</option>
       </select></div>
     </div>
     <div class="admin-form-row">
