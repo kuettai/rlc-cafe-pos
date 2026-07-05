@@ -465,10 +465,19 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
         }
       }
       const orders = [...byId.values()];
-      const totalOrders = orders.length;
-      const totalRevenue = orders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
-      const totalOffsets = orders.reduce((sum, o) => sum + (o.discountOffset || 0), 0);
-      const netExpected = totalRevenue - totalOffsets;
+      // Revenue-relevant subset: completed sales (ARCHIVED + READY).
+      // Pre-orders are included in the count (they represent completed
+      // service for a ministry volunteer) but they contribute RM 0 to
+      // revenue since `totalAmount` is already stored as net (0 for
+      // MINISTRY_PREORDER). PENDING is pre-approval (not a committed sale);
+      // CANCELLED/EXPIRED never collected — both excluded from this bucket.
+      const paidCompleted = orders.filter(o =>
+        o.status === 'ARCHIVED' || o.status === 'READY'
+      );
+      const totalOrders  = paidCompleted.length;
+      const totalRevenue = paidCompleted.reduce((sum, o) => sum + Number(o.totalAmount || 0), 0);
+      const totalOffsets = paidCompleted.reduce((sum, o) => sum + Number(o.discountOffset || 0), 0);
+      const netExpected  = totalRevenue - totalOffsets;
       return res(200, { date: today, totalOrders, totalRevenue, totalOffsets, netExpected, orders });
     }
 

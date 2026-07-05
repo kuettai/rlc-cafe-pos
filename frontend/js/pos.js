@@ -5,6 +5,9 @@ let token = sessionStorage.getItem('pos_token');
 let currentUser = sessionStorage.getItem('pos_user') || '';
 let orders = [];
 let prevOrderCount = 0;
+// Latest response from /api/pos/shift-summary; refreshed alongside every
+// queue poll. Used by renderStats() for completed / revenue numbers.
+let shiftSummary = null;
 let pollTimer = null;
 let viewMode = 'kanban';
 let cafeOpen = false;
@@ -216,7 +219,15 @@ let prevOrdersById = {};
 
 async function fetchOrders(){
   try{
-    const data = await api('GET','/api/pos/orders');
+    // Fetch queue + shift summary in parallel — one poll cycle updates both
+    // the queue view and the stats bar without doubling backend load. Shift
+    // summary is used by renderStats for the completed/revenue numbers that
+    // the live queue alone can't compute (ARCHIVED isn't in the queue).
+    const [data, summaryData] = await Promise.all([
+      api('GET','/api/pos/orders'),
+      api('GET','/api/pos/shift-summary').catch(() => null),
+    ]);
+    if (summaryData) shiftSummary = summaryData;
     const list = Array.isArray(data) ? data : data.orders || [];
     if(list.length > prevOrderCount && prevOrderCount > 0) flashNew();
     const receiptCount = list.filter(o=>o.receiptUrl).length;
@@ -408,14 +419,21 @@ function renderStats(){
   const preparing = orders.filter(o=>o.status==='PREPARING').length;
   const ready = orders.filter(o=>o.status==='READY').length;
   const total = orders.length;
-  const revenue = orders.reduce((s,o)=>s+(o.total||o.totalAmount||0),0);
+  // "Completed" and "Revenue" come from /api/pos/shift-summary — the live
+  // queue only carries PENDING/PREPARING/READY, so the queue-derived sum
+  // can never see ARCHIVED sales. Falls back to queue-derived numbers if
+  // the shift-summary fetch failed.
+  const completed = shiftSummary?.completedOrders ?? 0;
+  const revenue = shiftSummary?.totalRevenue ??
+    orders.reduce((s,o)=>s+(o.total||o.totalAmount||0),0);
   const drinkItems = orders.filter(o=>o.status==='PREPARING'||o.status==='PENDING').reduce((s,o)=>s+(o.items||[]).filter(i=>i.category==='DRINK').reduce((ss,i)=>ss+(i.quantity||i.qty||1),0),0);
   const statsEl = $('#posStats');
   if(statsEl) statsEl.innerHTML = `<div class="pos-stat"><span class="pos-stat-num">${pending}</span><span class="pos-stat-lbl">Pending</span></div>
     <div class="pos-stat"><span class="pos-stat-num">${preparing}</span><span class="pos-stat-lbl">Making</span></div>
     <div class="pos-stat"><span class="pos-stat-num">${ready}</span><span class="pos-stat-lbl">Ready</span></div>
-    <div class="pos-stat"><span class="pos-stat-num">${total}</span><span class="pos-stat-lbl">Total</span></div>
+    <div class="pos-stat"><span class="pos-stat-num">${completed}</span><span class="pos-stat-lbl">Completed</span></div>
     <div class="pos-stat"><span class="pos-stat-num">RM${revenue.toFixed(0)}</span><span class="pos-stat-lbl">Revenue</span></div>
+    <div class="pos-stat"><span class="pos-stat-num">${total}</span><span class="pos-stat-lbl">Queue</span></div>
     <div class="pos-stat"><span class="pos-stat-num">${drinkItems}</span><span class="pos-stat-lbl">Drinks</span></div>
     <div class="pos-stat pos-stat-btn" id="btnIngUsed" style="cursor:pointer"><span class="pos-stat-num">📦</span><span class="pos-stat-lbl">Usage</span></div>`;
   $('#btnIngUsed')?.addEventListener('click', showIngredientUsage);

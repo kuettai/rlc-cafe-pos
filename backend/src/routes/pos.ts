@@ -104,11 +104,25 @@ async function getShiftSummary(): Promise<APIGatewayProxyResult> {
   }
   const allOrders = [...byId.values()];
 
-  const totalOrders = allOrders.length;
+  // Bucket by status for the granular dashboard. Revenue is over completed
+  // states only (ARCHIVED + READY), and pre-orders are excluded from the
+  // sale figures since MINISTRY_PREORDER always nets to zero.
+  const pendingOrders   = allOrders.filter(o => o.status === 'PENDING').length;
+  const preparingOrders = allOrders.filter(o => o.status === 'PREPARING').length;
+  const readyOrders     = allOrders.filter(o => o.status === 'READY').length;
+  const archivedOrders  = allOrders.filter(o => o.status === 'ARCHIVED').length;
+
+  const paidCompleted = allOrders.filter(o =>
+    o.status === 'ARCHIVED' || o.status === 'READY'
+  );
+  const completedOrders = paidCompleted.length;
   // `totalAmount` is already stored as net (post-discount) by approveOrder /
-  // createWalkUp. Summing it directly gives the correct collected revenue.
-  // Pre-orders contribute RM 0 (net) so they don't inflate the number.
-  const totalRevenue = allOrders.reduce((s, o) => s + (o.totalAmount || 0), 0);
+  // createWalkUp / createOrder. Sum directly for the real revenue collected.
+  // Pre-orders contribute RM 0 (net), so including them in the completed
+  // set inflates the count but not the revenue.
+  const totalRevenue = paidCompleted.reduce((s, o) => s + Number(o.totalAmount || 0), 0);
+
+  const totalOrders = allOrders.length; // includes pre-orders + PENDING/CANCELLED etc.
   const newcomersServed = allOrders.filter(o => o.discountType === 'NEWCOMER').length;
 
   const itemCount: Record<string, number> = {};
@@ -119,7 +133,18 @@ async function getShiftSummary(): Promise<APIGatewayProxyResult> {
   }
   const peakItem = Object.entries(itemCount).sort((a, b) => b[1] - a[1])[0]?.[0] || '—';
 
-  return res(200, { totalOrders, totalRevenue, newcomersServed, peakItem, closedAt: new Date().toISOString() });
+  return res(200, {
+    totalOrders,
+    totalRevenue,
+    completedOrders,
+    pendingOrders,
+    preparingOrders,
+    readyOrders,
+    archivedOrders,
+    newcomersServed,
+    peakItem,
+    closedAt: new Date().toISOString(),
+  });
 }
 
 async function listOrders(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
