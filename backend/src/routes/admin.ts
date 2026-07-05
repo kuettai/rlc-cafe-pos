@@ -196,12 +196,16 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
     }
 
     if (method === 'POST' && path.endsWith('/admin/users')) {
+      const pin = body.pin;
+      if (!pin || String(pin).length < 6) {
+        return res(400, { error: 'pin required (min 6 digits)' });
+      }
       const userId = uuid();
       const item = {
         PK: `USER#${userId}`, SK: 'META', userId,
         name: body.name,
         nameLower: typeof body.name === 'string' ? body.name.toLowerCase().trim() : body.name,
-        pinHash: hashPin(body.pin), role: body.role, isActive: true, forceUpdatePin: true
+        pinHash: hashPin(pin), role: body.role, isActive: true, forceUpdatePin: true
       };
       await docClient.send(new PutCommand({ TableName: USERS_TABLE, Item: item }));
       return res(201, { userId, name: body.name, role: body.role });
@@ -211,6 +215,9 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
       const id = extractId(path, 'users');
       const updates = { ...body };
       if (updates.pin) {
+        if (String(updates.pin).length < 6) {
+          return res(400, { error: 'pin must be at least 6 digits' });
+        }
         updates.pinHash = hashPin(updates.pin);
         updates.forceUpdatePin = true;
         delete updates.pin;
@@ -415,12 +422,35 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
 
     if (method === 'GET' && path.endsWith('/admin/reports/daily')) {
       const today = new Date().toISOString().split('T')[0];
-      const result = await docClient.send(new ScanCommand({
+      // Union of (orders created today, any status) + (all currently active
+      // orders regardless of date). The second bucket catches ministry
+      // pre-orders that were created before today for today's service and
+      // would otherwise be invisible in the dashboard's "Today's Stats".
+      // Dedupe by orderId so a today-created PREPARING order counts once.
+      const todayResult = await docClient.send(new ScanCommand({
         TableName: ORDERS_TABLE,
         FilterExpression: 'begins_with(createdAt, :today)',
         ExpressionAttributeValues: { ':today': today },
       }));
-      const orders = result.Items || [];
+      const byId = new Map<string, any>();
+      for (const o of todayResult.Items || []) {
+        const key = String(o.orderId || o.PK);
+        if (!byId.has(key)) byId.set(key, o);
+      }
+      for (const status of ['PREPARING', 'READY']) {
+        const activeResult = await docClient.send(new QueryCommand({
+          TableName: ORDERS_TABLE,
+          IndexName: 'status-createdAt-index',
+          KeyConditionExpression: '#s = :s',
+          ExpressionAttributeNames: { '#s': 'status' },
+          ExpressionAttributeValues: { ':s': status },
+        }));
+        for (const o of activeResult.Items || []) {
+          const key = String(o.orderId || o.PK);
+          if (!byId.has(key)) byId.set(key, o);
+        }
+      }
+      const orders = [...byId.values()];
       const totalOrders = orders.length;
       const totalRevenue = orders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
       const totalOffsets = orders.reduce((sum, o) => sum + (o.discountOffset || 0), 0);

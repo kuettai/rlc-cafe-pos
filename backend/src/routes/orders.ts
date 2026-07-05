@@ -62,7 +62,9 @@ async function createOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
 
   for (const item of items) {
     const menu = await getMenuItem(item.menuItemId);
-    if (!menu || !menu.isActive || !menu.isEnabledToday) return res(400, { error: `Item ${item.menuItemId} unavailable` });
+    if (!menu) return res(400, { error: `Item ${item.menuItemId} not found` });
+    if (!menu.isActive) return res(400, { error: `${menu.name} is not available` });
+    if (!menu.isEnabledToday) return res(400, { error: `${menu.name} is not available today` });
 
     if (preorderRecord && menu.category !== 'DRINK') {
       return res(400, { error: `Pre-orders can only include drinks (${menu.name} is ${menu.category})` });
@@ -224,7 +226,9 @@ async function modifyOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
 
     for (const item of body.items) {
       const menu = await getMenuItem(item.menuItemId);
-      if (!menu || !menu.isActive || !menu.isEnabledToday) return res(400, { error: `Item ${item.menuItemId} unavailable` });
+      if (!menu) return res(400, { error: `Item ${item.menuItemId} not found` });
+      if (!menu.isActive) return res(400, { error: `${menu.name} is not available` });
+      if (!menu.isEnabledToday) return res(400, { error: `${menu.name} is not available today` });
 
       if (menu.category === 'FOOD') {
         const available = (menu.foodQuantityToday || 0) - (menu.foodReserved || 0);

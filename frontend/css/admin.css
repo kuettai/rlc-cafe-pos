@@ -132,6 +132,23 @@
 .badge-cashier{background:var(--info-bg);color:var(--info)}
 .badge-disabled{background:var(--danger-bg);color:var(--danger)}
 
+/* Filter row (Category / Status filters in the Admin > Menu tab) */
+.admin-filter-row{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  align-items:center;
+  margin-bottom:8px;
+}
+.admin-filter-label{
+  font-size:.72rem;
+  font-weight:700;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  color:var(--text-light,#7A6355);
+  min-width:64px;
+}
+
 /* Disabled card styling — used for soft-disabled menu items and disabled checklist rows */
 .admin-card.is-disabled{opacity:.55;background:#f7f5f2}
 .admin-card.is-disabled .admin-card-title{text-decoration:line-through;color:var(--text-light)}

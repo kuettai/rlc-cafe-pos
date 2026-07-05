@@ -30,12 +30,53 @@ async function releaseFood(items: { menuItemId: string; quantity: number; catego
   }
 }
 
+/**
+ * Called when a FOOD-containing order reaches a terminal "the food was
+ * actually made" state — currently ARCHIVED (collected) and post-completion
+ * CANCELLED coming out of READY. Decrements *both* `foodReserved` (release
+ * the slot) and `foodQuantityToday` (the food is out of inventory whether
+ * it got handed over or not; the kitchen already used it up).
+ *
+ * Drift note: counters may go negative if reservations have already drifted
+ * from historical bugs. That's tolerated — the periodic
+ * `scripts/reset-food-reserved.mjs` clean-up is the correct fix, not
+ * clamping here (clamping could hide real accounting errors).
+ */
+async function consumeFoodOnCollection(items: any[]) {
+  if (!Array.isArray(items)) return;
+  for (const item of items) {
+    if (!item || item.category !== 'FOOD' || !item.menuItemId) continue;
+    const qty = Number(item.quantity || item.qty || 1);
+    if (!isFinite(qty) || qty <= 0) continue;
+    try {
+      await docClient.send(new UpdateCommand({
+        TableName: MENU_TABLE,
+        Key: { PK: `MENU#${item.menuItemId}`, SK: 'META' },
+        UpdateExpression: 'SET foodReserved = foodReserved - :q, foodQuantityToday = foodQuantityToday - :q',
+        ExpressionAttributeValues: { ':q': qty },
+      }));
+    } catch (e: any) {
+      // Menu item deleted or attributes missing — log & keep going. Don't
+      // fail the customer-facing state transition just because a legacy
+      // record lacks the counter attribute.
+      console.error('consumeFoodOnCollection failed for', item.menuItemId, e?.name || e);
+    }
+  }
+}
+
 async function getShiftSummary(): Promise<APIGatewayProxyResult> {
   const today = new Date().toISOString().slice(0, 10);
-  const statuses = ['PENDING', 'PREPARING', 'READY', 'ARCHIVED'];
-  let allOrders: any[] = [];
+  // "Today's stats" spans two buckets:
+  //   1. Orders created today across any status (normal customer + walk-up flow).
+  //   2. Every currently-active order (PREPARING/READY) regardless of date —
+  //      catches ministry pre-orders that were created yesterday for today's
+  //      service and would otherwise be invisible in the dashboard.
+  // Deduped by orderId so a today-created PREPARING order counts once.
+  const todayStatuses  = ['PENDING', 'ARCHIVED'];
+  const activeStatuses = ['PREPARING', 'READY'];
+  const byId = new Map<string, any>();
 
-  for (const status of statuses) {
+  for (const status of todayStatuses) {
     const r = await docClient.send(new QueryCommand({
       TableName: ORDERS_TABLE,
       IndexName: 'status-createdAt-index',
@@ -43,12 +84,30 @@ async function getShiftSummary(): Promise<APIGatewayProxyResult> {
       ExpressionAttributeNames: { '#s': 'status' },
       ExpressionAttributeValues: { ':s': status, ':today': today },
     }));
-    allOrders.push(...(r.Items || []));
+    for (const o of r.Items || []) {
+      const key = String(o.orderId || o.PK);
+      if (!byId.has(key)) byId.set(key, o);
+    }
   }
+  for (const status of activeStatuses) {
+    const r = await docClient.send(new QueryCommand({
+      TableName: ORDERS_TABLE,
+      IndexName: 'status-createdAt-index',
+      KeyConditionExpression: '#s = :s',
+      ExpressionAttributeNames: { '#s': 'status' },
+      ExpressionAttributeValues: { ':s': status },
+    }));
+    for (const o of r.Items || []) {
+      const key = String(o.orderId || o.PK);
+      if (!byId.has(key)) byId.set(key, o);
+    }
+  }
+  const allOrders = [...byId.values()];
 
   const totalOrders = allOrders.length;
   // `totalAmount` is already stored as net (post-discount) by approveOrder /
   // createWalkUp. Summing it directly gives the correct collected revenue.
+  // Pre-orders contribute RM 0 (net) so they don't inflate the number.
   const totalRevenue = allOrders.reduce((s, o) => s + (o.totalAmount || 0), 0);
   const newcomersServed = allOrders.filter(o => o.discountType === 'NEWCOMER').length;
 
@@ -278,14 +337,33 @@ async function archiveOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProx
   const id = event.pathParameters?.id;
   if (!id) return res(400, { error: 'Missing order id' });
 
-  await docClient.send(new UpdateCommand({
-    TableName: ORDERS_TABLE,
-    Key: { PK: `ORDER#${id}`, SK: 'META' },
-    UpdateExpression: 'SET #s = :s, updatedAt = :u',
-    ExpressionAttributeNames: { '#s': 'status' },
-    ExpressionAttributeValues: { ':s': 'ARCHIVED', ':u': new Date().toISOString(), ':prev': 'READY' },
-    ConditionExpression: '#s = :prev',
-  }));
+  // Race-safe status flip; ReturnValues=ALL_OLD gives us the items array
+  // so we can consume the food after the transition commits.
+  let old: any;
+  try {
+    const r = await docClient.send(new UpdateCommand({
+      TableName: ORDERS_TABLE,
+      Key: { PK: `ORDER#${id}`, SK: 'META' },
+      UpdateExpression: 'SET #s = :s, updatedAt = :u',
+      ExpressionAttributeNames: { '#s': 'status' },
+      ExpressionAttributeValues: { ':s': 'ARCHIVED', ':u': new Date().toISOString(), ':prev': 'READY' },
+      ConditionExpression: '#s = :prev',
+      ReturnValues: 'ALL_OLD',
+    }));
+    old = r.Attributes;
+  } catch (e: any) {
+    if (e.name === 'ConditionalCheckFailedException') {
+      return res(409, { error: 'Order is not in READY state' });
+    }
+    throw e;
+  }
+
+  // Food was prepared and (presumably) served — release the reservation
+  // AND deduct from today's quantity. Drinks/pre-orders naturally no-op
+  // inside the helper (category filter).
+  if (old && Array.isArray(old.items)) {
+    await consumeFoodOnCollection(old.items);
+  }
 
   return res(200, { orderId: id, status: 'ARCHIVED' });
 }
@@ -363,6 +441,14 @@ async function cancelCompletedOrder(event: APIGatewayProxyEvent, actor: string):
   }
 
   const fresh = await docClient.send(new GetCommand({ TableName: ORDERS_TABLE, Key: { PK: `ORDER#${id}`, SK: 'META' } }));
+
+  // Only consume food inventory if this was a READY → CANCELLED transition.
+  // ARCHIVED orders already had their food deducted at collection time, so
+  // cancelling them post-facto must NOT decrement again (would double-count).
+  if (existing.Item.status === 'READY' && Array.isArray(existing.Item.items)) {
+    await consumeFoodOnCollection(existing.Item.items);
+  }
+
   return res(200, fresh.Item || { orderId: id, status: 'CANCELLED' });
 }
 
@@ -467,10 +553,42 @@ async function closeCafe(): Promise<APIGatewayProxyResult> {
     ExpressionAttributeValues: { ':s': 'CLOSED' },
   }));
 
-  // Auto-expire all active orders on close
-  const statuses = ['PENDING', 'PREPARING'];
+  const now = new Date().toISOString();
+
+  // Expire PENDING orders — the cashier never approved them, so no sale
+  // occurred. Pre-orders skip PENDING entirely so this doesn't affect them.
+  // Guarded with a status precondition so a cashier approving mid-close
+  // doesn't get their order silently flipped to EXPIRED.
   let expired = 0;
-  for (const status of statuses) {
+  const pendingResult = await docClient.send(new QueryCommand({
+    TableName: ORDERS_TABLE,
+    IndexName: 'status-createdAt-index',
+    KeyConditionExpression: '#s = :s',
+    ExpressionAttributeNames: { '#s': 'status' },
+    ExpressionAttributeValues: { ':s': 'PENDING' },
+  }));
+  for (const order of pendingResult.Items || []) {
+    try {
+      await docClient.send(new UpdateCommand({
+        TableName: ORDERS_TABLE,
+        Key: { PK: order.PK, SK: order.SK },
+        UpdateExpression: 'SET #s = :expired, updatedAt = :now',
+        ExpressionAttributeNames: { '#s': 'status' },
+        ExpressionAttributeValues: { ':expired': 'EXPIRED', ':now': now, ':prev': 'PENDING' },
+        ConditionExpression: '#s = :prev',
+      }));
+      expired++;
+    } catch (e: any) {
+      if (e.name !== 'ConditionalCheckFailedException') throw e;
+      // Order status changed under us — leave it alone.
+    }
+  }
+
+  // Archive PREPARING + READY orders — the sale is already committed
+  // (approved and/or prepared) so end-of-day should close them out cleanly.
+  // Race-guarded so any cashier action mid-close is preserved.
+  let archivedOrders = 0;
+  for (const status of ['PREPARING', 'READY']) {
     const r = await docClient.send(new QueryCommand({
       TableName: ORDERS_TABLE,
       IndexName: 'status-createdAt-index',
@@ -479,14 +597,20 @@ async function closeCafe(): Promise<APIGatewayProxyResult> {
       ExpressionAttributeValues: { ':s': status },
     }));
     for (const order of r.Items || []) {
-      await docClient.send(new UpdateCommand({
-        TableName: ORDERS_TABLE,
-        Key: { PK: order.PK, SK: order.SK },
-        UpdateExpression: 'SET #s = :expired, updatedAt = :now',
-        ExpressionAttributeNames: { '#s': 'status' },
-        ExpressionAttributeValues: { ':expired': 'EXPIRED', ':now': new Date().toISOString() },
-      }));
-      expired++;
+      try {
+        await docClient.send(new UpdateCommand({
+          TableName: ORDERS_TABLE,
+          Key: { PK: order.PK, SK: order.SK },
+          UpdateExpression: 'SET #s = :archived, updatedAt = :now',
+          ExpressionAttributeNames: { '#s': 'status' },
+          ExpressionAttributeValues: { ':archived': 'ARCHIVED', ':now': now, ':prev': status },
+          ConditionExpression: '#s = :prev',
+        }));
+        archivedOrders++;
+      } catch (e: any) {
+        if (e.name !== 'ConditionalCheckFailedException') throw e;
+        // Status changed (cashier action) — silently skip.
+      }
     }
   }
 
@@ -508,7 +632,7 @@ async function closeCafe(): Promise<APIGatewayProxyResult> {
   // Send end-of-day summary email (fire and forget)
   sendDailySummaryEmail().catch(() => {});
 
-  return res(200, { cafeStatus: 'CLOSED', expiredOrders: expired });
+  return res(200, { cafeStatus: 'CLOSED', expiredOrders: expired, archivedOrders });
 }
 
 async function sendDailySummaryEmail() {

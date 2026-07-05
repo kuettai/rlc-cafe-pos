@@ -191,7 +191,25 @@ async function loadMenu(container){
   } catch(e){ container.innerHTML = '<div class="admin-empty"><p>Failed to load menu</p></div>'; }
 }
 
+// Persisted across re-renders so a toggle-active click (which reloads the
+// menu list) doesn't reset the operator's filter selection.
+let menuCategoryFilter = 'ALL';   // ALL | DRINK | FOOD
+let menuStatusFilter   = 'ALL';   // ALL | ACTIVE | INACTIVE
+
 function renderMenuSection(container, items){
+  const filteredItems = items.filter(item => {
+    if (menuCategoryFilter !== 'ALL' && item.category !== menuCategoryFilter) return false;
+    const isActive = item.isActive !== false;
+    if (menuStatusFilter === 'ACTIVE'   && !isActive) return false;
+    if (menuStatusFilter === 'INACTIVE' &&  isActive) return false;
+    return true;
+  });
+
+  const drinkCount   = items.filter(i => i.category === 'DRINK').length;
+  const foodCount    = items.filter(i => i.category === 'FOOD').length;
+  const activeCount  = items.filter(i => i.isActive !== false).length;
+  const inactiveCount = items.length - activeCount;
+
   let html = `<div class="admin-section">
     <div class="admin-section-header">
       <h2>Menu Items</h2>
@@ -201,11 +219,25 @@ function renderMenuSection(container, items){
       <button class="pos-btn pos-btn-sm" id="btnEnableDrinks">✅ Enable All Drinks</button>
       <button class="pos-btn pos-btn-sm" id="btnEnableFood">✅ Enable All Food</button>
       <button class="pos-btn pos-btn-sm pos-btn-danger" id="btnDisableAll">❌ Disable All</button>
+    </div>
+    <div class="admin-filter-row">
+      <span class="admin-filter-label">Category</span>
+      <button class="pos-btn pos-btn-sm ${menuCategoryFilter==='ALL'?'pos-btn-primary':''}"   data-menu-cat="ALL">All (${items.length})</button>
+      <button class="pos-btn pos-btn-sm ${menuCategoryFilter==='DRINK'?'pos-btn-primary':''}" data-menu-cat="DRINK">🥤 Drinks Only (${drinkCount})</button>
+      <button class="pos-btn pos-btn-sm ${menuCategoryFilter==='FOOD'?'pos-btn-primary':''}"  data-menu-cat="FOOD">🍔 Foods Only (${foodCount})</button>
+    </div>
+    <div class="admin-filter-row" style="margin-bottom:16px">
+      <span class="admin-filter-label">Status</span>
+      <button class="pos-btn pos-btn-sm ${menuStatusFilter==='ALL'?'pos-btn-primary':''}"      data-menu-status="ALL">All</button>
+      <button class="pos-btn pos-btn-sm ${menuStatusFilter==='ACTIVE'?'pos-btn-primary':''}"   data-menu-status="ACTIVE">✅ Enabled Only (${activeCount})</button>
+      <button class="pos-btn pos-btn-sm ${menuStatusFilter==='INACTIVE'?'pos-btn-primary':''}" data-menu-status="INACTIVE">❌ Disabled Only (${inactiveCount})</button>
     </div>`;
   if(!items.length){
     html += '<div class="admin-empty"><p>No menu items yet</p></div>';
+  } else if (!filteredItems.length){
+    html += `<div class="admin-empty"><p>No items match the current filters.<br><button class="pos-btn pos-btn-sm" id="menuFilterReset" style="margin-top:8px">Reset filters</button></p></div>`;
   } else {
-    items.forEach(item=>{
+    filteredItems.forEach(item=>{
       const badge = item.category === 'DRINK' ? 'badge-drink' : 'badge-food';
       const variants = (item.variants||[]).map(v=>v.name||v).join(', ');
       const isActive = item.isActive !== false;
@@ -238,6 +270,26 @@ function renderMenuSection(container, items){
   $('#btnEnableDrinks').onclick = async()=>{ try{ await api('PUT','/api/admin/menu/bulk-toggle',{enable:true,category:'DRINK'}); loadMenu(container); }catch(e){ showError('Failed'); } };
   $('#btnEnableFood').onclick = async()=>{ try{ await api('PUT','/api/admin/menu/bulk-toggle',{enable:true,category:'FOOD'}); loadMenu(container); }catch(e){ showError('Failed'); } };
   $('#btnDisableAll').onclick = async()=>{ try{ await api('PUT','/api/admin/menu/bulk-toggle',{enable:false}); loadMenu(container); }catch(e){ showError('Failed'); } };
+
+  container.querySelectorAll('[data-menu-cat]').forEach(btn=>{
+    btn.onclick = ()=>{
+      menuCategoryFilter = btn.dataset.menuCat;
+      renderMenuSection(container, items);
+    };
+  });
+  container.querySelectorAll('[data-menu-status]').forEach(btn=>{
+    btn.onclick = ()=>{
+      menuStatusFilter = btn.dataset.menuStatus;
+      renderMenuSection(container, items);
+    };
+  });
+  const resetBtn = container.querySelector('#menuFilterReset');
+  if (resetBtn) resetBtn.onclick = ()=>{
+    menuCategoryFilter = 'ALL';
+    menuStatusFilter = 'ALL';
+    renderMenuSection(container, items);
+  };
+
   container.querySelectorAll('[data-toggle-menu]').forEach(input=>{
     input.onchange = async()=>{
       const id = input.dataset.toggleMenu;
@@ -433,6 +485,7 @@ function openUserForm(container, user){
 
     if(!name){ showError('Name is required'); return; }
     if(!isEdit && !pin){ showError('PIN is required for new users'); return; }
+    if(pin && pin.length < 6){ showError('PIN must be at least 6 digits'); return; }
 
     const body = { name, role, isActive };
     if(pin) body.pin = pin;
@@ -1109,14 +1162,25 @@ function renderReportsSection(container, daily, inventory, weekly, discounts, se
 
   // Discount & Offset Summary
   if(discounts){
-    const types = ['NEWCOMER','STAFF','PASTOR','CELEBRATION'];
+    // Types are the values `discountType` can take on stored orders.
+    // Add MINISTRY_PREORDER (free ministry pre-order drinks) and VOUCHER
+    // (redeemed voucher offsets) alongside the classic cashier discounts.
+    const types = ['NEWCOMER','STAFF','PASTOR','CELEBRATION','MINISTRY_PREORDER','VOUCHER'];
+    const labelFor = t => ({
+      NEWCOMER: 'Newcomer',
+      STAFF: 'Staff',
+      PASTOR: 'Pastor',
+      CELEBRATION: 'Celebration',
+      MINISTRY_PREORDER: 'Ministry Pre-Order',
+      VOUCHER: 'Voucher',
+    })[t] || (t.charAt(0)+t.slice(1).toLowerCase());
     const summary = discounts.summary || {};
     html += `<h3 style="margin:32px 0 14px;color:var(--primary)">💰 Discount & Offset Summary</h3>`;
     html += '<div class="admin-form"><table style="width:100%;border-collapse:collapse">';
     html += '<tr style="border-bottom:2px solid var(--cream-dark)"><th style="text-align:left;padding:8px 0">Type</th><th style="text-align:right;padding:8px 0">Orders</th><th style="text-align:right;padding:8px 0">Total Offset (RM)</th></tr>';
     types.forEach(t=>{
       const d = summary[t] || {count:0, totalOffset:0};
-      html += `<tr style="border-bottom:1px solid var(--cream-dark)"><td style="padding:8px 0">${t.charAt(0)+t.slice(1).toLowerCase()}</td><td style="text-align:right">${d.count}</td><td style="text-align:right">${d.totalOffset}</td></tr>`;
+      html += `<tr style="border-bottom:1px solid var(--cream-dark)"><td style="padding:8px 0">${labelFor(t)}</td><td style="text-align:right">${d.count}</td><td style="text-align:right">${d.totalOffset}</td></tr>`;
     });
     html += `<tr style="border-top:2px solid var(--cream-dark);font-weight:700"><td style="padding:8px 0">Total</td><td style="text-align:right">${discounts.totalDiscountedOrders||0}</td><td style="text-align:right">${discounts.totalOffset||0}</td></tr>`;
     html += '</table></div>';
@@ -1170,13 +1234,21 @@ function renderReportsSection(container, daily, inventory, weekly, discounts, se
 
   // Copy discount summary handler
   if(discounts && container.querySelector('#btnCopyDiscounts')){
-    const types = ['NEWCOMER','STAFF','PASTOR','CELEBRATION'];
+    const types = ['NEWCOMER','STAFF','PASTOR','CELEBRATION','MINISTRY_PREORDER','VOUCHER'];
+    const labelFor = t => ({
+      NEWCOMER: 'Newcomer',
+      STAFF: 'Staff',
+      PASTOR: 'Pastor',
+      CELEBRATION: 'Celebration',
+      MINISTRY_PREORDER: 'Ministry Pre-Order',
+      VOUCHER: 'Voucher',
+    })[t] || (t.charAt(0)+t.slice(1).toLowerCase());
     const summary = discounts.summary || {};
     container.querySelector('#btnCopyDiscounts').onclick=()=>{
       let text = '💰 Discount Summary\n';
       types.forEach(t=>{
         const d = summary[t] || {count:0, totalOffset:0};
-        text += `${t.charAt(0)+t.slice(1).toLowerCase()}: ${d.count} orders, RM ${d.totalOffset} offset\n`;
+        text += `${labelFor(t)}: ${d.count} orders, RM ${d.totalOffset} offset\n`;
       });
       text += `Total: ${discounts.totalDiscountedOrders||0} orders, RM ${discounts.totalOffset||0} offset`;
       navigator.clipboard.writeText(text).then(()=>showSuccess('Copied to clipboard'));

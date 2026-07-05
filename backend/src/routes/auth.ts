@@ -55,7 +55,7 @@ export async function handleAuth(event: APIGatewayProxyEvent): Promise<APIGatewa
     let payload;
     try { payload = verifyToken(token); } catch { return { statusCode: 401, headers: {}, body: JSON.stringify({ error: 'Unauthorized' }) }; }
     const body = JSON.parse(event.body || '{}');
-    if (!body.newPin || body.newPin.length < 4) return { statusCode: 400, headers: {}, body: JSON.stringify({ error: 'newPin required (min 4 digits)' }) };
+    if (!body.newPin || String(body.newPin).length < 6) return { statusCode: 400, headers: {}, body: JSON.stringify({ error: 'newPin required (min 6 digits)' }) };
     await docClient.send(new UpdateCommand({
       TableName: USERS_TABLE,
       Key: { PK: `USER#${payload.userId}`, SK: 'META' },

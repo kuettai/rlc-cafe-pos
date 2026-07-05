@@ -35,6 +35,19 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
     return { statusCode: 200, headers: CORS_HEADERS, body: '' };
   }
 
+  // ─── Origin verification (feature-flagged) ──────────────────────────
+  // When CloudFront fronts this Lambda it injects a shared-secret header on
+  // every request. Enabling this flag blocks direct API Gateway access so
+  // the geo restriction on CloudFront becomes the only path in. Left off
+  // by default until the CloudFront distribution is provisioned.
+  if (process.env.ENFORCE_ORIGIN_HEADER === 'true') {
+    const expected = process.env.ORIGIN_VERIFY_SECRET;
+    const actual = event.headers?.['x-origin-verify'] || event.headers?.['X-Origin-Verify'];
+    if (!expected || !actual || actual !== expected) {
+      return respond(403, { error: 'Forbidden' });
+    }
+  }
+
   const path = event.path;
 
   // Public routes

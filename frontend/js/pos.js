@@ -64,14 +64,14 @@ function showPinChangeModal(){
   modal.innerHTML = `<div class="pos-modal" style="max-width:400px">
     <h3>🔒 Change Your PIN</h3>
     <p style="margin:12px 0;font-size:.9rem;color:var(--text-light)">You must set a new PIN before continuing.</p>
-    <input id="newPin1" type="password" inputmode="numeric" maxlength="6" placeholder="New PIN (min 4 digits)" class="pos-input" style="margin-bottom:10px">
+    <input id="newPin1" type="password" inputmode="numeric" maxlength="6" placeholder="New PIN (min 6 digits)" class="pos-input" style="margin-bottom:10px">
     <input id="newPin2" type="password" inputmode="numeric" maxlength="6" placeholder="Confirm PIN" class="pos-input" style="margin-bottom:16px">
     <button id="pinChangeSubmit" class="pos-btn pos-btn-primary" style="width:100%">Update PIN</button>
   </div>`;
   document.body.appendChild(modal);
   modal.querySelector('#pinChangeSubmit').onclick = async()=>{
     const p1 = modal.querySelector('#newPin1').value, p2 = modal.querySelector('#newPin2').value;
-    if(!p1 || p1.length < 4){ showError('PIN must be at least 4 digits'); return; }
+    if(!p1 || p1.length < 6){ showError('PIN must be at least 6 digits'); return; }
     if(p1 !== p2){ showError('PINs do not match'); return; }
     try{
       const res = await fetch(`${API_BASE}/api/auth/update-pin`,{ method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+token}, body:JSON.stringify({newPin:p1}) });

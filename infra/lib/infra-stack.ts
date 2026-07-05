@@ -152,6 +152,11 @@ export class InfraStack extends cdk.Stack {
         GMAIL_USER: process.env.GMAIL_USER || '',
         GMAIL_APP_PASSWORD: process.env.GMAIL_APP_PASSWORD || '',
         NOTIFICATION_EMAIL: process.env.NOTIFICATION_EMAIL || '',
+        // Origin verification for CloudFront front-door (see docs/cloudfront-migration.md).
+        // Kept OFF until CloudFront is wired up to inject the header. When ENFORCE_ORIGIN_HEADER
+        // is 'true', requests missing/mismatching X-Origin-Verify are rejected with 403.
+        ORIGIN_VERIFY_SECRET: process.env.ORIGIN_VERIFY_SECRET || 'CHANGE_ME_WHEN_CLOUDFRONT_ENABLED',
+        ENFORCE_ORIGIN_HEADER: process.env.ENFORCE_ORIGIN_HEADER || 'false',
       },
     });
 
