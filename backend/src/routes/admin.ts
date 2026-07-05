@@ -340,7 +340,18 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
     }
 
     if (method === 'GET' && path.endsWith('/admin/reports/discounts')) {
-      const result = await docClient.send(new ScanCommand({ TableName: ORDERS_TABLE }));
+      // Scope to today's completed sales only, so the Discount & Offset
+      // Summary reconciles with Today's Summary above it in the UI.
+      // Previously scanned the entire table across all months / statuses
+      // which led to numbers that couldn't be cross-checked with the
+      // daily card.
+      const today = new Date().toISOString().split('T')[0];
+      const result = await docClient.send(new ScanCommand({
+        TableName: ORDERS_TABLE,
+        FilterExpression: 'begins_with(createdAt, :today) AND #s IN (:s1, :s2)',
+        ExpressionAttributeNames: { '#s': 'status' },
+        ExpressionAttributeValues: { ':today': today, ':s1': 'ARCHIVED', ':s2': 'READY' },
+      }));
       const orders = (result.Items || []).filter(o => o.discountType && o.discountType !== 'NONE');
       const summary: Record<string, { count: number; totalOffset: number }> = {};
       for (const o of orders) {
@@ -364,8 +375,19 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
       const s1: any[] = [];
       const s2: any[] = [];
       for (const order of orders) {
-        const hour = parseInt(order.createdAt.split('T')[1].split(':')[0]);
-        if (hour < 12) s1.push(order);
+        // createdAt is stored as UTC ISO. Café runs on MYT (UTC+8) with a
+        // hard split between the two Sunday services:
+        //   Session 1  = 08:00–11:30 MYT  (local minutes 480–690)
+        //   Session 2  = 11:31–14:00 MYT  (local minutes 691–840)
+        // Split threshold is 690 (11:30). Anything at/before that is S1;
+        // anything after is S2. Orders outside the operational window
+        // fall into the nearest session by the same rule.
+        const [hStr, mStr] = order.createdAt.split('T')[1].split(':');
+        const utcHour = parseInt(hStr, 10);
+        const minutes = parseInt(mStr, 10);
+        const localHour = (utcHour + 8) % 24;
+        const localMinutes = localHour * 60 + minutes;
+        if (localMinutes <= 690) s1.push(order);
         else s2.push(order);
       }
       function computeSession(sessionOrders: any[]) {
@@ -395,7 +417,11 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
         FilterExpression: 'createdAt >= :start',
         ExpressionAttributeValues: { ':start': thirtyDaysAgo.toISOString() },
       }));
-      const orders = (result.Items || []).filter(o => o.PK?.startsWith('ORDER#'));
+      // Only completed sales count. Matches /reports/daily and /reports/weekly
+      // so the three cards reconcile against each other.
+      const orders = (result.Items || [])
+        .filter(o => o.PK?.startsWith('ORDER#'))
+        .filter(o => o.status === 'ARCHIVED' || o.status === 'READY');
       const totalOrders = orders.length;
       const totalRevenue = orders.reduce((s, o) => s + (o.totalAmount || 0), 0);
       const totalOffsets = orders.reduce((s, o) => s + (o.discountOffset || 0), 0);
@@ -491,7 +517,12 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
         FilterExpression: 'createdAt >= :start',
         ExpressionAttributeValues: { ':start': sevenDaysAgo.toISOString() },
       }));
-      const orders = (result.Items || []).filter(o => o.PK?.startsWith('ORDER#'));
+      // Only completed sales count toward the weekly totals. Matches the
+      // convention used by /reports/daily so numbers reconcile across
+      // the different report cards on the same dashboard page.
+      const orders = (result.Items || [])
+        .filter(o => o.PK?.startsWith('ORDER#'))
+        .filter(o => o.status === 'ARCHIVED' || o.status === 'READY');
       const dayMap: Record<string, { orderCount: number; revenue: number; offsets: number }> = {};
       const itemCounts: Record<string, number> = {};
       for (const o of orders) {

@@ -28,3 +28,6 @@ Thumbs.db
 
 # Temp
 tmp/
+
+# Bug reports (local only)
+bug*.md
