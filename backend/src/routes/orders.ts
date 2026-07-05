@@ -59,6 +59,11 @@ async function createOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
 
   const orderItems: any[] = [];
   let totalAmount = 0;
+  // Celebration discount is applied per-eligible-drink at create time.
+  // We track the offset so the order record carries `discountType=CELEBRATION`
+  // + `discountOffset=<sum of grossUnit - celebrationPrice, per qty>` in the
+  // same shape as other discount paths (STAFF/PASTOR/NEWCOMER via approveOrder).
+  let celebrationOffset = 0;
 
   for (const item of items) {
     const menu = await getMenuItem(item.menuItemId);
@@ -85,7 +90,22 @@ async function createOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
       if (variant) unitPrice += (variant.priceModifier || 0);
       variantLabel = item.variant;
     }
-    if (settings?.celebrationMode && menu.category === 'DRINK') unitPrice = settings.celebrationPrice;
+    // Apply celebration price ONLY to celebration-eligible drinks (matches
+    // the frontend's price-display logic). Previously this discounted
+    // every DRINK category item, silently dropping non-eligible drinks
+    // to the celebration price.
+    const grossUnit = unitPrice;
+    if (
+      settings?.celebrationMode &&
+      menu.category === 'DRINK' &&
+      menu.celebrationEligible === true
+    ) {
+      unitPrice = Number(settings.celebrationPrice) || 5;
+      const perUnitDiscount = grossUnit - unitPrice;
+      if (perUnitDiscount > 0) {
+        celebrationOffset += perUnitDiscount * item.quantity;
+      }
+    }
 
     orderItems.push({ menuItemId: item.menuItemId, name: menu.name, variant: variantLabel, quantity: item.quantity, unitPrice, category: menu.category });
     totalAmount += unitPrice * item.quantity;
@@ -140,11 +160,15 @@ async function createOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
       }
     : {
         // ── Regular customer order: PENDING with a short (30-min) TTL
-        // for auto-cleanup if the cashier never approves.
+        // for auto-cleanup if the cashier never approves. If celebration
+        // mode reduced any eligible drink prices, tag the discount here
+        // so reports can attribute the offset (matches STAFF/PASTOR/NEWCOMER
+        // convention where discountType/discountOffset live on the order).
         PK: `ORDER#${orderId}`, SK: 'META', orderId, customerName,
         items: orderItems, totalAmount, status: 'PENDING',
         notes: composedNotes,
-        discountType: 'NONE', discountOffset: 0,
+        discountType: celebrationOffset > 0 ? 'CELEBRATION' : 'NONE',
+        discountOffset: celebrationOffset,
         createdAt: now, updatedAt: now,
         expiresAt: Math.floor(Date.now() / 1000) + ((settings?.orderExpiryMinutes || 30) * 60),
         isWalkUp: false, flaggedItems: [],
@@ -223,6 +247,7 @@ async function modifyOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
     const settings = await getSettings();
     const newItems: any[] = [];
     let totalAmount = 0;
+    let celebrationOffset = 0;
 
     for (const item of body.items) {
       const menu = await getMenuItem(item.menuItemId);
@@ -245,21 +270,36 @@ async function modifyOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
         if (variant) unitPrice += (variant.priceModifier || 0);
         variantLabel = item.variant;
       }
-      if (settings?.celebrationMode && menu.category === 'DRINK') unitPrice = settings.celebrationPrice;
+      const grossUnit = unitPrice;
+      if (
+        settings?.celebrationMode &&
+        menu.category === 'DRINK' &&
+        menu.celebrationEligible === true
+      ) {
+        unitPrice = Number(settings.celebrationPrice) || 5;
+        const perUnitDiscount = grossUnit - unitPrice;
+        if (perUnitDiscount > 0) {
+          celebrationOffset += perUnitDiscount * item.quantity;
+        }
+      }
 
       newItems.push({ menuItemId: item.menuItemId, name: menu.name, variant: variantLabel, quantity: item.quantity, unitPrice, category: menu.category });
       totalAmount += unitPrice * item.quantity;
     }
 
     // Build the conditional update. modifiedAt is stamped so the cashier UI
-    // can show a "modified moments ago" indicator + approve guard.
+    // can show a "modified moments ago" indicator + approve guard. Include
+    // the recomputed celebration offset so the discount tracking on the
+    // modified order stays consistent with a freshly-created one.
     const exprValues: Record<string, any> = {
       ':items': newItems,
       ':t': totalAmount,
       ':u': now,
       ':pending': 'PENDING',
+      ':dt': celebrationOffset > 0 ? 'CELEBRATION' : 'NONE',
+      ':do': celebrationOffset,
     };
-    let updateExpr = 'SET items = :items, totalAmount = :t, updatedAt = :u, modifiedAt = :u';
+    let updateExpr = 'SET items = :items, totalAmount = :t, updatedAt = :u, modifiedAt = :u, discountType = :dt, discountOffset = :do';
     if (body.notes !== undefined) {
       updateExpr += ', notes = :n';
       exprValues[':n'] = body.notes;

@@ -186,7 +186,17 @@ async function approveOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProx
   let discountType = body.discountType || 'NONE';
   let discountOffset = 0;
 
-  if (body.discountType && body.discountType !== 'NONE') {
+  // Celebration takes precedence: if the order was already priced under
+  // celebration at create-time (discountType=CELEBRATION carried by
+  // createOrder), a cashier-side STAFF/PASTOR/NEWCOMER discount is a no-op.
+  // Preserve the CELEBRATION discountType + existing offset so reports keep
+  // attributing the reduction correctly.
+  const alreadyCelebrated = order.discountType === 'CELEBRATION';
+  if (alreadyCelebrated) {
+    discountType = 'CELEBRATION';
+    discountOffset = Number(order.discountOffset || 0);
+    // totalAmount already reflects the celebration price — leave it.
+  } else if (body.discountType && body.discountType !== 'NONE') {
     let newTotal = 0;
     for (const item of order.items) {
       if (item.category === 'DRINK') {
@@ -484,6 +494,8 @@ async function createWalkUp(event: APIGatewayProxyEvent): Promise<APIGatewayProx
   const orderItems: any[] = [];
   let totalAmount = 0;
 
+  let celebrationOffset = 0;
+
   for (const item of items) {
     const menu = await getMenuItem(item.menuItemId);
     if (!menu || !menu.isActive || !menu.isEnabledToday) return res(400, { error: `Item ${item.menuItemId} unavailable` });
@@ -503,16 +515,34 @@ async function createWalkUp(event: APIGatewayProxyEvent): Promise<APIGatewayProx
       if (variant) unitPrice = menu.basePrice + (variant.priceModifier || 0);
       variantLabel = item.variant;
     }
-    if (settings?.celebrationMode && menu.category === 'DRINK') unitPrice = settings.celebrationPrice;
-
     const qty = item.quantity || item.qty || 1;
+    // Celebration only applies to eligible drinks — matches createOrder /
+    // frontend logic. Track the offset so we can tag the walk-up order as
+    // discountType=CELEBRATION downstream.
+    const grossUnit = unitPrice;
+    if (
+      settings?.celebrationMode &&
+      menu.category === 'DRINK' &&
+      menu.celebrationEligible === true
+    ) {
+      unitPrice = Number(settings.celebrationPrice) || 5;
+      const perUnitDiscount = grossUnit - unitPrice;
+      if (perUnitDiscount > 0) celebrationOffset += perUnitDiscount * qty;
+    }
+
     orderItems.push({ menuItemId: item.menuItemId, name: menu.name, variant: variantLabel, quantity: qty, unitPrice, category: menu.category });
     totalAmount += unitPrice * qty;
   }
 
-  // Apply discount
-  let discountOffset = 0;
-  if (discountType && discountType !== 'NONE') {
+  // Apply cashier-selected discount, but only if celebration didn't already
+  // reduce the price. STAFF/PASTOR/NEWCOMER on top of celebration is a no-op —
+  // celebration is the final price (spec: fix-celebration-spec).
+  let discountOffset = celebrationOffset;
+  let effectiveDiscountType = discountType || 'NONE';
+  if (celebrationOffset > 0) {
+    effectiveDiscountType = 'CELEBRATION';
+    // totalAmount already at celebration price; no further reduction.
+  } else if (discountType && discountType !== 'NONE') {
     const originalTotal = totalAmount;
     totalAmount = 0;
     for (const oi of orderItems) {
@@ -548,7 +578,7 @@ async function createWalkUp(event: APIGatewayProxyEvent): Promise<APIGatewayProx
     Item: {
       PK: `ORDER#${orderId}`, SK: 'META', orderId, customerName,
       items: orderItems, totalAmount, status: 'PREPARING',
-      discountType: discountType || 'NONE', discountOffset,
+      discountType: effectiveDiscountType, discountOffset,
       notes: notes || '',
       createdAt: now, updatedAt: now, expiresAt,
       isWalkUp: true, flaggedItems: [],
