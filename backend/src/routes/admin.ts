@@ -298,17 +298,31 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
       const startIso = `${startDate}T00:00:00.000Z`;
       const endIso   = `${endDate}T23:59:59.999Z`;
 
-      const statuses = ['ARCHIVED', 'READY', 'CANCELLED'];
+      // Include PREPARING alongside the completed statuses so the reports
+      // detail view surfaces active orders (matches the Today's Stats
+      // "active orders visible" behavior). PREPARING orders don't affect
+      // reconciliation totals unless they're in the reporting window, but
+      // showing them helps admins spot orders that never got closed out.
+      const statuses = ['ARCHIVED', 'READY', 'PREPARING', 'CANCELLED'];
       const allOrders: any[] = [];
       for (const status of statuses) {
-        const result = await docClient.send(new QueryCommand({
-          TableName: ORDERS_TABLE,
-          IndexName: 'status-createdAt-index',
-          KeyConditionExpression: '#s = :s AND createdAt BETWEEN :start AND :end',
-          ExpressionAttributeNames: { '#s': 'status' },
-          ExpressionAttributeValues: { ':s': status, ':start': startIso, ':end': endIso },
-        }));
-        const items = result.Items || [];
+        // Paginate: a single Query returns at most 1MB; large windows can
+        // silently truncate results without an ExclusiveStartKey loop.
+        const items: any[] = [];
+        let lastKey: Record<string, any> | undefined = undefined;
+        do {
+          const result: any = await docClient.send(new QueryCommand({
+            TableName: ORDERS_TABLE,
+            IndexName: 'status-createdAt-index',
+            KeyConditionExpression: '#s = :s AND createdAt BETWEEN :start AND :end',
+            ExpressionAttributeNames: { '#s': 'status' },
+            ExpressionAttributeValues: { ':s': status, ':start': startIso, ':end': endIso },
+            ExclusiveStartKey: lastKey,
+          }));
+          items.push(...(result.Items || []));
+          lastKey = result.LastEvaluatedKey;
+        } while (lastKey);
+
         if (status === 'CANCELLED') {
           // Only post-completion cancels are reportable as refunds.
           // PENDING-stage rejections also land in CANCELLED but carry

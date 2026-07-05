@@ -220,7 +220,7 @@ async function modifyOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
       await docClient.send(new UpdateCommand({
         TableName: ORDERS_TABLE,
         Key: { PK: `ORDER#${id}`, SK: 'META' },
-        UpdateExpression: 'SET #s = :s, updatedAt = :u',
+        UpdateExpression: 'SET #s = :s, updatedAt = :u REMOVE expiresAt',
         ExpressionAttributeNames: { '#s': 'status' },
         ExpressionAttributeValues: { ':s': 'CANCELLED', ':u': now, ':pending': 'PENDING' },
         ConditionExpression: '#s = :pending',

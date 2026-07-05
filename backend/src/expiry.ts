@@ -23,7 +23,7 @@ export async function handler(_event: ScheduledEvent): Promise<void> {
     await docClient.send(new UpdateCommand({
       TableName: ORDERS_TABLE,
       Key: { PK: order.PK, SK: 'META' },
-      UpdateExpression: 'SET #s = :expired, updatedAt = :now',
+      UpdateExpression: 'SET #s = :expired, updatedAt = :now REMOVE expiresAt',
       ExpressionAttributeNames: { '#s': 'status' },
       ExpressionAttributeValues: { ':expired': 'EXPIRED', ':now': new Date().toISOString() },
     }));
@@ -78,7 +78,7 @@ async function expirePreOrders(): Promise<void> {
         await docClient.send(new UpdateCommand({
           TableName: ORDERS_TABLE,
           Key: { PK: order.PK, SK: 'META' },
-          UpdateExpression: 'SET #s = :expired, updatedAt = :now',
+          UpdateExpression: 'SET #s = :expired, updatedAt = :now REMOVE expiresAt',
           ExpressionAttributeNames: { '#s': 'status' },
           ExpressionAttributeValues: { ':expired': 'EXPIRED', ':now': nowIso, ':prev': status },
           ConditionExpression: '#s = :prev',

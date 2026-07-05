@@ -214,7 +214,7 @@ async function approveOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProx
     await docClient.send(new UpdateCommand({
       TableName: ORDERS_TABLE,
       Key: { PK: `ORDER#${id}`, SK: 'META' },
-      UpdateExpression: 'SET #s = :s, approvedBy = :a, discountType = :dt, discountOffset = :do, totalAmount = :t, updatedAt = :u',
+      UpdateExpression: 'SET #s = :s, approvedBy = :a, discountType = :dt, discountOffset = :do, totalAmount = :t, updatedAt = :u REMOVE expiresAt',
       ExpressionAttributeNames: { '#s': 'status' },
       ExpressionAttributeValues: { ':s': 'PREPARING', ':a': body.approvedBy, ':dt': discountType, ':do': discountOffset, ':t': totalAmount, ':u': new Date().toISOString(), ':pending': 'PENDING' },
       ConditionExpression: '#s = :pending',
@@ -377,7 +377,7 @@ async function archiveOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProx
     const r = await docClient.send(new UpdateCommand({
       TableName: ORDERS_TABLE,
       Key: { PK: `ORDER#${id}`, SK: 'META' },
-      UpdateExpression: 'SET #s = :s, updatedAt = :u',
+      UpdateExpression: 'SET #s = :s, updatedAt = :u REMOVE expiresAt',
       ExpressionAttributeNames: { '#s': 'status' },
       ExpressionAttributeValues: { ':s': 'ARCHIVED', ':u': new Date().toISOString(), ':prev': 'READY' },
       ConditionExpression: '#s = :prev',
@@ -415,7 +415,7 @@ async function rejectOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
   await docClient.send(new UpdateCommand({
     TableName: ORDERS_TABLE,
     Key: { PK: `ORDER#${id}`, SK: 'META' },
-    UpdateExpression: 'SET #s = :s, rejectionReason = :r, updatedAt = :u',
+    UpdateExpression: 'SET #s = :s, rejectionReason = :r, updatedAt = :u REMOVE expiresAt',
     ExpressionAttributeNames: { '#s': 'status' },
     ExpressionAttributeValues: { ':s': 'CANCELLED', ':r': body.reason, ':u': new Date().toISOString() },
   }));
@@ -453,7 +453,8 @@ async function cancelCompletedOrder(event: APIGatewayProxyEvent, actor: string):
       Key: { PK: `ORDER#${id}`, SK: 'META' },
       UpdateExpression:
         'SET #s = :cancelled, cancelledAt = :now, cancelReason = :reason, ' +
-        'cancelledBy = :actor, updatedAt = :now, postCompletionCancel = :true',
+        'cancelledBy = :actor, updatedAt = :now, postCompletionCancel = :true ' +
+        'REMOVE expiresAt',
       ExpressionAttributeNames: { '#s': 'status' },
       ExpressionAttributeValues: {
         ':cancelled': 'CANCELLED',
@@ -571,8 +572,11 @@ async function createWalkUp(event: APIGatewayProxyEvent): Promise<APIGatewayProx
 
   const orderId = uuid();
   const now = new Date().toISOString();
-  const expiresAt = Math.floor(Date.now() / 1000) + (settings?.orderExpiryMinutes || 30) * 60;
 
+  // Walk-ups start in PREPARING (skip PENDING). PENDING is the only status
+  // that should carry a numeric TTL — writing one on a PREPARING record
+  // would let DynamoDB TTL silently delete the order once the epoch passes,
+  // wiping active/archived history. So: no expiresAt on walk-ups.
   await docClient.send(new PutCommand({
     TableName: ORDERS_TABLE,
     Item: {
@@ -580,7 +584,7 @@ async function createWalkUp(event: APIGatewayProxyEvent): Promise<APIGatewayProx
       items: orderItems, totalAmount, status: 'PREPARING',
       discountType: effectiveDiscountType, discountOffset,
       notes: notes || '',
-      createdAt: now, updatedAt: now, expiresAt,
+      createdAt: now, updatedAt: now,
       isWalkUp: true, flaggedItems: [],
     },
   }));
@@ -625,7 +629,7 @@ async function closeCafe(): Promise<APIGatewayProxyResult> {
       await docClient.send(new UpdateCommand({
         TableName: ORDERS_TABLE,
         Key: { PK: order.PK, SK: order.SK },
-        UpdateExpression: 'SET #s = :expired, updatedAt = :now',
+        UpdateExpression: 'SET #s = :expired, updatedAt = :now REMOVE expiresAt',
         ExpressionAttributeNames: { '#s': 'status' },
         ExpressionAttributeValues: { ':expired': 'EXPIRED', ':now': now, ':prev': 'PENDING' },
         ConditionExpression: '#s = :prev',
@@ -654,7 +658,7 @@ async function closeCafe(): Promise<APIGatewayProxyResult> {
         await docClient.send(new UpdateCommand({
           TableName: ORDERS_TABLE,
           Key: { PK: order.PK, SK: order.SK },
-          UpdateExpression: 'SET #s = :archived, updatedAt = :now',
+          UpdateExpression: 'SET #s = :archived, updatedAt = :now REMOVE expiresAt',
           ExpressionAttributeNames: { '#s': 'status' },
           ExpressionAttributeValues: { ':archived': 'ARCHIVED', ':now': now, ':prev': status },
           ConditionExpression: '#s = :prev',
