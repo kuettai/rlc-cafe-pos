@@ -19,7 +19,7 @@
 <div class="admin-app" id="app"></div>
 
 <footer class="app-footer" id="appFooter">
-  <span class="app-version">v40</span>
+  <span class="app-version">v41</span>
   <button id="checkUpdateBtn" class="check-update-btn">Check for update</button>
 </footer>
 
@@ -28,12 +28,14 @@
 <script>
 let swRegistration = null;
 if('serviceWorker' in navigator){
+  // Snapshot BEFORE registration — see index.html for rationale.
+  const hadPreviousController = !!navigator.serviceWorker.controller;
   navigator.serviceWorker.register('sw.js').then(reg=>{
     swRegistration = reg;
     reg.addEventListener('updatefound',()=>{
       const newWorker=reg.installing;
       newWorker.addEventListener('statechange',()=>{
-        if(newWorker.state==='activated'&&navigator.serviceWorker.controller){
+        if(newWorker.state==='activated' && hadPreviousController){
           const banner=document.createElement('div');
           banner.style.cssText='position:fixed;bottom:70px;left:50%;transform:translateX(-50%);background:#6B4226;color:#fff;padding:12px 20px;border-radius:12px;z-index:999;font-size:.9rem;box-shadow:0 4px 12px rgba(0,0,0,.2);display:flex;gap:10px;align-items:center';
           banner.innerHTML='<span>New version available</span><button onclick="location.reload()" style="background:#fff;color:#6B4226;border:none;padding:6px 12px;border-radius:8px;font-weight:700;cursor:pointer">Refresh</button>';

@@ -65,21 +65,32 @@ function renderOrder(order) {
     const hasReceipt = !!order.receiptUrl;
     html += `<div class="payment-section">
       <h3>💳 Payment</h3>
-      <div class="qr-container">
-        <img src="img/qr-payment.svg" alt="DuitNow QR" class="qr-image" onerror="this.style.display='none'">
-        <p class="qr-amount">Pay <strong>RM ${total.toFixed(2)}</strong></p>
-        <p class="qr-hint">Scan with any banking app (DuitNow, TnG, etc.)</p>
-        <div style="margin-top:12px;padding:10px;background:var(--cream,#f9f5f0);border-radius:8px;font-size:.82rem;color:var(--text-light,#7A6355)">
-          <strong>RLC Café</strong><br>
-          <span style="display:inline-flex;align-items:center;gap:6px;margin-top:6px">DuitNow: <code style="background:#fff;padding:2px 8px;border-radius:4px;font-size:.9rem;font-weight:700;color:var(--text,#3D2B1F)">0123456789</code><button onclick="navigator.clipboard.writeText('0123456789');this.textContent='✓ Copied';setTimeout(()=>this.textContent='Copy',1500)" style="border:1px solid var(--cream-dark,#ddd);background:#fff;padding:4px 10px;border-radius:6px;font-size:.75rem;cursor:pointer;color:var(--primary,#6B4226);font-weight:600">Copy</button></span><br>
-          <span style="display:inline-flex;align-items:center;gap:6px;margin-top:6px">Maybank: <code style="background:#fff;padding:2px 8px;border-radius:4px;font-size:.9rem;font-weight:700;color:var(--text,#3D2B1F)">1234-5678-9012</code><button onclick="navigator.clipboard.writeText('123456789012');this.textContent='✓ Copied';setTimeout(()=>this.textContent='Copy',1500)" style="border:1px solid var(--cream-dark,#ddd);background:#fff;padding:4px 10px;border-radius:6px;font-size:.75rem;cursor:pointer;color:var(--primary,#6B4226);font-weight:600">Copy</button></span>
-        </div>
+      <div class="pay-at-counter" style="background:var(--cream,#f9f5f0);border:1px solid var(--cream-dark,#e8e0d8);border-radius:12px;padding:20px;text-align:center">
+        <div style="font-size:1.6rem;margin-bottom:6px">🏪</div>
+        <p style="font-weight:700;color:var(--primary,#6B4226);font-size:1.05rem;margin-bottom:4px">Pay at the counter</p>
+        <p style="color:var(--text,#3D2B1F);font-size:1.15rem;font-weight:700;margin:8px 0">RM ${total.toFixed(2)}</p>
+        <p style="font-size:.82rem;color:var(--text-light,#7A6355)">Please show this order to the cashier when paying.</p>
       </div>
+      <!--
+        QR / bank-transfer flow disabled until real DuitNow details are wired up.
+        The image below is a placeholder and the account numbers are dummy values.
+        Re-enable once real payment details are in place.
+
+        <div class="qr-container">
+          <img src="img/qr-payment.svg" alt="DuitNow QR" class="qr-image" onerror="this.style.display='none'">
+          <p class="qr-amount">Pay <strong>RM ${total.toFixed(2)}</strong></p>
+          <p class="qr-hint">Scan with any banking app (DuitNow, TnG, etc.)</p>
+          <div style="margin-top:12px;padding:10px;background:var(--cream,#f9f5f0);border-radius:8px;font-size:.82rem;color:var(--text-light,#7A6355)">
+            <strong>RLC Café</strong><br>
+            <span style="display:inline-flex;align-items:center;gap:6px;margin-top:6px">DuitNow: <code>...</code></span>
+          </div>
+        </div>
+      -->
       ${hasReceipt ? `<div class="receipt-uploaded">
         <span>✅ Receipt uploaded (RM ${order.receiptAmount?.toFixed(2) || '?'})</span>
         <p style="font-size:.8rem;color:var(--text-light,#7A6355);margin-top:4px">Waiting for cashier to verify</p>
       </div>` : `<div class="receipt-upload-area">
-        <p style="margin-bottom:14px;font-weight:600;color:var(--text,#3D2B1F)">After paying, upload your receipt:</p>
+        <p style="margin-bottom:14px;font-weight:600;color:var(--text,#3D2B1F)">Paid online instead? Upload your receipt:</p>
         <label class="upload-btn" for="receiptInput" style="display:block;text-align:center;width:100%;padding:16px;font-size:1.05rem">📷 Upload Payment Screenshot</label>
         <p style="font-size:.8rem;color:var(--text-light,#7A6355);margin-top:8px;text-align:center">Instant AI verification — cashier gets notified automatically</p>
         <input type="file" id="receiptInput" accept="image/*" style="display:none">

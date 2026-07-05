@@ -124,6 +124,7 @@ async function getShiftSummary(): Promise<APIGatewayProxyResult> {
 
 async function listOrders(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
   const search = event.queryStringParameters?.search?.toLowerCase();
+  const includeAll = event.queryStringParameters?.all === 'true';
   const statuses = ['PENDING', 'PREPARING', 'READY'];
   let allOrders: any[] = [];
 
@@ -139,13 +140,35 @@ async function listOrders(event: APIGatewayProxyEvent): Promise<APIGatewayProxyR
     allOrders.push(...(r.Items || []));
   }
 
+  // History view (?all=true) also needs completed/terminal states. Bound
+  // the range to the last 7 days so we don't drag in months of records.
+  if (includeAll) {
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    for (const status of ['ARCHIVED', 'CANCELLED', 'EXPIRED']) {
+      const r = await docClient.send(new QueryCommand({
+        TableName: ORDERS_TABLE,
+        IndexName: 'status-createdAt-index',
+        KeyConditionExpression: '#s = :s AND createdAt >= :cutoff',
+        ExpressionAttributeNames: { '#s': 'status' },
+        ExpressionAttributeValues: { ':s': status, ':cutoff': sevenDaysAgo },
+        ScanIndexForward: false,
+      }));
+      allOrders.push(...(r.Items || []));
+    }
+  }
+
   if (search) {
     allOrders = allOrders.filter(o => o.customerName?.toLowerCase().includes(search));
   }
 
-  // Sort: PENDING newest first, then PREPARING, then READY
-  const priority: Record<string, number> = { PENDING: 0, PREPARING: 1, READY: 2 };
-  allOrders.sort((a, b) => (priority[a.status] ?? 3) - (priority[b.status] ?? 3));
+  if (includeAll) {
+    // Sort newest first when returning the merged history view.
+    allOrders.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  } else {
+    // Live queue ordering: PENDING → PREPARING → READY, newest within each.
+    const priority: Record<string, number> = { PENDING: 0, PREPARING: 1, READY: 2 };
+    allOrders.sort((a, b) => (priority[a.status] ?? 3) - (priority[b.status] ?? 3));
+  }
 
   return res(200, { orders: allOrders });
 }
