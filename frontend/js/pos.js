@@ -667,6 +667,7 @@ function openDetail(id){
   else if(o.status==='PREPARING') actions=`<button class="pos-btn pos-btn-primary pos-btn-lg" id="btnReady">✓ Ready</button>
     <button class="pos-btn pos-btn-lg" id="btnUndo" style="background:#6b7280;color:#fff">↩ Undo</button>`;
   else if(o.status==='READY') actions=`<button class="pos-btn pos-btn-primary pos-btn-lg" id="btnCollected">✓ Collected</button>
+    <button class="pos-btn pos-btn-lg" id="btnUndoReady" style="background:#6b7280;color:#fff">↩ Back to Preparing</button>
     <button class="pos-btn pos-btn-danger pos-btn-lg" id="btnCancelCompleted">✗ Cancel / Refund</button>`;
 
   const orderTime = new Date(o.createdAt).toLocaleTimeString('en-MY',{hour:'2-digit',minute:'2-digit'});
@@ -695,6 +696,21 @@ function openDetail(id){
     modal.querySelector('#btnUndo').onclick=async()=>{ await api('PUT',`/api/pos/orders/${id}/undo`); modal.remove(); fetchOrders(); };
   } else if(o.status==='READY'){
     modal.querySelector('#btnCollected').onclick=async()=>{ await api('PUT',`/api/pos/orders/${id}/archive`); modal.remove(); fetchOrders(); };
+    modal.querySelector('#btnUndoReady').onclick=async()=>{
+      const btn = modal.querySelector('#btnUndoReady');
+      btn.disabled = true;
+      const prev = btn.textContent;
+      btn.textContent = '…';
+      try {
+        await api('PUT',`/api/pos/orders/${id}/undo-ready`);
+        modal.remove();
+        fetchOrders();
+      } catch(e){
+        showError('Could not move back to Preparing');
+        btn.disabled = false;
+        btn.textContent = prev;
+      }
+    };
     modal.querySelector('#btnCancelCompleted').onclick=()=> showCancelCompletedDialog(id, modal);
   }
 }

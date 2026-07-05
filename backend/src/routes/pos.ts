@@ -248,6 +248,32 @@ async function undoToPending(event: APIGatewayProxyEvent): Promise<APIGatewayPro
   return res(200, { orderId: id, status: 'PENDING' });
 }
 
+// Roll a READY order back to PREPARING — for when a cashier accidentally
+// hit "Ready" too soon. Guarded so an already-archived/cancelled order
+// isn't resurrected.
+async function undoToPreparingFromReady(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+  const id = event.pathParameters?.id;
+  if (!id) return res(400, { error: 'Missing order id' });
+
+  try {
+    await docClient.send(new UpdateCommand({
+      TableName: ORDERS_TABLE,
+      Key: { PK: `ORDER#${id}`, SK: 'META' },
+      UpdateExpression: 'SET #s = :s, updatedAt = :u',
+      ExpressionAttributeNames: { '#s': 'status' },
+      ExpressionAttributeValues: { ':s': 'PREPARING', ':u': new Date().toISOString(), ':prev': 'READY' },
+      ConditionExpression: '#s = :prev',
+    }));
+  } catch (e: any) {
+    if (e.name === 'ConditionalCheckFailedException') {
+      return res(409, { error: 'Order is no longer in READY state' });
+    }
+    throw e;
+  }
+
+  return res(200, { orderId: id, status: 'PREPARING' });
+}
+
 async function archiveOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
   const id = event.pathParameters?.id;
   if (!id) return res(400, { error: 'Missing order id' });
@@ -779,6 +805,11 @@ export async function handlePos(event: APIGatewayProxyEvent, actor: string = '')
   if (method === 'PUT' && path.endsWith('/ready')) {
     const id = extractSegment(path, /\/api\/pos\/orders\/([^/]+)\/ready/, 1);
     if (id) { event.pathParameters = { id }; return markReady(event); }
+  }
+  if (method === 'PUT' && path.endsWith('/undo-ready')) {
+    // Rollback for a cashier mis-tap of "Ready" — flips READY → PREPARING.
+    const id = extractSegment(path, /\/api\/pos\/orders\/([^/]+)\/undo-ready/, 1);
+    if (id) { event.pathParameters = { id }; return undoToPreparingFromReady(event); }
   }
   if (method === 'PUT' && path.endsWith('/undo')) {
     const id = extractSegment(path, /\/api\/pos\/orders\/([^/]+)\/undo/, 1);
