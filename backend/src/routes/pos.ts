@@ -962,6 +962,8 @@ async function listIngredientsForCount(): Promise<APIGatewayProxyResult> {
     currentStock: typeof i.currentStock === 'number' ? i.currentStock : Number(i.currentStock) || 0,
     storageLocation: i.storageLocation || null,
     lowStockThreshold: i.lowStockThreshold || 0,
+    // Missing isActive on legacy rows is treated as active by the UI.
+    isActive: i.isActive !== false,
     lastCountedAt: i.lastCountedAt || null,
     lastCountedBy: i.lastCountedBy || null,
   }));

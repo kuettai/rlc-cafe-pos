@@ -129,10 +129,35 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
         PK: `INGREDIENT#${ingredientId}`, SK: 'META', ingredientId,
         name: body.name, unit: body.unit, usageUnit: body.usageUnit || null,
         currentStock: body.currentStock,
-        lowStockThreshold: body.lowStockThreshold, storageLocation: body.storageLocation
+        lowStockThreshold: body.lowStockThreshold, storageLocation: body.storageLocation,
+        // isActive=false means the ingredient is temporarily disabled.
+        // Drinks that use it should be manually toggled off from the Menu tab
+        // (no automatic linkage — recipes → menu mapping isn't in the schema).
+        isActive: true,
       };
       await docClient.send(new PutCommand({ TableName: INGREDIENTS_TABLE, Item: item }));
       return res(201, item);
+    }
+
+    if (method === 'PUT' && /\/admin\/ingredients\/[^/]+\/toggle-active$/.test(path)) {
+      // Flip isActive on a single ingredient. Placed BEFORE the generic
+      // /admin/ingredients/{id} PUT so path routing is unambiguous.
+      const parts = path.split('/');
+      const id = parts[parts.length - 2]; // .../ingredients/{id}/toggle-active
+      const existing = await docClient.send(new GetCommand({
+        TableName: INGREDIENTS_TABLE, Key: { PK: `INGREDIENT#${id}`, SK: 'META' }
+      }));
+      if (!existing.Item) return res(404, { error: 'Ingredient not found' });
+      // Treat missing isActive as true (legacy rows before this field existed).
+      const currentActive = existing.Item.isActive !== false;
+      const next = !currentActive;
+      const updated = await docClient.send(new UpdateCommand({
+        TableName: INGREDIENTS_TABLE, Key: { PK: `INGREDIENT#${id}`, SK: 'META' },
+        UpdateExpression: 'SET isActive = :a',
+        ExpressionAttributeValues: { ':a': next },
+        ReturnValues: 'ALL_NEW'
+      }));
+      return res(200, updated.Attributes || { ingredientId: id, isActive: next });
     }
 
     if (method === 'PUT' && /\/admin\/ingredients\/[^/]+$/.test(path)) {

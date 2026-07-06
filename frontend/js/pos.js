@@ -1441,19 +1441,29 @@ async function openManualStockCount(){
           const loc = i.storageLocation || '';
           return loc === filter || loc === 'BOTH';
         });
-    if (!filtered.length){
+    // Disabled ingredients (isActive === false) sink to the bottom. Cashiers
+    // can still count them (they're not removed from stock physically),
+    // but they're visually muted.
+    const sorted = filtered.slice().sort((a, b) => {
+      const aA = a.isActive !== false ? 0 : 1;
+      const bA = b.isActive !== false ? 0 : 1;
+      return aA - bA;
+    });
+    if (!sorted.length){
       body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-light,#7A6355)">No ingredients in this location</div>';
       updateSaveState();
       return;
     }
-    body.innerHTML = filtered.map(ing => {
+    body.innerHTML = sorted.map(ing => {
       const val = workingCounts[ing.ingredientId];
       const step = stepFor(ing.unit);
       const isDirty = dirty.has(ing.ingredientId);
+      const isActive = ing.isActive !== false;
       const last = ing.lastCountedAt ? `<div style="font-size:.7rem;color:var(--text-light,#7A6355);margin-top:2px">Last: ${new Date(ing.lastCountedAt).toLocaleString()}${ing.lastCountedBy?' by '+escapeHtmlPos(ing.lastCountedBy):''}</div>` : '';
-      return `<div class="msc-row" data-id="${escapeHtmlPos(ing.ingredientId)}" style="padding:12px 0;border-bottom:1px solid #f0ebe4;display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center">
+      const disabledTag = isActive ? '' : ' <span style="font-size:.7rem;background:var(--danger-bg,#fef2f2);color:var(--danger,#C0392B);padding:1px 6px;border-radius:999px;font-weight:600">disabled</span>';
+      return `<div class="msc-row${isActive ? '' : ' msc-row-disabled'}" data-id="${escapeHtmlPos(ing.ingredientId)}" style="padding:12px 0;border-bottom:1px solid #f0ebe4;display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;${isActive?'':'opacity:.55'}">
         <div style="min-width:0">
-          <div style="font-weight:600;color:${isDirty?'var(--primary,#6B4226)':'inherit'}">${escapeHtmlPos(ing.name)} ${isDirty?'<span style="font-size:.7rem;color:var(--primary,#6B4226)">•edited</span>':''}</div>
+          <div style="font-weight:600;color:${isDirty?'var(--primary,#6B4226)':'inherit'}">${escapeHtmlPos(ing.name)}${disabledTag} ${isDirty?'<span style="font-size:.7rem;color:var(--primary,#6B4226)">•edited</span>':''}</div>
           <div style="font-size:.75rem;color:var(--text-light,#7A6355)">${escapeHtmlPos(ing.storageLocation||'—')}</div>
           ${last}
         </div>
