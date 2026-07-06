@@ -1199,7 +1199,7 @@ function renderReportsSection(container, daily, inventory, weekly, discounts, se
     const btn = container.querySelector('#btnCopyWeeklyReport');
     if(btn) btn.onclick = ()=>{
       const t = weekly.totals;
-      const topStr = (weekly.topItems||[]).map(i=>`${i.name} (${i.count})`).join(', ');
+      const topStr = (weekly.topItems||[]).map(i=>`${stripLeadingEmoji(i.name)} (${i.count})`).join(', ');
       const text = `📊 Weekly Report (${fmtDate(weekly.startDate)} - ${fmtDate(weekly.endDate)})\nTotal Orders: ${t.totalOrders} | Revenue: RM ${t.totalRevenue.toFixed(0)}\nTop Items: ${topStr}`;
       navigator.clipboard.writeText(text).then(()=>showSuccess('Report copied to clipboard'));
     };
@@ -1208,7 +1208,7 @@ function renderReportsSection(container, daily, inventory, weekly, discounts, se
   if(monthly){
     const btn = container.querySelector('#btnCopyMonthlyReport');
     if(btn) btn.onclick = ()=>{
-      const topStr = (monthly.topItems||[]).map(i=>`${i.name} (${i.count})`).join(', ');
+      const topStr = (monthly.topItems||[]).map(i=>`${stripLeadingEmoji(i.name)} (${i.count})`).join(', ');
       const text = `📊 RLC Café Monthly Report (${monthly.period})\n━━━━━━━━━━━━━━━━━━━━━━\nOrders: ${monthly.totalOrders} | Revenue: RM ${monthly.totalRevenue.toLocaleString()}\nNet Collection: RM ${monthly.netCollection.toLocaleString()} (offsets: RM ${monthly.totalOffsets.toLocaleString()})\nNewcomers Served: ${monthly.newcomersServed} 🎉\nService Days: ${monthly.serviceDays} | Avg: ${monthly.avgOrdersPerServiceDay} orders/day\n\nTop Items: ${topStr}`;
       navigator.clipboard.writeText(text).then(()=>showSuccess('Monthly report copied to clipboard'));
     };
@@ -1230,7 +1230,7 @@ function renderReportsSection(container, daily, inventory, weekly, discounts, se
       div.querySelector('#btnCopyRestock').onclick=()=>{
         const today=new Date().toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
         let text=`🛒 Restock List (${today})\n`;
-        items.forEach(i=>{ text+=`- ${i.name}: need ${i.suggestedRestock}${i.unit} (currently ${i.currentStock}${i.unit})\n`; });
+        items.forEach(i=>{ text+=`- ${stripLeadingEmoji(i.name)}: need ${i.suggestedRestock}${i.unit} (currently ${i.currentStock}${i.unit})\n`; });
         navigator.clipboard.writeText(text).then(()=>showSuccess('Copied to clipboard'));
       };
     } catch(e){ div.innerHTML='<p style="color:var(--warning)">Failed to load restock list</p>'; }
@@ -1628,6 +1628,14 @@ function escapeHtml(s){
     .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 function escapeAttr(s){ return escapeHtml(s); }
+
+// Strip only leading emoji + whitespace — safe for plain-text exports
+// (clipboard, CSV) that would otherwise carry rendering-fragile characters.
+// Anchored pattern; a global \p{Emoji} replace would also strip digits and
+// other legitimate characters that Unicode treats as emoji-capable.
+function stripLeadingEmoji(s) {
+  return String(s || '').replace(/^[\p{Emoji}\p{Emoji_Component}\s]+/u, '').trim();
+}
 
 // --- Pre-Order Links ---
 // Ministry volunteers pre-order free drinks via a link with an 8-char

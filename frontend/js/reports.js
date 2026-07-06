@@ -457,12 +457,21 @@ function csvEscape(v) {
   return s;
 }
 
+// Menu item names carry a leading emoji + space in the DB (e.g. "☕ Latte").
+// The emoji renders fine in the UI but shows as garbled Mojibake or literal
+// squares in Excel / Numbers when imported from CSV. Strip only the LEADING
+// emoji cluster — an anchored pattern is safer than a global `\p{Emoji}`
+// replace which would also strip digits, `#`, `*`, etc. inside strings.
+function stripLeadingEmoji(s) {
+  return String(s || '').replace(/^[\p{Emoji}\p{Emoji_Component}\s]+/u, '').trim();
+}
+
 function downloadDetailCsv() {
   const rows = visibleDetailOrders();
   const headers = ['Date/Time', 'OrderId', 'Items', 'GrossRM', 'DiscountRM', 'NetRM', 'Status', 'CancelReason', 'Customer'];
   const lines = [headers.map(csvEscape).join(',')];
   for (const o of rows) {
-    const items = (o.items || []).map(i => i.name + (i.variant ? ` (${i.variant})` : '')).join(', ');
+    const items = (o.items || []).map(i => stripLeadingEmoji(i.name) + (i.variant ? ` (${i.variant})` : '')).join(', ');
     const total = Number(o.totalAmount || 0);
     const off = Number(o.discountOffset || 0);
     const gross = total + off;
