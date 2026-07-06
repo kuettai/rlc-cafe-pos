@@ -4,6 +4,7 @@ import { docClient, ORDERS_TABLE, MENU_TABLE, SETTINGS_TABLE, GetCommand, PutCom
 import { linkOrderToCustomer } from './customers';
 import { normalizePhone } from '../lib/phone';
 import { validatePreorderCode } from './preorder';
+import { logOrder, summarizeItems } from '../lib/audit';
 
 const res = (statusCode: number, body: object): APIGatewayProxyResult => ({
   statusCode, headers: {}, body: JSON.stringify(body),
@@ -94,13 +95,18 @@ async function createOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
     // the frontend's price-display logic). Previously this discounted
     // every DRINK category item, silently dropping non-eligible drinks
     // to the celebration price.
+    //
+    // Bug 5 fix: keep paid variant modifiers on top of the celebration
+    // base. celebrationPrice replaces the base only — variant surcharges
+    // (e.g. large size, add-ons) still apply.
     const grossUnit = unitPrice;
     if (
       settings?.celebrationMode &&
       menu.category === 'DRINK' &&
       menu.celebrationEligible === true
     ) {
-      unitPrice = Number(settings.celebrationPrice) || 5;
+      const variantModifiers = unitPrice - menu.basePrice;
+      unitPrice = (Number(settings.celebrationPrice) || 5) + variantModifiers;
       const perUnitDiscount = grossUnit - unitPrice;
       if (perUnitDiscount > 0) {
         celebrationOffset += perUnitDiscount * item.quantity;
@@ -177,6 +183,17 @@ async function createOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
 
   await docClient.send(new PutCommand({ TableName: ORDERS_TABLE, Item: orderItem }));
 
+  logOrder(preorderRecord ? 'CREATE_PREORDER' : 'CREATE', orderId, {
+    customer: customerName,
+    items: summarizeItems(orderItems),
+    total: orderItem.totalAmount,
+    discount: orderItem.discountType,
+    offset: orderItem.discountOffset,
+    status: orderItem.status,
+    preorderCode: preorderRecord?.code,
+    collectionTime: collectionTime || undefined,
+  });
+
   if (normalizedCustomerId) {
     await linkOrderToCustomer(normalizedCustomerId, orderId, totalAmount);
   }
@@ -232,6 +249,11 @@ async function modifyOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
       throw e;
     }
     await releaseFood(order.items);
+    logOrder('CANCEL', id, {
+      customer: order.customerName,
+      total: order.totalAmount,
+      reason: 'customer-initiated',
+    });
     return res(200, { orderId: id, status: 'CANCELLED' });
   }
 
@@ -276,7 +298,8 @@ async function modifyOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
         menu.category === 'DRINK' &&
         menu.celebrationEligible === true
       ) {
-        unitPrice = Number(settings.celebrationPrice) || 5;
+        const variantModifiers = unitPrice - menu.basePrice;
+        unitPrice = (Number(settings.celebrationPrice) || 5) + variantModifiers;
         const perUnitDiscount = grossUnit - unitPrice;
         if (perUnitDiscount > 0) {
           celebrationOffset += perUnitDiscount * item.quantity;
@@ -337,6 +360,13 @@ async function modifyOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
       }
     }
 
+    logOrder('MODIFY', id, {
+      customer: order.customerName,
+      items: summarizeItems(newItems),
+      total: totalAmount,
+      discount: celebrationOffset > 0 ? 'CELEBRATION' : 'NONE',
+      offset: celebrationOffset,
+    });
     return res(200, { orderId: id, totalAmount, status: 'PENDING', modifiedAt: now });
   }
 

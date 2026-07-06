@@ -8,6 +8,9 @@ import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as acm from 'aws-cdk-lib/aws-certificatemanager';
+import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
+import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as path from 'path';
 
 export class InfraStack extends cdk.Stack {
@@ -237,7 +240,111 @@ export class InfraStack extends cdk.Stack {
       },
     });
 
+    // ─── CloudFront front-door (Phase 1: scaffolding — see cloudfront-migration.md) ───
+
+    // Private S3 bucket for the static frontend. No public access; CloudFront
+    // reaches it via an Origin Access Identity. RETAIN so a stack teardown
+    // doesn't nuke the frontend deploy artifacts.
+    const frontendBucket = new s3.Bucket(this, 'FrontendBucket', {
+      bucketName: `rlc-cafe-frontend-${this.account}`,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+
+    // ACM cert for 153.oasisofcare.org, DNS-validated.
+    //
+    // TODO(cloudfront-region-issue): CloudFront requires the certificate to
+    // live in us-east-1. This stack is deployed in ap-southeast-5, so this
+    // certificate — while valid for any regional service (ALB, API Gateway
+    // custom domain) — CANNOT be attached to the CloudFront distribution
+    // below. Options to resolve when Phase 2 lands:
+    //   1. Create a companion stack in us-east-1 that produces the CF cert
+    //      and consume its ARN via a stack-to-stack reference or SSM param.
+    //   2. Create the cert manually in the us-east-1 ACM console, then
+    //      `acm.Certificate.fromCertificateArn(..., <us-east-1 arn>)` here.
+    // Kept here for Phase 1 scaffolding + surfacing the CNAME validation
+    // record via the AWS console; not yet attached to CloudFront.
+    const frontendCertificate = new acm.Certificate(this, 'FrontendCert', {
+      domainName: '153.oasisofcare.org',
+      validation: acm.CertificateValidation.fromDns(),
+    });
+
+    // Origin Access Identity — grants CloudFront read access to the private
+    // bucket without exposing it to the public.
+    const frontendOAI = new cloudfront.OriginAccessIdentity(this, 'FrontendOAI', {
+      comment: 'OAI for rlc-cafe-frontend',
+    });
+    frontendBucket.grantRead(frontendOAI);
+
+    // CloudFront distribution. NOT wired to the custom domain / cert yet —
+    // we'll add domainNames + certificate in Phase 2 once the us-east-1
+    // cert issue is resolved and DNS is ready to cut over.
+    const frontendDistribution = new cloudfront.Distribution(this, 'FrontendDistribution', {
+      comment: 'RLC Café frontend + /api/* proxy',
+      // Default: static site from S3.
+      defaultBehavior: {
+        origin: origins.S3BucketOrigin.withOriginAccessIdentity(frontendBucket, {
+          originAccessIdentity: frontendOAI,
+        }),
+        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+        cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+        compress: true,
+      },
+      additionalBehaviors: {
+        // API traffic bypasses caching + forwards auth headers.
+        '/api/*': {
+          origin: new origins.RestApiOrigin(api),
+          viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+          allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
+          cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
+          originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+        },
+      },
+      defaultRootObject: 'index.html',
+      // SPA-style fallback: 403 (S3 "access denied" for a missing key) and
+      // 404 both rewrite to index.html so client-side routing keeps working.
+      errorResponses: [
+        {
+          httpStatus: 404,
+          responseHttpStatus: 200,
+          responsePagePath: '/index.html',
+          ttl: cdk.Duration.minutes(5),
+        },
+        {
+          httpStatus: 403,
+          responseHttpStatus: 200,
+          responsePagePath: '/index.html',
+          ttl: cdk.Duration.minutes(5),
+        },
+      ],
+      // Whitelist MY + SG; everyone else gets a 403 at the edge before
+      // reaching the origin.
+      geoRestriction: cloudfront.GeoRestriction.allowlist('MY', 'SG'),
+      // Cheapest tier that still covers SG/MY edge locations.
+      priceClass: cloudfront.PriceClass.PRICE_CLASS_100,
+      httpVersion: cloudfront.HttpVersion.HTTP2_AND_3,
+      // domainNames + certificate deliberately omitted for Phase 1.
+    });
+
     // ─── Outputs ───────────────────────────────────────────────────────
+
+    new cdk.CfnOutput(this, 'FrontendBucketName', {
+      value: frontendBucket.bucketName,
+      description: 'S3 bucket hosting the static frontend (private, CloudFront-only access)',
+    });
+    new cdk.CfnOutput(this, 'FrontendCertArn', {
+      value: frontendCertificate.certificateArn,
+      description: 'ACM certificate ARN — check ACM console for the DNS validation CNAME record',
+    });
+    new cdk.CfnOutput(this, 'FrontendDistributionDomain', {
+      value: frontendDistribution.distributionDomainName,
+      description: 'CloudFront distribution domain (xxx.cloudfront.net) — Phase 1, no custom domain yet',
+    });
+    new cdk.CfnOutput(this, 'FrontendDistributionId', {
+      value: frontendDistribution.distributionId,
+      description: 'CloudFront distribution ID (useful for cache invalidations)',
+    });
 
     new cdk.CfnOutput(this, 'ApiUrl', {
       value: api.url,

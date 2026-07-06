@@ -2,6 +2,7 @@ import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { v4 as uuid } from 'uuid';
 import { docClient, ORDERS_TABLE, MENU_TABLE, SETTINGS_TABLE, INGREDIENTS_TABLE, GetCommand, PutCommand, UpdateCommand, QueryCommand, ScanCommand } from '../lib/db';
 import { sendEndOfDaySummary } from '../lib/email';
+import { logOrder, summarizeItems } from '../lib/audit';
 
 const res = (statusCode: number, body: object): APIGatewayProxyResult => ({
   statusCode, headers: {}, body: JSON.stringify(body),
@@ -198,7 +199,7 @@ async function listOrders(event: APIGatewayProxyEvent): Promise<APIGatewayProxyR
   return res(200, { orders: allOrders });
 }
 
-async function approveOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+async function approveOrder(event: APIGatewayProxyEvent, actor: string = ''): Promise<APIGatewayProxyResult> {
   const id = event.pathParameters?.id;
   if (!id) return res(400, { error: 'Missing order id' });
 
@@ -253,6 +254,15 @@ async function approveOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProx
 
   // Deduct ingredients based on recipes
   await deductIngredients(order.items);
+
+  logOrder('APPROVE', id, {
+    customer: order.customerName,
+    by: body.approvedBy,
+    discount: discountType,
+    offset: discountOffset,
+    total: totalAmount,
+    status: 'PREPARING',
+  });
 
   return res(200, { orderId: id, status: 'PREPARING', totalAmount, discountOffset });
 }
@@ -332,7 +342,7 @@ async function deductIngredients(items: any[]) {
   }
 }
 
-async function markReady(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+async function markReady(event: APIGatewayProxyEvent, actor: string = ''): Promise<APIGatewayProxyResult> {
   const id = event.pathParameters?.id;
   if (!id) return res(400, { error: 'Missing order id' });
 
@@ -346,10 +356,12 @@ async function markReady(event: APIGatewayProxyEvent): Promise<APIGatewayProxyRe
     ConditionExpression: '#s = :prev',
   }));
 
+  logOrder('READY', id, { by: actor });
+
   return res(200, { orderId: id, status: 'READY', readyAt: now });
 }
 
-async function undoToPending(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+async function undoToPending(event: APIGatewayProxyEvent, actor: string = ''): Promise<APIGatewayProxyResult> {
   const id = event.pathParameters?.id;
   if (!id) return res(400, { error: 'Missing order id' });
 
@@ -362,13 +374,15 @@ async function undoToPending(event: APIGatewayProxyEvent): Promise<APIGatewayPro
     ConditionExpression: '#s = :prev',
   }));
 
+  logOrder('UNDO_PENDING', id, { by: actor });
+
   return res(200, { orderId: id, status: 'PENDING' });
 }
 
 // Roll a READY order back to PREPARING — for when a cashier accidentally
 // hit "Ready" too soon. Guarded so an already-archived/cancelled order
 // isn't resurrected.
-async function undoToPreparingFromReady(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+async function undoToPreparingFromReady(event: APIGatewayProxyEvent, actor: string = ''): Promise<APIGatewayProxyResult> {
   const id = event.pathParameters?.id;
   if (!id) return res(400, { error: 'Missing order id' });
 
@@ -388,10 +402,12 @@ async function undoToPreparingFromReady(event: APIGatewayProxyEvent): Promise<AP
     throw e;
   }
 
+  logOrder('UNDO_PREPARING', id, { by: actor });
+
   return res(200, { orderId: id, status: 'PREPARING' });
 }
 
-async function archiveOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+async function archiveOrder(event: APIGatewayProxyEvent, actor: string = ''): Promise<APIGatewayProxyResult> {
   const id = event.pathParameters?.id;
   if (!id) return res(400, { error: 'Missing order id' });
 
@@ -423,10 +439,17 @@ async function archiveOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProx
     await consumeFoodOnCollection(old.items);
   }
 
+  logOrder('ARCHIVE', id, {
+    customer: old?.customerName,
+    by: actor,
+    total: old?.totalAmount,
+    discount: old?.discountType,
+  });
+
   return res(200, { orderId: id, status: 'ARCHIVED' });
 }
 
-async function rejectOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+async function rejectOrder(event: APIGatewayProxyEvent, actor: string = ''): Promise<APIGatewayProxyResult> {
   const id = event.pathParameters?.id;
   if (!id) return res(400, { error: 'Missing order id' });
 
@@ -444,6 +467,12 @@ async function rejectOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
     ExpressionAttributeNames: { '#s': 'status' },
     ExpressionAttributeValues: { ':s': 'CANCELLED', ':r': body.reason, ':u': new Date().toISOString() },
   }));
+
+  logOrder('REJECT', id, {
+    customer: r.Item.customerName,
+    by: actor,
+    reason: body.reason,
+  });
 
   return res(200, { orderId: id, status: 'CANCELLED' });
 }
@@ -508,6 +537,14 @@ async function cancelCompletedOrder(event: APIGatewayProxyEvent, actor: string):
     await consumeFoodOnCollection(existing.Item.items);
   }
 
+  logOrder('CANCEL_COMPLETED', id, {
+    customer: existing.Item.customerName,
+    by: actor,
+    prevStatus: existing.Item.status,
+    total: existing.Item.totalAmount,
+    reason,
+  });
+
   return res(200, fresh.Item || { orderId: id, status: 'CANCELLED' });
 }
 
@@ -545,13 +582,16 @@ async function createWalkUp(event: APIGatewayProxyEvent): Promise<APIGatewayProx
     // Celebration only applies to eligible drinks — matches createOrder /
     // frontend logic. Track the offset so we can tag the walk-up order as
     // discountType=CELEBRATION downstream.
+    //
+    // Bug 5 fix: paid variant modifiers stay on top of celebrationPrice.
     const grossUnit = unitPrice;
     if (
       settings?.celebrationMode &&
       menu.category === 'DRINK' &&
       menu.celebrationEligible === true
     ) {
-      unitPrice = Number(settings.celebrationPrice) || 5;
+      const variantModifiers = unitPrice - menu.basePrice;
+      unitPrice = (Number(settings.celebrationPrice) || 5) + variantModifiers;
       const perUnitDiscount = grossUnit - unitPrice;
       if (perUnitDiscount > 0) celebrationOffset += perUnitDiscount * qty;
     }
@@ -614,6 +654,14 @@ async function createWalkUp(event: APIGatewayProxyEvent): Promise<APIGatewayProx
     },
   }));
 
+  logOrder('WALKUP', orderId, {
+    customer: customerName,
+    items: summarizeItems(orderItems),
+    total: totalAmount,
+    discount: effectiveDiscountType,
+    offset: discountOffset,
+  });
+
   return res(201, { orderId, totalAmount, status: 'PREPARING' });
 }
 
@@ -659,6 +707,10 @@ async function closeCafe(): Promise<APIGatewayProxyResult> {
         ExpressionAttributeValues: { ':expired': 'EXPIRED', ':now': now, ':prev': 'PENDING' },
         ConditionExpression: '#s = :prev',
       }));
+      logOrder('CLOSE_EXPIRE', order.orderId, {
+        customer: order.customerName,
+        total: order.totalAmount,
+      });
       expired++;
     } catch (e: any) {
       if (e.name !== 'ConditionalCheckFailedException') throw e;
@@ -688,6 +740,11 @@ async function closeCafe(): Promise<APIGatewayProxyResult> {
           ExpressionAttributeValues: { ':archived': 'ARCHIVED', ':now': now, ':prev': status },
           ConditionExpression: '#s = :prev',
         }));
+        logOrder('CLOSE_ARCHIVE', order.orderId, {
+          customer: order.customerName,
+          prevStatus: status,
+          total: order.totalAmount,
+        });
         archivedOrders++;
       } catch (e: any) {
         if (e.name !== 'ConditionalCheckFailedException') throw e;
@@ -1006,28 +1063,28 @@ export async function handlePos(event: APIGatewayProxyEvent, actor: string = '')
   if (method === 'POST' && path === '/api/pos/orders') return createWalkUp(event);
   if (method === 'PUT' && path.endsWith('/approve')) {
     const id = extractSegment(path, /\/api\/pos\/orders\/([^/]+)\/approve/, 1);
-    if (id) { event.pathParameters = { id }; return approveOrder(event); }
+    if (id) { event.pathParameters = { id }; return approveOrder(event, actor); }
   }
   if (method === 'PUT' && path.endsWith('/ready')) {
     const id = extractSegment(path, /\/api\/pos\/orders\/([^/]+)\/ready/, 1);
-    if (id) { event.pathParameters = { id }; return markReady(event); }
+    if (id) { event.pathParameters = { id }; return markReady(event, actor); }
   }
   if (method === 'PUT' && path.endsWith('/undo-ready')) {
     // Rollback for a cashier mis-tap of "Ready" — flips READY → PREPARING.
     const id = extractSegment(path, /\/api\/pos\/orders\/([^/]+)\/undo-ready/, 1);
-    if (id) { event.pathParameters = { id }; return undoToPreparingFromReady(event); }
+    if (id) { event.pathParameters = { id }; return undoToPreparingFromReady(event, actor); }
   }
   if (method === 'PUT' && path.endsWith('/undo')) {
     const id = extractSegment(path, /\/api\/pos\/orders\/([^/]+)\/undo/, 1);
-    if (id) { event.pathParameters = { id }; return undoToPending(event); }
+    if (id) { event.pathParameters = { id }; return undoToPending(event, actor); }
   }
   if (method === 'PUT' && path.endsWith('/archive')) {
     const id = extractSegment(path, /\/api\/pos\/orders\/([^/]+)\/archive/, 1);
-    if (id) { event.pathParameters = { id }; return archiveOrder(event); }
+    if (id) { event.pathParameters = { id }; return archiveOrder(event, actor); }
   }
   if (method === 'PUT' && path.endsWith('/reject')) {
     const id = extractSegment(path, /\/api\/pos\/orders\/([^/]+)\/reject/, 1);
-    if (id) { event.pathParameters = { id }; return rejectOrder(event); }
+    if (id) { event.pathParameters = { id }; return rejectOrder(event, actor); }
   }
   if (method === 'POST' && path.endsWith('/cancel-completed')) {
     const id = extractSegment(path, /\/api\/pos\/orders\/([^/]+)\/cancel-completed/, 1);

@@ -1,6 +1,7 @@
 import { ScheduledEvent } from 'aws-lambda';
 import { docClient, ORDERS_TABLE, MENU_TABLE, INGREDIENTS_TABLE, SETTINGS_TABLE, QueryCommand, UpdateCommand, ScanCommand, GetCommand, PutCommand } from './lib/db';
 import { sendLowStockAlert } from './lib/email';
+import { logOrder } from './lib/audit';
 
 export async function handler(_event: ScheduledEvent): Promise<void> {
   // Expire PENDING orders older than 1 hour
@@ -27,6 +28,12 @@ export async function handler(_event: ScheduledEvent): Promise<void> {
       ExpressionAttributeNames: { '#s': 'status' },
       ExpressionAttributeValues: { ':expired': 'EXPIRED', ':now': new Date().toISOString() },
     }));
+
+    logOrder('TTL_EXPIRE', order.orderId, {
+      customer: order.customerName,
+      total: order.totalAmount,
+      reason: 'pending too long',
+    });
 
     for (const item of order.items || []) {
       if (item.category === 'FOOD') {
@@ -83,6 +90,11 @@ async function expirePreOrders(): Promise<void> {
           ExpressionAttributeValues: { ':expired': 'EXPIRED', ':now': nowIso, ':prev': status },
           ConditionExpression: '#s = :prev',
         }));
+        logOrder('TTL_EXPIRE', order.orderId, {
+          customer: order.customerName,
+          prevStatus: status,
+          reason: 'pre-order past service end',
+        });
       } catch (e: any) {
         if (e.name !== 'ConditionalCheckFailedException') throw e;
         // Status changed under us — skip.

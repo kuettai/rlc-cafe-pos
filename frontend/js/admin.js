@@ -804,7 +804,7 @@ function renderChecklistAdmin(container, config){
 
   container.innerHTML = `<div class="admin-section">
     <div class="admin-section-header"><h2>Checklist Configuration</h2></div>
-    <p style="color:var(--text-light);font-size:.85rem;margin-bottom:16px">Toggle an item off to hide it from the POS open/close flow without deleting it.</p>
+    <p style="color:var(--text-light);font-size:.85rem;margin-bottom:16px">Toggle an item off to hide it from the POS open/close/handover flow without deleting it.</p>
     <div class="admin-form">
       <h3 style="margin-bottom:12px">☀️ Open Checklist</h3>
       <div id="openItems">${renderPhase('open', config.open||[])}</div>
@@ -815,6 +815,12 @@ function renderChecklistAdmin(container, config){
       <div id="closeItems">${renderPhase('close', config.close||[])}</div>
       <button class="pos-btn pos-btn-sm" id="addCloseItem" style="margin-top:10px">+ Add item</button>
     </div>
+    <div class="admin-form" style="margin-top:16px">
+      <h3 style="margin-bottom:12px">🔄 Handover Checklist</h3>
+      <p style="color:var(--text-light);font-size:.8rem;margin-bottom:8px">Shown to first-service staff before handing over to the second-service team.</p>
+      <div id="handoverItems">${renderPhase('handover', config.handover||[])}</div>
+      <button class="pos-btn pos-btn-sm" id="addHandoverItem" style="margin-top:10px">+ Add item</button>
+    </div>
     <div class="admin-form-actions" style="margin-top:20px">
       <button class="pos-btn pos-btn-primary" id="saveChecklist">Save Checklist</button>
     </div>
@@ -824,71 +830,69 @@ function renderChecklistAdmin(container, config){
   // toggle state round-trips even for legacy configs.
   let openItems = (config.open||[]).map(i=>({...i, enabled: i.enabled !== false}));
   let closeItems = (config.close||[]).map(i=>({...i, enabled: i.enabled !== false}));
+  let handoverItems = (config.handover||[]).map(i=>({...i, enabled: i.enabled !== false}));
+
+  const rerender = () => renderChecklistAdmin(container, {open:openItems, close:closeItems, handover:handoverItems});
 
   container.querySelector('#addOpenItem').onclick=()=>{
     openItems.push({id:`open-${Date.now()}`, label:'', type:'checkbox', enabled:true});
-    renderChecklistAdmin(container, {open:openItems, close:closeItems});
+    rerender();
   };
   container.querySelector('#addCloseItem').onclick=()=>{
     closeItems.push({id:`close-${Date.now()}`, label:'', type:'checkbox', enabled:true});
-    renderChecklistAdmin(container, {open:openItems, close:closeItems});
+    rerender();
   };
+  container.querySelector('#addHandoverItem').onclick=()=>{
+    handoverItems.push({id:`handover-${Date.now()}`, label:'', type:'checkbox', enabled:true});
+    rerender();
+  };
+
+  const listFor = (phase) => phase==='open' ? openItems : phase==='close' ? closeItems : handoverItems;
 
   container.querySelectorAll('[data-remove-phase]').forEach(btn=>{
     btn.onclick=()=>{
       const phase = btn.dataset.removePhase;
       const idx = +btn.dataset.removeIdx;
-      if(phase==='open') openItems.splice(idx,1);
-      else closeItems.splice(idx,1);
-      renderChecklistAdmin(container, {open:openItems, close:closeItems});
+      listFor(phase).splice(idx,1);
+      rerender();
     };
   });
 
   container.querySelectorAll('input[data-field="label"]').forEach(inp=>{
     inp.oninput=()=>{
-      const phase = inp.dataset.phase;
       const idx = +inp.dataset.idx;
-      if(phase==='open') openItems[idx].label = inp.value;
-      else closeItems[idx].label = inp.value;
+      listFor(inp.dataset.phase)[idx].label = inp.value;
     };
   });
 
   container.querySelectorAll('select[data-field="type"]').forEach(sel=>{
     sel.onchange=()=>{
-      const phase = sel.dataset.phase;
       const idx = +sel.dataset.idx;
-      if(phase==='open') openItems[idx].type = sel.value;
-      else closeItems[idx].type = sel.value;
+      listFor(sel.dataset.phase)[idx].type = sel.value;
     };
   });
 
   container.querySelectorAll('input[data-field="enabled"]').forEach(inp=>{
     inp.onchange=()=>{
-      const phase = inp.dataset.phase;
       const idx = +inp.dataset.idx;
-      const val = inp.checked;
-      if(phase==='open') openItems[idx].enabled = val;
-      else closeItems[idx].enabled = val;
+      listFor(inp.dataset.phase)[idx].enabled = inp.checked;
       // Re-render so the greyed-out styling reflects the new state
-      renderChecklistAdmin(container, {open:openItems, close:closeItems});
+      rerender();
     };
   });
 
   container.querySelector('#saveChecklist').onclick=async()=>{
-    const open = openItems.filter(i=>i.label.trim()).map((item,i)=>({
+    const cleanList = (list, prefix) => list.filter(i=>i.label.trim()).map((item,i)=>({
       ...item,
-      id:item.id||`open-${i+1}`,
+      id:item.id||`${prefix}-${i+1}`,
       label:item.label.trim(),
       enabled: item.enabled !== false,
     }));
-    const close = closeItems.filter(i=>i.label.trim()).map((item,i)=>({
-      ...item,
-      id:item.id||`close-${i+1}`,
-      label:item.label.trim(),
-      enabled: item.enabled !== false,
-    }));
+    const open = cleanList(openItems, 'open');
+    const close = cleanList(closeItems, 'close');
+    const handover = cleanList(handoverItems, 'handover');
     try{
-      await api('PUT','/api/admin/checklist/config', {open, close});
+      await api('PUT','/api/admin/checklist/config', {open, close, handover});
       showSuccess('Checklist saved');
     } catch(e){ showError('Failed to save checklist'); }
   };

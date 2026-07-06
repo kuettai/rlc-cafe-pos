@@ -1320,6 +1320,31 @@ header h1{
   color:#9CA3AF;
   font-weight:500;
 }
+
+/* Discount pill under the card footer — tells the cashier at a glance
+   which discount type applies. Variants below map to each discountType. */
+.pos-card-discount{
+  margin-top:6px;
+  display:flex;
+}
+.discount-badge{
+  display:inline-block;
+  padding:2px 10px;
+  border-radius:999px;
+  font-size:.68rem;
+  font-weight:700;
+  letter-spacing:.03em;
+  text-transform:uppercase;
+  line-height:1.5;
+  background:#F3F4F6;
+  color:#374151;
+}
+.discount-badge-newcomer   { background:#D1FAE5; color:#065F46; }
+.discount-badge-staff      { background:#DBEAFE; color:#1E40AF; }
+.discount-badge-pastor     { background:#EDE9FE; color:#5B21B6; }
+.discount-badge-celebration{ background:#FEF3C7; color:#92400E; }
+.discount-badge-preorder   { background:#CCFBF1; color:#115E59; }
+.discount-badge-voucher    { background:#FCE7F3; color:#9D174D; }
 .pos-card-actions{
   margin-top:8px;
   padding-top:8px;

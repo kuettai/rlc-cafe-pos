@@ -101,6 +101,7 @@ function renderMain(){
     <button id="btnPrep" class="pos-sidebar-btn">☕ Prep Queue</button>
     <button id="btnMenu" class="pos-sidebar-btn">📋 Menu</button>
     <button id="btnChecklist" class="pos-sidebar-btn">☑️ Checklist</button>
+    ${cafeOpen ? '<button id="btnHandover" class="pos-sidebar-btn">🔄 Handover</button>' : ''}
     <button id="btnStockCount" class="pos-sidebar-btn">📦 Stock Count</button>
     <button id="btnPlanogram" class="pos-sidebar-btn">📷 AI Scan</button>
     <button id="btnHistory" class="pos-sidebar-btn">📜 History</button>
@@ -143,6 +144,8 @@ function renderMain(){
     const phase = cafeOpen ? 'close' : 'open';
     openChecklist(phase);
   };
+  const btnHandover = document.getElementById('btnHandover');
+  if(btnHandover) btnHandover.onclick = ()=> openChecklist('handover');
   $('#btnPlanogram').onclick = ()=>{
     const modal=document.createElement('div');
     modal.className='pos-modal-overlay';
@@ -582,6 +585,24 @@ function archiveHint(o){
   return `<div class="${cls}">⏱ ${label}</div>`;
 }
 
+function discountBadgeHtml(discountType) {
+  if (!discountType || discountType === 'NONE') return '';
+  // Pretty label + color-variant class. Fallback to title-case for any
+  // future type so a new discountType shows up as a plain grey pill
+  // rather than not at all.
+  const meta = {
+    NEWCOMER:          { label: 'Newcomer',    variant: 'newcomer' },
+    STAFF:             { label: 'Staff',       variant: 'staff' },
+    PASTOR:            { label: 'Pastor',      variant: 'pastor' },
+    CELEBRATION:       { label: 'Celebration', variant: 'celebration' },
+    MINISTRY_PREORDER: { label: 'Pre-Order',   variant: 'preorder' },
+    VOUCHER:           { label: 'Voucher',     variant: 'voucher' },
+  }[discountType];
+  const label = meta?.label || (discountType.charAt(0) + discountType.slice(1).toLowerCase());
+  const variant = meta?.variant || 'other';
+  return `<span class="discount-badge discount-badge-${variant}">${label}</span>`;
+}
+
 function cardHtml(o){
   const items = (o.items||[]).map(i=>`<div>${i.quantity||i.qty||1}x ${i.name}${i.variant?' ('+i.variant+')':''}</div>`).join('');
   const mins = Math.floor((Date.now()-new Date(o.createdAt))/60000);
@@ -591,6 +612,15 @@ function cardHtml(o){
   if(o.status==='PENDING') quickAction = `<div class="pos-card-actions"><button class="pos-btn pos-btn-sm pos-btn-primary pos-card-quick-approve" data-quick-id="${o.id||o.orderId}" onclick="event.stopPropagation()">✓ Approve</button></div>`;
   else if(o.status==='PREPARING') quickAction = `<div class="pos-card-actions"><button class="pos-btn pos-btn-sm pos-btn-primary pos-card-quick-ready" data-quick-id="${o.id||o.orderId}" onclick="event.stopPropagation()">✓ Ready</button></div>`;
 
+  // Price display: when a discount is applied show the gross (strikethrough)
+  // next to the net collected. Gross reconstructed as net + offset since
+  // totalAmount is stored as net across the codebase.
+  const gross = Number(o.totalAmount || 0) + Number(o.discountOffset || 0);
+  const net   = Number(o.total || o.totalAmount || 0);
+  const priceHtml = o.discountType && o.discountType !== 'NONE' && Number(o.discountOffset || 0) > 0
+    ? `<s style="color:#999">RM ${gross.toFixed(2)}</s> RM ${net.toFixed(2)}`
+    : `RM ${net.toFixed(2)}`;
+
   return `<div class="pos-card pos-card-${o.status.toLowerCase()} ${urgent?'pos-card-urgent':''} ${hasReceipt?'pos-card-receipt':''}" data-id="${o.id||o.orderId}" data-status="${o.status}">
     ${hasReceipt ? `<div class="pos-receipt-badge${Math.abs((o.receiptAmount||0)-(o.total||o.totalAmount||0))>0.01?' pos-receipt-mismatch':''}">💰 Receipt: RM${(o.receiptAmount||0).toFixed(2)}${Math.abs((o.receiptAmount||0)-(o.total||o.totalAmount||0))>0.01?' ⚠️ expected RM'+(o.total||o.totalAmount||0).toFixed(2):''}</div>` : ''}
     ${o.status==='PENDING' && o.modifiedAt ? '<div class="pos-card-modified">✏️ modified</div>' : ''}
@@ -598,7 +628,8 @@ function cardHtml(o){
     <div class="pos-card-items">${items||'—'}</div>
     ${o.notes ? '<div class="pos-card-note">📝 '+o.notes+'</div>' : ''}
     ${archiveHint(o)}
-    <div class="pos-card-footer"><span>RM ${(o.total||o.totalAmount||0).toFixed(2)}</span><span>${urgent?'⚠️ ':''}${timeAgo(o.createdAt)}</span></div>
+    <div class="pos-card-footer"><span>${priceHtml}</span><span>${urgent?'⚠️ ':''}${timeAgo(o.createdAt)}</span></div>
+    ${o.discountType && o.discountType !== 'NONE' ? `<div class="pos-card-discount">${discountBadgeHtml(o.discountType)}</div>` : ''}
     ${quickAction}
   </div>`;
 }
@@ -838,20 +869,36 @@ async function showShiftSummary(){
 async function openChecklist(phase){
   let data;
   try{ data = await api('GET','/api/pos/checklist'); } catch(e){ showError('Failed to load checklist'); return; }
-  const config = data.config || { open: [], close: [] };
-  const log = data.log || { open: { items: {} }, close: { items: {} } };
-  const items = phase === 'open' ? config.open : config.close;
+  const config = data.config || { open: [], close: [], handover: [] };
+  const log = data.log || { open: { items: {} }, close: { items: {} }, handover: { items: {} } };
+  const items = phase === 'open' ? config.open : phase === 'close' ? config.close : (config.handover || []);
   const checked = log[phase]?.items || {};
 
   const modal = document.createElement('div');
   modal.className = 'pos-modal-overlay';
 
+  function titleFor(p){
+    if(p === 'open') return '☀️ Open Café Checklist';
+    if(p === 'close') return '🌙 Close Café Checklist';
+    return '🔄 Session Handover';
+  }
+  function submitLabelFor(p){
+    if(p === 'open') return '☀️ Open Café';
+    if(p === 'close') return '🌙 Close Café';
+    return '🔄 Complete Handover';
+  }
+  function subtitleFor(p){
+    if(p === 'open') return 'Complete all items before opening';
+    if(p === 'close') return 'Complete all items before closing';
+    return 'Complete all items to hand over to the next service team';
+  }
+
   function renderChecklistModal(){
-    const allChecked = items.every(i => checked[i.id]?.checked);
+    const allChecked = items.length > 0 && items.every(i => checked[i.id]?.checked);
     modal.innerHTML = `<div class="pos-modal" style="max-width:520px">
       <button class="pos-modal-close">✕</button>
-      <h3>${phase === 'open' ? '☀️ Open Café Checklist' : '🌙 Close Café Checklist'}</h3>
-      <p style="font-size:.85rem;color:var(--text-light,#7A6355);margin:8px 0 16px">Complete all items before ${phase === 'open' ? 'opening' : 'closing'}</p>
+      <h3>${titleFor(phase)}</h3>
+      <p style="font-size:.85rem;color:var(--text-light,#7A6355);margin:8px 0 16px">${subtitleFor(phase)}</p>
       <div class="checklist-items">
         ${items.map(item => {
           const isDone = checked[item.id]?.checked;
@@ -871,7 +918,7 @@ async function openChecklist(phase){
       </div>
       <div style="margin-top:20px;display:flex;gap:10px">
         <button id="clSubmit" class="pos-btn pos-btn-primary pos-btn-lg" ${allChecked?'':'disabled'}>
-          ${phase === 'open' ? '☀️ Open Café' : '🌙 Close Café'}
+          ${submitLabelFor(phase)}
         </button>
         <button id="clCancel" class="pos-btn pos-btn-lg">Cancel</button>
       </div>
@@ -926,6 +973,16 @@ async function openChecklist(phase){
 
     const submitBtn = modal.querySelector('#clSubmit');
     if(submitBtn) submitBtn.onclick=async()=>{
+      if(phase === 'handover'){
+        // Handover: no cafe state change, just confirm + logout.
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Handover complete. Logging out...';
+        setTimeout(()=>{
+          modal.remove();
+          logout();
+        }, 900);
+        return;
+      }
       if(phase === 'close'){
         const activeCount = orders.filter(o=>o.status==='PENDING'||o.status==='PREPARING').length;
         if(activeCount > 0 && !confirm(`This will expire ${activeCount} active order(s). Continue?`)) return;

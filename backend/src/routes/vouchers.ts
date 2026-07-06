@@ -1,5 +1,6 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { v4 as uuid } from 'uuid';
+import { logOrder, summarizeItems } from '../lib/audit';
 import {
   docClient,
   VOUCHERS_TABLE,
@@ -609,6 +610,17 @@ async function redeemVoucher(event: APIGatewayProxyEvent, actor: string): Promis
   }
 
   await bumpRedeemedCount(voucher.campaignId);
+
+  logOrder('VOUCHER_REDEEM', orderId, {
+    voucherId,
+    campaignId: voucher.campaignId,
+    customer: phone,
+    by: actor,
+    items: summarizeItems(orderItems),
+    total: 0,
+    discount: 'VOUCHER',
+    offset: totalPrice,
+  });
 
   return res(201, {
     orderId,

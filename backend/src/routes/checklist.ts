@@ -20,6 +20,7 @@ export async function handleChecklist(event: APIGatewayProxyEvent): Promise<APIG
       const posConfig = {
         open: filterEnabled(config.open || []),
         close: filterEnabled(config.close || []),
+        handover: filterEnabled(config.handover || []),
       };
       const today = new Date().toISOString().split('T')[0];
       const log = await getChecklistLog(today);
@@ -30,6 +31,7 @@ export async function handleChecklist(event: APIGatewayProxyEvent): Promise<APIG
     if (method === 'PUT' && path.endsWith('/checklist/check')) {
       const { phase, itemId, value, completedBy } = body;
       if (!phase || !itemId) return res(400, { error: 'phase and itemId required' });
+      if (!['open', 'close', 'handover'].includes(phase)) return res(400, { error: 'invalid phase' });
 
       const today = new Date().toISOString().split('T')[0];
       const logKey = `CHECKLIST_LOG#${today}#${phase}`;
@@ -48,8 +50,12 @@ export async function handleChecklist(event: APIGatewayProxyEvent): Promise<APIG
       };
 
       const allConfig = await getChecklistConfig();
-      const phaseItems = phase === 'open' ? allConfig.open : allConfig.close;
-      const allChecked = phaseItems.every((i: any) => items[i.id]?.checked);
+      const phaseItems = phase === 'open'
+        ? allConfig.open
+        : phase === 'close'
+          ? allConfig.close
+          : allConfig.handover;
+      const allChecked = (phaseItems || []).every((i: any) => items[i.id]?.checked);
 
       await docClient.send(new PutCommand({
         TableName: SETTINGS_TABLE,
@@ -71,6 +77,7 @@ export async function handleChecklist(event: APIGatewayProxyEvent): Promise<APIG
     if (method === 'PUT' && path.endsWith('/checklist/uncheck')) {
       const { phase, itemId } = body;
       if (!phase || !itemId) return res(400, { error: 'phase and itemId required' });
+      if (!['open', 'close', 'handover'].includes(phase)) return res(400, { error: 'invalid phase' });
 
       const today = new Date().toISOString().split('T')[0];
       const logKey = `CHECKLIST_LOG#${today}#${phase}`;
@@ -107,7 +114,7 @@ export async function handleChecklist(event: APIGatewayProxyEvent): Promise<APIG
 
     // Admin: PUT /api/admin/checklist/config — save full config
     if (method === 'PUT' && path.endsWith('/checklist/config')) {
-      const { open, close } = body;
+      const { open, close, handover } = body;
       await docClient.send(new PutCommand({
         TableName: SETTINGS_TABLE,
         Item: {
@@ -115,6 +122,7 @@ export async function handleChecklist(event: APIGatewayProxyEvent): Promise<APIG
           SK: 'META',
           open: open || [],
           close: close || [],
+          handover: handover || [],
           updatedAt: new Date().toISOString(),
         },
       }));
@@ -146,7 +154,11 @@ async function getChecklistConfig() {
   }));
 
   if (result.Item) {
-    return { open: result.Item.open || [], close: result.Item.close || [] };
+    return {
+      open: result.Item.open || [],
+      close: result.Item.close || [],
+      handover: result.Item.handover || defaultHandover(),
+    };
   }
 
   // Default checklist if none configured
@@ -172,7 +184,16 @@ async function getChecklistConfig() {
       { id: 'close-7', label: 'Capture fridge photo (stock count)', type: 'image', enabled: true },
       { id: 'close-8', label: 'Capture store room photo (stock count)', type: 'image', enabled: true },
     ],
+    handover: defaultHandover(),
   };
+}
+
+function defaultHandover() {
+  return [
+    { id: 'handover-1', label: 'Wipe counters for 2nd service team', type: 'checkbox', enabled: true },
+    { id: 'handover-2', label: 'Tally 1st service orders', type: 'checkbox', enabled: true },
+    { id: 'handover-3', label: 'Refill all items if needed', type: 'checkbox', enabled: true },
+  ];
 }
 
 async function getChecklistLog(date: string) {
@@ -184,8 +205,13 @@ async function getChecklistLog(date: string) {
     TableName: SETTINGS_TABLE,
     Key: { PK: `CHECKLIST_LOG#${date}#close`, SK: 'META' },
   }));
+  const handoverLog = await docClient.send(new GetCommand({
+    TableName: SETTINGS_TABLE,
+    Key: { PK: `CHECKLIST_LOG#${date}#handover`, SK: 'META' },
+  }));
   return {
     open: openLog.Item || { items: {}, allCompleted: false },
     close: closeLog.Item || { items: {}, allCompleted: false },
+    handover: handoverLog.Item || { items: {}, allCompleted: false },
   };
 }

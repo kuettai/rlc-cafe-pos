@@ -310,7 +310,9 @@ function bindItemEvents() {
         let price, variantKey, variantLabel;
         const selectedVariants = getSelectedVariants(id);
         if (selectedVariants.length) {
-          const variantExtra = (celebrationMode && item.category === 'DRINK' && item.celebrationEligible === true) ? 0 : selectedVariants.reduce((s, v) => s + v.price, 0);
+          // Bug 5 fix: paid variant modifiers apply on top of celebrationPrice.
+          // Celebration only replaces the base, not the variant surcharges.
+          const variantExtra = selectedVariants.reduce((s, v) => s + v.price, 0);
           const basePrice = (celebrationMode && item.category === 'DRINK' && item.celebrationEligible === true) ? celebrationPrice : item.basePrice;
           price = basePrice + variantExtra;
           variantKey = selectedVariants.map(v => v.option).join(',');
@@ -319,7 +321,7 @@ function bindItemEvents() {
           const variant = getSelectedVariant(id);
           const variantObj = item.variants?.find(v => v.id === variant);
           const basePrice = (celebrationMode && item.category === 'DRINK' && item.celebrationEligible === true) ? celebrationPrice : item.basePrice;
-          price = basePrice + ((celebrationMode && item.category === 'DRINK' && item.celebrationEligible === true) ? 0 : (variantObj?.priceModifier || 0));
+          price = basePrice + (variantObj?.priceModifier || 0);
           variantKey = variant;
           variantLabel = variantObj?.name || variant;
         }
