@@ -145,21 +145,27 @@ async function loadDashboard(container){
 
 async function fetchAndRenderDashboard(container){
   try {
-    const [daily, sessions, discounts, ingredients] = await Promise.all([
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const [daily, sessions, discounts, ingredients, checklistLogs, stockHistory] = await Promise.all([
       api('GET','/api/admin/reports/daily'),
       api('GET','/api/admin/reports/sessions'),
       api('GET','/api/admin/reports/discounts'),
       api('GET','/api/pos/ingredients'),
+      // Activity trail sources — /checklist/logs returns all logs, we
+      // filter to today client-side. /stock-history?date= returns snapshots
+      // for one date; missing endpoints return safe empty results.
+      api('GET','/api/admin/checklist/logs').catch(() => ({ logs: [] })),
+      api('GET', `/api/admin/stock-history?date=${encodeURIComponent(todayIso)}`).catch(() => ({ snapshots: [] })),
     ]);
-    renderDashboard(container, { daily, sessions, discounts, ingredients });
+    renderDashboard(container, { daily, sessions, discounts, ingredients, checklistLogs, stockHistory, todayIso });
   } catch(e){
     container.innerHTML = '<div class="admin-empty"><p>Failed to load dashboard</p></div>';
   }
 }
 
 function renderDashboard(container, data){
-  const { daily, sessions, discounts, ingredients } = data;
-  const today = new Date().toISOString().slice(0, 10);
+  const { daily, sessions, discounts, ingredients, checklistLogs, stockHistory, todayIso } = data;
+  const today = todayIso || new Date().toISOString().slice(0, 10);
   const allOrders = Array.isArray(daily?.orders) ? daily.orders : [];
   const todaysOrders = allOrders.filter(o => (o.createdAt || '').startsWith(today));
 
@@ -293,6 +299,9 @@ function renderDashboard(container, data){
         }).join('')}
       </div>
     ` : ''}
+
+    ${activityLogHtml(checklistLogs, stockHistory, today)}
+    ${latestSnapshotHtml(stockHistory)}
   </div>`;
 
   container.innerHTML = html;
@@ -325,6 +334,96 @@ function sessionCardHtml(name, timeRange, s, highlight){
       <div><span style="color:var(--text-light)">Top:</span> <strong>${escapeHtml(topLabel)}</strong></div>
     </div>
   </div>`;
+}
+
+// ─── Activity Log helpers (Dashboard) ────────────────────────────────
+
+/** Derive completion time + user for a checklist phase log. Returns null
+ *  when the phase isn't fully completed yet. Uses the LAST checked item's
+ *  timestamp as the phase completion event — that's the moment the phase
+ *  actually finished.  */
+function phaseCompletion(log) {
+  if (!log || log.allCompleted !== true) return null;
+  const entries = Object.values(log.items || {})
+    .filter(i => i && i.checked && i.completedAt);
+  if (!entries.length) return null;
+  entries.sort((a, b) => String(a.completedAt).localeCompare(String(b.completedAt)));
+  const last = entries[entries.length - 1];
+  return { at: last.completedAt, by: last.completedBy || 'Unknown' };
+}
+
+function fmtTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleTimeString('en-MY', { hour: 'numeric', minute: '2-digit', hour12: true });
+}
+
+/** Build the "Today's Activity" section. Merges completed checklist phases
+ *  (open / handover / close) and stock-count snapshots into a chronological
+ *  timeline. Empty state included so the section renders even on a quiet day. */
+function activityLogHtml(checklistLogsRes, stockHistoryRes, today) {
+  const logs = Array.isArray(checklistLogsRes?.logs) ? checklistLogsRes.logs : [];
+  const todaysLogs = logs.filter(l => l.date === today);
+  const byPhase = { open: null, handover: null, close: null };
+  for (const l of todaysLogs) {
+    if (l.phase in byPhase) byPhase[l.phase] = l;
+  }
+
+  const events = [];
+  const map = [
+    ['open',     '✅ Opened'],
+    ['handover', '🔄 Handover'],
+    ['close',    '❌ Closed'],
+  ];
+  for (const [phase, label] of map) {
+    const c = phaseCompletion(byPhase[phase]);
+    if (c) events.push({ at: c.at, label: `${label} at ${fmtTime(c.at)} by ${c.by}` });
+  }
+
+  const snapshots = Array.isArray(stockHistoryRes?.snapshots) ? stockHistoryRes.snapshots : [];
+  for (const s of snapshots) {
+    if (!s?.timestamp) continue;
+    events.push({
+      at: s.timestamp,
+      label: `📦 Stock count at ${fmtTime(s.timestamp)} by ${s.submittedBy || 'Unknown'}`,
+    });
+  }
+
+  events.sort((a, b) => String(a.at).localeCompare(String(b.at)));
+
+  const body = events.length
+    ? events.map(e => `<div style="padding:6px 0;border-bottom:1px solid var(--cream-dark)">${escapeHtml(e.label)}</div>`).join('')
+    : '<div style="color:var(--text-light);padding:8px 0">No activity recorded today.</div>';
+
+  return `
+    <h3 style="margin:24px 0 12px;color:var(--primary)">📋 Today's Activity</h3>
+    <div class="admin-form">${body}</div>`;
+}
+
+/** "Latest Stock Snapshot" section — only rendered when there's at least
+ *  one snapshot from today. Shows the most recent snapshot's counts. */
+function latestSnapshotHtml(stockHistoryRes) {
+  const snapshots = Array.isArray(stockHistoryRes?.snapshots) ? stockHistoryRes.snapshots : [];
+  if (!snapshots.length) return '';
+  // /stock-history query returns snapshots newest-first; be defensive and re-sort.
+  const sorted = snapshots.slice().sort((a, b) =>
+    String(b.timestamp || '').localeCompare(String(a.timestamp || '')));
+  const latest = sorted[0];
+  const counts = Array.isArray(latest?.counts) ? latest.counts : [];
+  if (!counts.length) return '';
+
+  const rows = counts
+    .slice()
+    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+    .map(c => `<div style="padding:5px 0;border-bottom:1px solid var(--cream-dark);display:flex;justify-content:space-between">
+      <span>${escapeHtml(stripLeadingEmoji(c.name || '?'))}</span>
+      <span style="font-weight:600">${Number(c.count ?? 0)} ${escapeHtml(c.unit || '')}${c.storageLocation ? ` <span style="color:var(--text-light);font-weight:400">· ${escapeHtml(c.storageLocation)}</span>` : ''}</span>
+    </div>`).join('');
+
+  return `
+    <h3 style="margin:24px 0 12px;color:var(--primary)">📦 Latest Stock Count <span style="font-weight:400;color:var(--text-light);font-size:.85rem">(${fmtTime(latest.timestamp)} by ${escapeHtml(latest.submittedBy || 'Unknown')})</span></h3>
+    <div class="admin-form">${rows}</div>`;
 }
 
 // --- Menu Management ---
@@ -1853,6 +1952,13 @@ function renderPreorderCodes(container, codes){
     codes.forEach(c => {
       const st = preorderStatus(c, nowIso);
       const link = c.link || `https://153.oasisofcare.org/?code=${encodeURIComponent(c.code)}`;
+      const eligibleCount = Array.isArray(c.eligibleItems) ? c.eligibleItems.length : 0;
+      const collectionOpts = Array.isArray(c.collectionOptions) ? c.collectionOptions : [];
+      const customDetails = [
+        c.bannerMessage ? `📢 Banner: ${escapeHtml(String(c.bannerMessage).slice(0, 80))}${String(c.bannerMessage).length > 80 ? '…' : ''}` : '',
+        eligibleCount > 0 ? `🥤 Eligible drinks: ${eligibleCount} selected` : `🥤 Eligible drinks: all active`,
+        collectionOpts.length ? `⏰ Collection: ${collectionOpts.map(escapeHtml).join(' | ')}` : '',
+      ].filter(Boolean).map(s => `<div style="margin-top:2px">${s}</div>`).join('');
       html += `<div class="admin-card">
         <div class="admin-card-header">
           <div style="min-width:0;flex:1">
@@ -1864,6 +1970,7 @@ function renderPreorderCodes(container, codes){
               · Expires: ${fmtDT(c.expiresAt)}
               · Cutoff: ${fmtDT(c.serviceEndTime)}
               <div style="margin-top:6px;font-family:monospace;font-size:.75rem;color:var(--text-light);word-break:break-all">${escapeHtml(link)}</div>
+              ${customDetails}
             </div>
           </div>
           <div class="admin-card-actions" style="flex-shrink:0">
@@ -1919,6 +2026,14 @@ function openPreorderForm(container){
   const expiresGuess = new Date(nextSunday);
   expiresGuess.setHours(15, 0, 0, 0); // Sunday 3PM local
 
+  // Fetch admin menu (all active DRINKs) for the eligibility checkboxes.
+  // Kicked off eagerly; the form renders once it arrives.
+  const menuP = api('GET', '/api/admin/menu').then(d => (Array.isArray(d) ? d : d.items || []).filter(m => m.category === 'DRINK')).catch(() => []);
+  // Collection-option working state (Change 3). Default to the same two
+  // options the backend uses; admin can rename or add.
+  let collectionOpts = ['After 1st Service', 'After 2nd Service'];
+
+  // Placeholder shell — the drink list slot gets populated once menuP settles.
   const form = document.createElement('div');
   form.className = 'admin-form';
   form.innerHTML = `<h3>Create Pre-Order Link</h3>
@@ -1939,12 +2054,98 @@ function openPreorderForm(container){
     <p style="font-size:.8rem;color:var(--text-light);margin-top:4px">
       Service auto-cutoff is fixed at 3PM MYT on service date — pre-orders auto-expire then.
     </p>
+
+    <div class="admin-form-group">
+      <label>Banner Message <span style="color:var(--text-light);font-weight:400">(optional, max 200 chars)</span></label>
+      <textarea id="pfBanner" class="pos-input" rows="3" maxlength="200" placeholder="Ministry Pre-Order — Kindly select one drink&#10;Sunday ${nextSunday.toLocaleDateString(undefined,{day:'numeric',month:'short'})} Service · Collect Sunday, ${nextSunday.toLocaleDateString(undefined,{day:'numeric',month:'short'})}" style="min-height:60px;font-family:inherit"></textarea>
+      <p style="font-size:.75rem;color:var(--text-light);margin-top:4px">Leave blank to use the default template above.</p>
+    </div>
+
+    <div class="admin-form-group">
+      <label style="display:flex;justify-content:space-between;align-items:center">
+        <span>Eligible Drinks</span>
+        <span style="font-weight:400">
+          <button type="button" class="pos-btn pos-btn-sm" id="pfSelectAll">Select All</button>
+          <button type="button" class="pos-btn pos-btn-sm" id="pfSelectNone">Select None</button>
+        </span>
+      </label>
+      <div id="pfDrinkList" style="max-height:220px;overflow-y:auto;border:1px solid var(--cream-dark);border-radius:8px;padding:8px 12px;background:#fff">
+        <div class="loading">Loading drinks…</div>
+      </div>
+      <p style="font-size:.75rem;color:var(--text-light);margin-top:4px">Uncheck items to exclude them. Empty selection = all drinks (backward compatible).</p>
+    </div>
+
+    <div class="admin-form-group">
+      <label>Collection Options <span style="color:var(--text-light);font-weight:400">(radio choices on the customer page)</span></label>
+      <div id="pfCollectionList" style="display:flex;flex-direction:column;gap:6px;margin-bottom:6px"></div>
+      <button type="button" class="pos-btn pos-btn-sm" id="pfAddOpt">+ Add option</button>
+    </div>
+
     <div class="admin-form-actions">
       <button class="pos-btn pos-btn-primary" id="pfSubmit">Create Link</button>
       <button class="pos-btn" id="pfCancel">Cancel</button>
     </div>`;
 
   showFormModal(form);
+  wirePreorderForm(form, container, menuP, collectionOpts);
+}
+
+function wirePreorderForm(form, container, menuP, collectionOpts) {
+  // ─── Collection-options list ──────────────────────────────────────
+  const renderCollectionOpts = () => {
+    const listEl = form.querySelector('#pfCollectionList');
+    listEl.innerHTML = collectionOpts.map((v, i) => `
+      <div style="display:flex;gap:6px;align-items:center">
+        <input class="pos-input" data-opt-idx="${i}" value="${escapeAttr(v)}" placeholder="e.g. After 1st Service" maxlength="60" style="flex:1;margin:0">
+        <button type="button" class="pos-btn pos-btn-sm pos-btn-danger" data-opt-remove="${i}" ${collectionOpts.length <= 1 ? 'disabled title="Need at least one option"' : ''} style="min-width:36px">✕</button>
+      </div>
+    `).join('');
+    // Update in-place on typing (avoid full re-render / focus loss).
+    listEl.querySelectorAll('input[data-opt-idx]').forEach(inp => {
+      inp.oninput = () => { collectionOpts[+inp.dataset.optIdx] = inp.value; };
+    });
+    listEl.querySelectorAll('[data-opt-remove]').forEach(btn => {
+      btn.onclick = () => {
+        collectionOpts.splice(+btn.dataset.optRemove, 1);
+        renderCollectionOpts();
+      };
+    });
+  };
+  renderCollectionOpts();
+  form.querySelector('#pfAddOpt').onclick = () => {
+    collectionOpts.push('');
+    renderCollectionOpts();
+    // Focus the last input for immediate typing.
+    const inputs = form.querySelectorAll('#pfCollectionList input');
+    inputs[inputs.length - 1]?.focus();
+  };
+
+  // ─── Eligible drinks checkboxes ───────────────────────────────────
+  menuP.then(drinks => {
+    const listEl = form.querySelector('#pfDrinkList');
+    if (!drinks.length) {
+      listEl.innerHTML = '<div style="color:var(--text-light);padding:4px 0">No active drinks in the menu.</div>';
+      return;
+    }
+    // Default: all checked (matches spec's "backward compatible: empty = all").
+    listEl.innerHTML = drinks
+      .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+      .map(m => {
+        const id = m.menuItemId || m.id;
+        return `<label style="display:flex;gap:8px;align-items:center;padding:4px 0;font-weight:400">
+          <input type="checkbox" data-drink-id="${escapeAttr(id)}" checked>
+          <span>${escapeHtml(m.name || '(unnamed)')} <span style="color:var(--text-light);font-size:.85rem">— RM ${Number(m.basePrice || 0).toFixed(2)}</span></span>
+        </label>`;
+      }).join('');
+  });
+  form.querySelector('#pfSelectAll').onclick = () => {
+    form.querySelectorAll('#pfDrinkList input[data-drink-id]').forEach(cb => { cb.checked = true; });
+  };
+  form.querySelector('#pfSelectNone').onclick = () => {
+    form.querySelectorAll('#pfDrinkList input[data-drink-id]').forEach(cb => { cb.checked = false; });
+  };
+
+  // ─── Cancel / Submit ──────────────────────────────────────────────
   form.querySelector('#pfCancel').onclick = () => form._overlay.remove();
   form.querySelector('#pfSubmit').onclick = async () => {
     const name = form.querySelector('#pfName').value.trim();
@@ -1954,16 +2155,36 @@ function openPreorderForm(container){
     if (!name){ showError('Event name is required'); return; }
     if (!serviceDate){ showError('Service date is required'); return; }
     if (!opensLocal || !expiresLocal){ showError('Opens/Expires are required'); return; }
-    // datetime-local values are interpreted in browser's local zone; new Date()
-    // parses them as local and toISOString() converts to UTC for storage.
     const opensAt = new Date(opensLocal).toISOString();
     const expiresAt = new Date(expiresLocal).toISOString();
     if (new Date(opensAt) >= new Date(expiresAt)){
       showError('Expires must be after Opens');
       return;
     }
+
+    const bannerMessage = form.querySelector('#pfBanner').value.trim();
+    // Only send eligibleItems when user has restricted the selection. A
+    // check-none-or-check-all state both mean "no restriction" per the
+    // backend's contract (empty array). Prefer explicit whitelist only
+    // when the operator has deselected at least one drink.
+    const allCbs = form.querySelectorAll('#pfDrinkList input[data-drink-id]');
+    const checked = [...allCbs].filter(cb => cb.checked).map(cb => cb.dataset.drinkId);
+    const eligibleItems = allCbs.length && checked.length && checked.length < allCbs.length
+      ? checked
+      : [];
+    const collectionOptions = collectionOpts.map(s => s.trim()).filter(Boolean);
+    if (!collectionOptions.length){
+      showError('At least one collection option is required');
+      return;
+    }
+
     try {
-      const result = await api('POST', '/api/admin/preorder-codes', { name, serviceDate, opensAt, expiresAt });
+      const result = await api('POST', '/api/admin/preorder-codes', {
+        name, serviceDate, opensAt, expiresAt,
+        bannerMessage,
+        eligibleItems,
+        collectionOptions,
+      });
       form._overlay.remove();
       showSuccess(`Link created: ${result.code}`);
       loadPreorderCodes(container);

@@ -128,7 +128,14 @@ function renderOrder(order) {
 
   html += `<a href="track" style="display:block;margin-top:12px;color:var(--text-light,#7A6355);font-size:.9rem;text-decoration:underline">My Orders</a>`;
 
+  // Slot for the past-orders section — populated async by renderPastOrders
+  // after this innerHTML swap so the current order paints immediately.
+  html += `<div id="pastOrders"></div>`;
+
   trackApp.innerHTML = html;
+
+  // Kick off the past-orders fetch (silent no-op when there's no profile).
+  renderPastOrders(document.getElementById('pastOrders'), order.orderId);
 
   // Bind receipt upload
   document.getElementById('receiptInput')?.addEventListener('change', handleReceiptUpload);
@@ -509,6 +516,87 @@ async function pollOrder() {
   }
 }
 
+// ─── Past Orders (server-authoritative, requires a customer profile) ───
+
+/**
+ * Renders "📋 My Past Orders" into `hostEl`. No-op when the browser has
+ * no customerProfile with a phone (returning-customer flow), so the
+ * section only appears once a profile has been saved.
+ *
+ * `excludeOrderId` prevents duplicating the currently-tracked order in the
+ * list (that order is already shown by renderOrder above the section).
+ */
+async function renderPastOrders(hostEl, excludeOrderId) {
+  if (!hostEl) return;
+  let profile;
+  try { profile = JSON.parse(localStorage.getItem('customerProfile') || 'null'); } catch { profile = null; }
+  if (!profile || !profile.phone) {
+    hostEl.innerHTML = '';
+    return;
+  }
+  hostEl.innerHTML = '<div class="loading" style="padding:14px;color:var(--text-light,#7A6355)">Loading past orders…</div>';
+  let orders = [];
+  try {
+    const res = await fetch(`${API_BASE}/api/customers/${encodeURIComponent(profile.phone)}/orders`);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    orders = Array.isArray(data.orders) ? data.orders : [];
+  } catch (_e) {
+    hostEl.innerHTML = '<div style="margin-top:24px;padding:12px;color:var(--text-light,#7A6355);font-size:.9rem">Could not load past orders.</div>';
+    return;
+  }
+  if (excludeOrderId) orders = orders.filter(o => o.orderId !== excludeOrderId);
+
+  if (!orders.length) {
+    hostEl.innerHTML = `
+      <h3 style="margin:24px 0 12px;color:var(--primary,#6B4226)">📋 My Past Orders</h3>
+      <div style="padding:14px;color:var(--text-light,#7A6355);font-size:.9rem;border:1px solid var(--cream-dark,#E7DFD5);border-radius:10px">No past orders yet.</div>`;
+    return;
+  }
+
+  const esc = s => String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  const stripEmoji = s => String(s || '').replace(/^[\p{Emoji}\p{Emoji_Presentation}\s]+/u, '').trim();
+
+  const rows = orders.map(o => {
+    const d = new Date(o.createdAt);
+    const dateStr = isNaN(d.getTime())
+      ? '—'
+      : d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+    const items = (o.items || []).map(i => {
+      const qty = i.quantity || i.qty || 1;
+      const name = stripEmoji(i.name || '?');
+      const v = i.variant ? ` (${i.variant})` : '';
+      return `${qty}× ${name}${v}`;
+    }).join(', ') || '—';
+    const status = String(o.status || '').toUpperCase();
+    // Buckets: happy path = green ✅; cancelled/expired = red with strike; others = neutral.
+    const cancelled = status === 'CANCELLED' || status === 'EXPIRED';
+    const completed = status === 'ARCHIVED' || status === 'READY';
+    const badge = cancelled
+      ? `<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:#FEE2E2;color:#7F1D1D;font-size:.72rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase">${status}</span>`
+      : completed
+        ? `<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:#D1FAE5;color:#065F46;font-size:.72rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase">Completed</span>`
+        : `<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:#F3F4F6;color:#374151;font-size:.72rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase">${status || '—'}</span>`;
+    const amountStyle = cancelled
+      ? 'color:var(--text-light,#7A6355);text-decoration:line-through'
+      : 'color:var(--primary,#6B4226);font-weight:700';
+    return `<a href="track?id=${encodeURIComponent(o.orderId)}" style="display:block;text-decoration:none;color:inherit;margin-bottom:10px;padding:12px 14px;border:1px solid var(--cream-dark,#E7DFD5);border-radius:10px;background:#fff">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
+        <span style="font-weight:600">${esc(dateStr)}</span>
+        <span style="${amountStyle}">RM ${Number(o.totalAmount || 0).toFixed(2)}</span>
+      </div>
+      <div style="font-size:.88rem;color:var(--text,#3D2B1F);margin-top:4px">${esc(items)}</div>
+      <div style="margin-top:6px">${badge}</div>
+    </a>`;
+  }).join('');
+
+  hostEl.innerHTML = `
+    <h3 style="margin:24px 0 12px;color:var(--primary,#6B4226)">📋 My Past Orders</h3>
+    ${rows}`;
+}
+
 function renderOrderHistory() {
   let history = JSON.parse(localStorage.getItem('orderHistory') || '[]');
   const lastId = localStorage.getItem('lastOrderId');
@@ -529,8 +617,15 @@ function renderOrderHistory() {
     </a>`;
   }
 
-  // History
-  if (history.length) {
+  // Server-side history (requires customer profile) goes into #pastOrders.
+  // The localStorage `orderHistory` list is kept as a fallback for guests
+  // who never registered a phone profile.
+  let hasProfile = false;
+  try { hasProfile = !!(JSON.parse(localStorage.getItem('customerProfile') || 'null')?.phone); } catch { hasProfile = false; }
+
+  if (hasProfile) {
+    html += '<div id="pastOrders"></div>';
+  } else if (history.length) {
     html += '<h3 style="margin:16px 0 10px;font-size:.9rem;color:var(--text-light,#7A6355)">Order History</h3>';
     history.forEach(o => {
       const date = new Date(o.date).toLocaleDateString(undefined, { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
@@ -548,6 +643,11 @@ function renderOrderHistory() {
 
   html += '<p style="margin-top:24px"><a href="index" style="color:var(--primary,#6B4226);font-weight:600">← Back to menu</a></p>';
   trackApp.innerHTML = html;
+
+  // Populate the server-side history if the customer has a profile.
+  if (hasProfile) {
+    renderPastOrders(document.getElementById('pastOrders'), lastId || null);
+  }
 }
 
 if (!orderId) {

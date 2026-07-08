@@ -76,6 +76,12 @@ async function createOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
       return res(400, { error: `Pre-orders can only include drinks (${menu.name} is ${menu.category})` });
     }
 
+    if (preorderRecord && Array.isArray(preorderRecord.eligibleItems) && preorderRecord.eligibleItems.length > 0) {
+      if (!preorderRecord.eligibleItems.includes(item.menuItemId)) {
+        return res(400, { error: `${menu.name} is not available on this pre-order link` });
+      }
+    }
+
     if (menu.category === 'FOOD') {
       const available = (menu.foodQuantityToday || 0) - (menu.foodReserved || 0);
       if (available < item.quantity) return res(400, { error: `Insufficient stock for ${menu.name}` });

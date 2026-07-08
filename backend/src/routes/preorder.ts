@@ -48,7 +48,15 @@ export interface PreorderCode {
   createdAt: string;
   createdBy: string;
   isActive: boolean;
+  // ─── Customizable per-campaign fields ──────────────────────────────
+  // Optional; when absent the frontend falls back to defaults.
+  bannerMessage?: string;               // banner override; max 200 chars
+  eligibleItems?: string[];             // whitelist of menuItemIds; empty/undefined = all active drinks
+  collectionOptions?: string[];         // choices for the collection-time radios
 }
+
+// Server-side defaults for the two-option collection picker (Change 3).
+export const DEFAULT_COLLECTION_OPTIONS: string[] = ['After 1st Service', 'After 2nd Service'];
 
 /**
  * Validate a code against the current time. Returned reasons match the
@@ -88,7 +96,20 @@ export async function handleValidatePreorder(event: APIGatewayProxyEvent): Promi
   const code = event.queryStringParameters?.code || '';
   const v = await validatePreorderCode(code);
   if (v.valid) {
-    return res(200, { valid: true, name: v.code.name, opensAt: v.code.opensAt, expiresAt: v.code.expiresAt, serviceDate: v.code.serviceDate });
+    return res(200, {
+      valid: true,
+      name: v.code.name,
+      opensAt: v.code.opensAt,
+      expiresAt: v.code.expiresAt,
+      serviceDate: v.code.serviceDate,
+      bannerMessage: v.code.bannerMessage || '',
+      // Empty array (never null) so the client can rely on Array.isArray().
+      eligibleItems: Array.isArray(v.code.eligibleItems) ? v.code.eligibleItems : [],
+      collectionOptions:
+        Array.isArray(v.code.collectionOptions) && v.code.collectionOptions.length
+          ? v.code.collectionOptions
+          : DEFAULT_COLLECTION_OPTIONS,
+    });
   }
   return res(400, { valid: false, reason: v.reason });
 }
@@ -107,6 +128,26 @@ async function createPreorderCode(event: APIGatewayProxyEvent, actor: string): P
   if (!expiresAt)   return res(400, { error: 'expiresAt is required (ISO datetime)' });
   if (!/^\d{4}-\d{2}-\d{2}$/.test(serviceDate)) return res(400, { error: 'serviceDate must be YYYY-MM-DD' });
   if (Date.parse(opensAt) >= Date.parse(expiresAt)) return res(400, { error: 'expiresAt must be after opensAt' });
+
+  // Optional customization fields. All normalized here so the DB record is
+  // always well-shaped even if the caller sent weird input.
+  const rawBanner = typeof body.bannerMessage === 'string' ? body.bannerMessage.trim() : '';
+  if (rawBanner.length > 200) return res(400, { error: 'bannerMessage cannot exceed 200 characters' });
+  const bannerMessage = rawBanner;
+
+  const rawEligible: unknown[] = Array.isArray(body.eligibleItems) ? body.eligibleItems : [];
+  // Store as unique, trimmed, non-empty strings. Empty list = "all drinks".
+  const eligibleItems: string[] = Array.from(new Set(
+    rawEligible
+      .filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
+      .map((x) => x.trim())
+  ));
+
+  const rawOpts: unknown[] = Array.isArray(body.collectionOptions) ? body.collectionOptions : [];
+  const cleanedOpts: string[] = rawOpts
+    .filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
+    .map((x) => x.trim().slice(0, 60));
+  const collectionOptions: string[] = cleanedOpts.length ? cleanedOpts : DEFAULT_COLLECTION_OPTIONS.slice();
 
   // Retry generation on the (astronomically unlikely) collision.
   let code = '';
@@ -133,6 +174,9 @@ async function createPreorderCode(event: APIGatewayProxyEvent, actor: string): P
     createdAt: now,
     createdBy: actor || 'Unknown',
     isActive: true,
+    bannerMessage,
+    eligibleItems,
+    collectionOptions,
   };
 
   await docClient.send(new PutCommand({ TableName: SETTINGS_TABLE, Item: item }));

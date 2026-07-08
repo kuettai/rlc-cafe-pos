@@ -113,16 +113,31 @@ function renderMenu() {
     // ministry volunteers already order for free, so celebration pricing
     // is moot in this mode.
     if (preorderMode) {
+      // Custom banner takes precedence when the admin has set one on the
+      // campaign; otherwise fall back to the default two-line template.
       const svcDateDisplay = preorderInfo?.serviceDate
         ? new Date(preorderInfo.serviceDate + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' })
         : '';
       const label = preorderInfo?.name ? String(preorderInfo.name) : 'Sunday Service';
+      const esc = s => String(s || '').replace(/[<>&]/g, ch => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[ch]));
+      const customBanner = preorderInfo?.bannerMessage;
+      let bannerBody;
+      if (customBanner) {
+        // Preserve line breaks the admin used in the textarea.
+        const lines = String(customBanner).split(/\r?\n/).map(esc);
+        bannerBody = lines.map((line, i) =>
+          i === 0
+            ? `<div><strong>${line}</strong></div>`
+            : `<div class="preorder-banner-sub">${line}</div>`
+        ).join('');
+      } else {
+        bannerBody =
+          `<div><strong>Ministry Pre-Order</strong> — Kindly select one drink</div>` +
+          `<div class="preorder-banner-sub">${esc(label)}${svcDateDisplay ? ' · Collect ' + svcDateDisplay : ''}</div>`;
+      }
       shell += `<div class="preorder-banner" role="status" aria-live="polite">
         <span class="preorder-banner-icon">🎉</span>
-        <div class="preorder-banner-text">
-          <div><strong>Ministry Pre-Order</strong> — Free drinks for service volunteers!</div>
-          <div class="preorder-banner-sub">${label.replace(/[<>&]/g, s => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[s]))}${svcDateDisplay ? ' · Collect ' + svcDateDisplay : ''}</div>
-        </div>
+        <div class="preorder-banner-text">${bannerBody}</div>
       </div>`;
     }
     if (customerProfile) {
@@ -131,15 +146,23 @@ function renderMenu() {
       shell += `<section class="name-section"><label for="nameInput">Your Name</label><div style="display:flex;gap:8px;align-items:center"><input type="text" id="nameInput" value="${name}" placeholder="Enter your name" aria-required="true" style="flex:1"><a href="track" class="layout-toggle" aria-label="My Orders" title="My Orders" style="text-decoration:none">📋</a><button id="layoutToggle" class="layout-toggle" aria-label="Toggle view">${menuLayout === 'grid' ? '☰' : '⊞'}</button></div><button id="returningBtn" class="returning-btn">Returning customer? Tap here</button></section>`;
     }
     // Collection-time picker — required in pre-order mode. Sits between
-    // the name section and the menu filter so it's hard to miss.
+    // the name section and the menu filter so it's hard to miss. Options
+    // come from the campaign's `collectionOptions`; default to the two
+    // service slots if the campaign didn't customize.
     if (preorderMode) {
-      const slots = generateCollectionSlots();
+      const opts = Array.isArray(preorderInfo?.collectionOptions) && preorderInfo.collectionOptions.length
+        ? preorderInfo.collectionOptions
+        : ['After 1st Service', 'After 2nd Service'];
+      const escAttr = s => String(s || '').replace(/"/g, '&quot;');
+      const escText = s => String(s || '').replace(/[<>&]/g, ch => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[ch]));
       shell += `<section class="collection-section">
-        <label for="collectionTime">Estimated Collection Time <span style="color:var(--danger,#C0392B)">*</span></label>
-        <select id="collectionTime" class="collection-picker" required>
-          <option value="">Select a time…</option>
-          ${slots.map(t => `<option value="${t}"${collectionTime === t ? ' selected' : ''}>${t}</option>`).join('')}
-        </select>
+        <label>Collection Time <span style="color:var(--danger,#C0392B)">*</span></label>
+        <div class="collection-radios">
+          ${opts.map(t => `<label class="collection-radio">
+            <input type="radio" name="collectionTime" value="${escAttr(t)}"${collectionTime === t ? ' checked' : ''}>
+            <span>${escText(t)}</span>
+          </label>`).join('')}
+        </div>
         <p class="collection-hint">Drinks are prepared to be ready around this time.</p>
       </section>`;
     }
@@ -161,6 +184,11 @@ function renderMenu() {
   const filteredMenu = menu.filter(i => {
     // Pre-order mode is drinks-only, regardless of the tab selection.
     if (preorderMode && i.category !== 'DRINK') return false;
+    // If the campaign restricts to specific menuItemIds, enforce it here
+    // too (belt-and-braces — backend also validates at order creation).
+    if (preorderMode && Array.isArray(preorderInfo?.eligibleItems) && preorderInfo.eligibleItems.length > 0) {
+      if (!preorderInfo.eligibleItems.includes(i.id)) return false;
+    }
     if (menuCategory !== 'ALL' && i.category !== menuCategory) return false;
     if (menuFilter && !i.name.toLowerCase().includes(menuFilter.toLowerCase())) return false;
     return true;
@@ -278,8 +306,10 @@ function bindShellEvents() {
     });
   });
 
-  document.getElementById('collectionTime')?.addEventListener('change', e => {
-    collectionTime = e.target.value;
+  document.querySelectorAll('input[name="collectionTime"]').forEach(radio => {
+    radio.addEventListener('change', e => {
+      if (e.target.checked) collectionTime = e.target.value;
+    });
   });
 
   document.getElementById('layoutToggle')?.addEventListener('click', () => {
@@ -431,9 +461,8 @@ cartSubmit.addEventListener('click', async () => {
 
   if (preorderMode && !collectionTime) {
     showError('Please select a collection time');
-    // Reopen the cart so the user can see the top-of-page picker call-out
     cartOverlay.classList.remove('open');
-    document.getElementById('collectionTime')?.focus();
+    document.querySelector('input[name="collectionTime"]')?.focus();
     return;
   }
 

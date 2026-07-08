@@ -295,7 +295,117 @@ function renderSummary(container) {
       Gross / Net based on ARCHIVED + READY orders. Refunds = post-completion cancellations.
       Discounts include all <code>discountOffset</code> values (NEWCOMER, STAFF, PASTOR, CELEBRATION, VOUCHER).
     </p>
+    <div id="rptActivityLog" style="margin-top:28px">
+      <h3 style="margin:0 0 10px;color:var(--primary,#6B4226)">📋 Activity Log</h3>
+      <div class="loading">Loading activity log…</div>
+    </div>
+    <p style="font-size:.8rem;color:var(--text-light,#7A6355);margin-top:12px">
+      Historical stock counts (per-item detail) live in Admin → Ingredients → 📋 Stock History.
+    </p>
   `;
+
+  // Populate the activity log lazily so the summary table renders first.
+  renderActivityLog(container.querySelector('#rptActivityLog'), dates).catch(() => {
+    const el = container.querySelector('#rptActivityLog');
+    if (el) el.innerHTML = '<h3 style="margin:0 0 10px;color:var(--primary,#6B4226)">📋 Activity Log</h3><div class="admin-empty"><p>Failed to load activity log</p></div>';
+  });
+}
+
+// ─── Historical Activity Log (checklist + stock snapshots) ───────────
+
+/** Fetch checklist + stock-snapshot dates once, cache within the module. */
+let cachedChecklist = null;
+let cachedSnapshotDates = null;
+
+async function renderActivityLog(host, dates) {
+  if (!host || !dates || !dates.length) {
+    if (host) host.innerHTML = '';
+    return;
+  }
+  // Concurrent fetches; both endpoints are cheap scans/queries. Cached
+  // across renders within the same session — the operator flipping between
+  // months doesn't need to re-scan checklist logs each time.
+  if (!cachedChecklist) {
+    cachedChecklist = api('GET', '/api/admin/checklist/logs').then(r => r.logs || []).catch(() => []);
+  }
+  if (!cachedSnapshotDates) {
+    cachedSnapshotDates = api('GET', '/api/admin/stock-history/snapshots').then(r => r.dates || []).catch(() => []);
+  }
+  const [logs, snapshotDates] = await Promise.all([cachedChecklist, cachedSnapshotDates]);
+
+  const snapshotCountByDate = {};
+  for (const s of snapshotDates || []) {
+    if (s && s.date) snapshotCountByDate[s.date] = Number(s.count || 0);
+  }
+
+  // Bucket checklist logs by date + phase.
+  const logsByDate = {};
+  for (const l of logs) {
+    if (!l || !l.date) continue;
+    const bucket = logsByDate[l.date] || (logsByDate[l.date] = {});
+    bucket[l.phase] = l;
+  }
+
+  const rowsHtml = dates.map(date => {
+    const b = logsByDate[date] || {};
+    const cell = (log) => {
+      const c = phaseCompletionForReport(log);
+      return c
+        ? `<span style="font-variant-numeric:tabular-nums">${fmtTimeShort(c.at)}</span> <span style="color:var(--text-light,#7A6355)">${escapeHtmlReport(c.by)}</span>`
+        : '<span style="color:var(--text-light,#7A6355)">—</span>';
+    };
+    const stockCount = snapshotCountByDate[date] || 0;
+    const stockCell = stockCount > 0
+      ? `<span style="font-weight:600">${stockCount}</span> <span style="color:var(--text-light,#7A6355)">count${stockCount === 1 ? '' : 's'}</span>`
+      : '<span style="color:var(--text-light,#7A6355)">—</span>';
+    return `<tr>
+      <td style="padding:6px 10px;border-bottom:1px solid var(--cream-dark,#E5DACB)">${formatDateHeader(date)}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid var(--cream-dark,#E5DACB)">${cell(b.open)}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid var(--cream-dark,#E5DACB)">${cell(b.handover)}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid var(--cream-dark,#E5DACB)">${cell(b.close)}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid var(--cream-dark,#E5DACB)">${stockCell}</td>
+    </tr>`;
+  }).join('');
+
+  host.innerHTML = `
+    <h3 style="margin:0 0 10px;color:var(--primary,#6B4226)">📋 Activity Log</h3>
+    <div style="overflow-x:auto">
+      <table style="border-collapse:collapse;width:100%;min-width:560px">
+        <thead><tr>
+          <th style="text-align:left;padding:8px 10px;border-bottom:2px solid var(--cream-dark,#E5DACB)">Date</th>
+          <th style="text-align:left;padding:8px 10px;border-bottom:2px solid var(--cream-dark,#E5DACB)">Opened</th>
+          <th style="text-align:left;padding:8px 10px;border-bottom:2px solid var(--cream-dark,#E5DACB)">Handover</th>
+          <th style="text-align:left;padding:8px 10px;border-bottom:2px solid var(--cream-dark,#E5DACB)">Closed</th>
+          <th style="text-align:left;padding:8px 10px;border-bottom:2px solid var(--cream-dark,#E5DACB)">Stock Count</th>
+        </tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    </div>`;
+}
+
+/** Same phase-completion derivation as admin.js's dashboard. Kept local
+ *  here so reports.js has no cross-file dependency. */
+function phaseCompletionForReport(log) {
+  if (!log || log.allCompleted !== true) return null;
+  const entries = Object.values(log.items || {})
+    .filter(i => i && i.checked && i.completedAt);
+  if (!entries.length) return null;
+  entries.sort((a, b) => String(a.completedAt).localeCompare(String(b.completedAt)));
+  const last = entries[entries.length - 1];
+  return { at: last.completedAt, by: last.completedBy || 'Unknown' };
+}
+
+function fmtTimeShort(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString('en-MY', { hour: 'numeric', minute: '2-digit', hour12: true });
+}
+
+function escapeHtmlReport(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 /** Aggregate one column of the summary from a list of orders for a single day. */
