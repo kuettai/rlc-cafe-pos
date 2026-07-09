@@ -1248,12 +1248,18 @@ function openAdminStockCount(location){
 async function loadSettings(container){
   container.innerHTML = '<div class="loading">Loading settings...</div>';
   try{
-    const settings = await api('GET','/api/admin/settings');
-    renderSettingsSection(container, settings);
+    // Load both in parallel — pre-order templates live in a separate row
+    // and shouldn't block the main settings render if the endpoint is
+    // slow. A failure there just means the Templates section is skipped.
+    const [settings, templates] = await Promise.all([
+      api('GET','/api/admin/settings'),
+      api('GET','/api/admin/settings/preorder-templates').catch(() => null),
+    ]);
+    renderSettingsSection(container, settings, templates);
   } catch(e){ container.innerHTML = '<div class="admin-empty"><p>Failed to load settings</p></div>'; }
 }
 
-function renderSettingsSection(container, settings){
+function renderSettingsSection(container, settings, templates){
   container.innerHTML = `<div class="admin-section">
     <div class="admin-section-header"><h2>Settings</h2></div>
     <div class="admin-form">
@@ -1283,7 +1289,8 @@ function renderSettingsSection(container, settings){
         <button class="pos-btn pos-btn-primary" id="btnSaveSettings">Save Settings</button>
       </div>
     </div>
-  </div>`;
+  </div>
+  <div class="admin-section" id="preorderTemplatesSection" style="margin-top:24px"></div>`;
 
   $('#btnSaveSettings').onclick = async()=>{
     const body = {
@@ -1297,6 +1304,138 @@ function renderSettingsSection(container, settings){
       await api('PUT','/api/admin/settings', body);
       showSuccess('Settings saved');
     } catch(e){ showError('Failed to save settings'); }
+  };
+
+  // Pre-Order Templates block (loaded via loadSettings). Skipped when the
+  // template endpoint returned null (failure) so the main settings page
+  // stays usable even if the templates row is broken.
+  if (templates) {
+    renderPreorderTemplatesSection(container.querySelector('#preorderTemplatesSection'), templates);
+  }
+}
+
+// ─── Pre-Order Templates section (Admin → Settings) ─────────────────
+
+// Working state for the keyword/collection pill inputs. Reset every time
+// the section is rendered so nested renders don't leak.
+let _preorderTplKeywords = [];
+let _preorderTplCollectionOpts = [];
+
+function renderPreorderTemplatesSection(host, templates) {
+  if (!host) return;
+  _preorderTplKeywords = Array.isArray(templates.eligibleItemKeywords) ? templates.eligibleItemKeywords.slice() : [];
+  _preorderTplCollectionOpts = Array.isArray(templates.collectionOptions) ? templates.collectionOptions.slice() : [];
+
+  const banner = typeof templates.bannerMessage === 'string' ? templates.bannerMessage : '';
+  const drinks = typeof templates.drinksDescription === 'string' ? templates.drinksDescription : '';
+  const updated = templates.updatedAt ? new Date(templates.updatedAt).toLocaleString() : '';
+
+  host.innerHTML = `
+    <div class="admin-section-header"><h2>📝 Pre-Order Templates</h2></div>
+    <p style="color:var(--text-light);font-size:.85rem;margin-bottom:12px">
+      Defaults that pre-fill the "Create Pre-Order Link" form. Existing links keep their own copy — changes here only affect NEW links.
+      ${updated ? `<br><em style="font-size:.8rem">Last updated: ${escapeHtml(updated)}</em>` : ''}
+    </p>
+    <div class="admin-form">
+      <div class="admin-form-group">
+        <label>Banner Message</label>
+        <textarea id="tplBanner" class="pos-input" rows="3" maxlength="500" style="min-height:60px;font-family:inherit">${escapeHtml(banner)}</textarea>
+        <p style="font-size:.75rem;color:var(--text-light);margin-top:4px">Use <code>{$SUNDAY}</code> to auto-insert the next Sunday date (e.g. "Sunday, 12 Jul").</p>
+      </div>
+
+      <div class="admin-form-group">
+        <label>Drinks Description</label>
+        <textarea id="tplDrinks" class="pos-input" rows="6" maxlength="1000" style="min-height:120px;font-family:inherit">${escapeHtml(drinks)}</textarea>
+        <p style="font-size:.75rem;color:var(--text-light);margin-top:4px">Shown below the banner. Supports <code>{$SUNDAY}</code>.</p>
+      </div>
+
+      <div class="admin-form-group">
+        <label>Eligible Drink Keywords</label>
+        <div id="tplKeywordList" style="display:flex;flex-direction:column;gap:6px;margin-bottom:6px"></div>
+        <button type="button" class="pos-btn pos-btn-sm" id="tplAddKeyword">+ Add keyword</button>
+        <p style="font-size:.75rem;color:var(--text-light);margin-top:6px">Drinks whose name contains any of these words are pre-checked when creating a new link. Case-insensitive substring match.</p>
+      </div>
+
+      <div class="admin-form-group">
+        <label>Collection Options</label>
+        <div id="tplCollectionList" style="display:flex;flex-direction:column;gap:6px;margin-bottom:6px"></div>
+        <button type="button" class="pos-btn pos-btn-sm" id="tplAddOpt">+ Add option</button>
+      </div>
+
+      <div class="admin-form-actions" style="margin-top:24px;border-top:1px solid var(--cream-dark);padding-top:20px">
+        <button class="pos-btn pos-btn-primary" id="btnSaveTemplates">Save Templates</button>
+      </div>
+    </div>`;
+
+  const renderKeywordList = () => {
+    const el = host.querySelector('#tplKeywordList');
+    el.innerHTML = _preorderTplKeywords.map((v, i) => `
+      <div style="display:flex;gap:6px;align-items:center">
+        <input class="pos-input" data-kw-idx="${i}" value="${escapeAttr(v)}" placeholder="e.g. latte" style="flex:1;margin:0">
+        <button type="button" class="pos-btn pos-btn-sm pos-btn-danger" data-kw-remove="${i}" style="min-width:36px">✕</button>
+      </div>`).join('');
+    el.querySelectorAll('input[data-kw-idx]').forEach(inp => {
+      inp.oninput = () => { _preorderTplKeywords[+inp.dataset.kwIdx] = inp.value; };
+    });
+    el.querySelectorAll('[data-kw-remove]').forEach(btn => {
+      btn.onclick = () => {
+        _preorderTplKeywords.splice(+btn.dataset.kwRemove, 1);
+        renderKeywordList();
+      };
+    });
+  };
+
+  const renderOptList = () => {
+    const el = host.querySelector('#tplCollectionList');
+    el.innerHTML = _preorderTplCollectionOpts.map((v, i) => `
+      <div style="display:flex;gap:6px;align-items:center">
+        <input class="pos-input" data-opt-idx="${i}" value="${escapeAttr(v)}" placeholder="e.g. After 1st Service" maxlength="60" style="flex:1;margin:0">
+        <button type="button" class="pos-btn pos-btn-sm pos-btn-danger" data-opt-remove="${i}" ${_preorderTplCollectionOpts.length <= 1 ? 'disabled title="Need at least one option"' : ''} style="min-width:36px">✕</button>
+      </div>`).join('');
+    el.querySelectorAll('input[data-opt-idx]').forEach(inp => {
+      inp.oninput = () => { _preorderTplCollectionOpts[+inp.dataset.optIdx] = inp.value; };
+    });
+    el.querySelectorAll('[data-opt-remove]').forEach(btn => {
+      btn.onclick = () => {
+        _preorderTplCollectionOpts.splice(+btn.dataset.optRemove, 1);
+        renderOptList();
+      };
+    });
+  };
+
+  renderKeywordList();
+  renderOptList();
+
+  host.querySelector('#tplAddKeyword').onclick = () => {
+    _preorderTplKeywords.push('');
+    renderKeywordList();
+    const inputs = host.querySelectorAll('#tplKeywordList input');
+    inputs[inputs.length - 1]?.focus();
+  };
+  host.querySelector('#tplAddOpt').onclick = () => {
+    _preorderTplCollectionOpts.push('');
+    renderOptList();
+    const inputs = host.querySelectorAll('#tplCollectionList input');
+    inputs[inputs.length - 1]?.focus();
+  };
+
+  host.querySelector('#btnSaveTemplates').onclick = async () => {
+    const bannerMessage = host.querySelector('#tplBanner').value;
+    const drinksDescription = host.querySelector('#tplDrinks').value;
+    const eligibleItemKeywords = _preorderTplKeywords.map(s => s.trim()).filter(Boolean);
+    const collectionOptions = _preorderTplCollectionOpts.map(s => s.trim()).filter(Boolean);
+    if (!collectionOptions.length) {
+      showError('At least one collection option is required');
+      return;
+    }
+    try {
+      await api('PUT', '/api/admin/settings/preorder-templates', {
+        bannerMessage, drinksDescription, eligibleItemKeywords, collectionOptions,
+      });
+      showSuccess('Templates saved');
+    } catch (e) {
+      showError('Failed to save templates');
+    }
   };
 }
 
@@ -2026,11 +2165,22 @@ function openPreorderForm(container){
   const expiresGuess = new Date(nextSunday);
   expiresGuess.setHours(15, 0, 0, 0); // Sunday 3PM local
 
-  // Fetch admin menu (all active DRINKs) for the eligibility checkboxes.
-  // Kicked off eagerly; the form renders once it arrives.
+  // Fetch admin menu (all active DRINKs) for the eligibility checkboxes,
+  // and the current default templates in parallel. Both kicked off eagerly;
+  // the form renders as they arrive.
   const menuP = api('GET', '/api/admin/menu').then(d => (Array.isArray(d) ? d : d.items || []).filter(m => m.category === 'DRINK')).catch(() => []);
-  // Collection-option working state (Change 3). Default to the same two
-  // options the backend uses; admin can rename or add.
+  const templatesP = api('GET', '/api/admin/settings/preorder-templates').catch(() => ({
+    // Backstop defaults (also the backend defaults) so a failing endpoint
+    // still gives the operator a usable form.
+    bannerMessage: 'Ministry Pre-Order — Kindly select one drink\n{$SUNDAY} Service · Collect {$SUNDAY}',
+    drinksDescription: '• Latte (hot, iced, oat)\n• Long Black (hot, iced)\n• Decaf (black / latte)\n• Soda (iced)\n• Tea\n• Mineral Water',
+    eligibleItemKeywords: ['latte', 'long black', 'decaf', 'soda', 'tea', 'mineral water'],
+    collectionOptions: ['After 1st Service', 'After 2nd Service'],
+  }));
+  // Collection-option working state (mutated by wirePreorderForm).
+  // Populated from templates once the fetch resolves; kick off with the
+  // hardcoded default so the form has something to show if templates take
+  // a moment. wirePreorderForm re-renders when templates land.
   let collectionOpts = ['After 1st Service', 'After 2nd Service'];
 
   // Placeholder shell — the drink list slot gets populated once menuP settles.
@@ -2093,10 +2243,16 @@ function openPreorderForm(container){
     </div>`;
 
   showFormModal(form);
-  wirePreorderForm(form, container, menuP, collectionOpts);
+  wirePreorderForm(form, container, menuP, collectionOpts, templatesP);
 }
 
-function wirePreorderForm(form, container, menuP, collectionOpts) {
+function wirePreorderForm(form, container, menuP, collectionOpts, templatesP) {
+  // Templates seed the form defaults; applied at the bottom of this
+  // function after all local helpers are defined so we can reuse them.
+  // Fallback keyword list matches what the backend returns by default.
+  form._eligibleKeywords = ['latte', 'long black', 'decaf', 'soda', 'tea', 'mineral water'];
+
+
   // ─── Collection-options list ──────────────────────────────────────
   const renderCollectionOpts = () => {
     const listEl = form.querySelector('#pfCollectionList');
@@ -2133,20 +2289,12 @@ function wirePreorderForm(form, container, menuP, collectionOpts) {
       listEl.innerHTML = '<div style="color:var(--text-light);padding:4px 0">No active drinks in the menu.</div>';
       return;
     }
-    // Default pre-check: ministry list only (Latte / Long Black / Decaf /
-    // Soda / Tea / Mineral Water). Substring match against the item name
-    // (case-insensitive) so variant naming doesn't matter. Admin can still
-    // freely tick / untick.
-    const DEFAULT_KEYWORDS = ['latte', 'long black', 'decaf', 'soda', 'tea', 'mineral water'];
-    const isDefault = (name) => {
-      const n = String(name || '').toLowerCase();
-      return DEFAULT_KEYWORDS.some(kw => n.includes(kw));
-    };
+    form._drinks = drinks; // cached for applyDrinkDefaultChecks re-tick
     listEl.innerHTML = drinks
       .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
       .map(m => {
         const id = m.menuItemId || m.id;
-        const checked = isDefault(m.name);
+        const checked = matchesEligibilityKeywords(m.name, form._eligibleKeywords);
         return `<label style="display:flex;gap:8px;align-items:center;padding:4px 0;font-weight:400">
           <input type="checkbox" data-drink-id="${escapeAttr(id)}"${checked ? ' checked' : ''}>
           <span>${escapeHtml(m.name || '(unnamed)')} <span style="color:var(--text-light);font-size:.85rem">— RM ${Number(m.basePrice || 0).toFixed(2)}</span></span>
@@ -2207,6 +2355,55 @@ function wirePreorderForm(form, container, menuP, collectionOpts) {
       loadPreorderCodes(container);
     } catch(e){ showError('Failed to create link'); }
   };
+
+  // ─── Apply template defaults (fired after all helpers exist) ──────
+  // Runs asynchronously; the form is already interactive by the time
+  // this settles. Only overwrites empty textareas so a fast typist's
+  // input isn't clobbered by a late-arriving template.
+  templatesP.then(templates => {
+    if (!templates) return;
+    if (typeof templates.bannerMessage === 'string' && !form.querySelector('#pfBanner').value) {
+      form.querySelector('#pfBanner').value = templates.bannerMessage;
+    }
+    if (typeof templates.drinksDescription === 'string' && !form.querySelector('#pfDrinksDesc').value) {
+      form.querySelector('#pfDrinksDesc').value = templates.drinksDescription;
+    }
+    if (Array.isArray(templates.collectionOptions) && templates.collectionOptions.length) {
+      collectionOpts.length = 0;
+      for (const o of templates.collectionOptions) collectionOpts.push(o);
+      renderCollectionOpts();
+    }
+    if (Array.isArray(templates.eligibleItemKeywords)) {
+      form._eligibleKeywords = templates.eligibleItemKeywords.map(k => String(k || '').toLowerCase());
+      // If drinks landed before templates, re-tick to match new keywords.
+      applyDrinkDefaultChecks(form);
+    }
+  });
+}
+
+/** Case-insensitive substring match — used by the pre-check logic on the
+ *  eligible-drinks checkboxes AND by applyDrinkDefaultChecks below. */
+function matchesEligibilityKeywords(name, keywords) {
+  if (!Array.isArray(keywords) || !keywords.length) return false;
+  const n = String(name || '').toLowerCase();
+  return keywords.some(kw => kw && n.includes(String(kw).toLowerCase()));
+}
+
+/** Re-apply the "checked" state on already-rendered drink checkboxes.
+ *  Called when the template keyword list arrives after the drinks have
+ *  already rendered (async race). Only mutates checkboxes; leaves any
+ *  manual clicks the admin made in the meantime alone by ONLY setting
+ *  checked=true where the keyword matches — never unchecking. */
+function applyDrinkDefaultChecks(form) {
+  const drinks = form._drinks;
+  if (!Array.isArray(drinks) || !drinks.length) return;
+  const kws = form._eligibleKeywords || [];
+  drinks.forEach(m => {
+    const id = m.menuItemId || m.id;
+    const cb = form.querySelector(`input[data-drink-id="${CSS.escape(String(id))}"]`);
+    if (!cb) return;
+    if (matchesEligibilityKeywords(m.name, kws)) cb.checked = true;
+  });
 }
 
 // --- Stock History Modal ---

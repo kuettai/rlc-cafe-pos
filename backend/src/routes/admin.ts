@@ -607,6 +607,80 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
       return res(200, { message: 'Coming soon' });
     }
 
+    // ─── Pre-Order Templates (admin-editable defaults) ────────────────
+    // Single record stored at PK=SETTINGS#PREORDER_TEMPLATES,SK=META.
+    // When creating a new pre-order code, the admin form pre-fills from
+    // these values. Existing codes are unaffected — they carry their own
+    // independent copy of these fields on their own record.
+    if (method === 'GET' && path.endsWith('/admin/settings/preorder-templates')) {
+      const r = await docClient.send(new GetCommand({
+        TableName: SETTINGS_TABLE,
+        Key: { PK: 'SETTINGS#PREORDER_TEMPLATES', SK: 'META' },
+      }));
+      const stored = r.Item || {};
+      // Defaults returned when the record hasn't been created yet.
+      return res(200, {
+        bannerMessage: typeof stored.bannerMessage === 'string'
+          ? stored.bannerMessage
+          : 'Ministry Pre-Order — Kindly select one drink\n{$SUNDAY} Service · Collect {$SUNDAY}',
+        drinksDescription: typeof stored.drinksDescription === 'string'
+          ? stored.drinksDescription
+          : '• Latte (hot, iced, oat)\n• Long Black (hot, iced)\n• Decaf (black / latte)\n• Soda (iced)\n• Tea\n• Mineral Water',
+        eligibleItemKeywords: Array.isArray(stored.eligibleItemKeywords) && stored.eligibleItemKeywords.length
+          ? stored.eligibleItemKeywords
+          : ['latte', 'long black', 'decaf', 'soda', 'tea', 'mineral water'],
+        collectionOptions: Array.isArray(stored.collectionOptions) && stored.collectionOptions.length
+          ? stored.collectionOptions
+          : ['After 1st Service', 'After 2nd Service'],
+        updatedAt: stored.updatedAt || null,
+      });
+    }
+
+    if (method === 'PUT' && path.endsWith('/admin/settings/preorder-templates')) {
+      // Normalize input; reject payloads that are dangerously large or
+      // wrong-typed. Same shape as GET so the round-trip is symmetric.
+      const banner = typeof body.bannerMessage === 'string' ? body.bannerMessage : '';
+      if (banner.length > 500) return res(400, { error: 'bannerMessage cannot exceed 500 characters' });
+      const drinks = typeof body.drinksDescription === 'string' ? body.drinksDescription : '';
+      if (drinks.length > 1000) return res(400, { error: 'drinksDescription cannot exceed 1000 characters' });
+
+      const rawKeywords: unknown[] = Array.isArray(body.eligibleItemKeywords) ? body.eligibleItemKeywords : [];
+      const eligibleItemKeywords: string[] = Array.from(new Set(
+        rawKeywords
+          .filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
+          .map((x) => x.trim().toLowerCase())
+      ));
+
+      const rawOpts: unknown[] = Array.isArray(body.collectionOptions) ? body.collectionOptions : [];
+      const collectionOptions: string[] = rawOpts
+        .filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
+        .map((x) => x.trim().slice(0, 60));
+
+      if (!collectionOptions.length) return res(400, { error: 'At least one collectionOption is required' });
+
+      const now = new Date().toISOString();
+      await docClient.send(new PutCommand({
+        TableName: SETTINGS_TABLE,
+        Item: {
+          PK: 'SETTINGS#PREORDER_TEMPLATES',
+          SK: 'META',
+          bannerMessage: banner,
+          drinksDescription: drinks,
+          eligibleItemKeywords,
+          collectionOptions,
+          updatedAt: now,
+        },
+      }));
+
+      return res(200, {
+        bannerMessage: banner,
+        drinksDescription: drinks,
+        eligibleItemKeywords,
+        collectionOptions,
+        updatedAt: now,
+      });
+    }
+
     // Stock History (from cashier stock-count snapshots)
     // NOTE: /snapshots must be matched before the generic /stock-history so
     // the more specific path wins.
