@@ -145,6 +145,22 @@ header h1{
 .preorder-banner-text{flex:1;line-height:1.35;font-size:.95rem}
 .preorder-banner-sub{font-size:.82rem;opacity:.92;margin-top:2px}
 
+/* Drinks description block — sits directly under the pre-order banner
+   and lists what's on offer. Line-per-item, quiet styling so the banner
+   still leads visually. */
+.preorder-drinks-desc{
+  margin: -6px 0 16px;
+  padding: 10px 14px;
+  background: #F5F3FF;
+  border: 1px solid #DDD6FE;
+  border-radius: 12px;
+  color: #4C1D95;
+  font-size: .88rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+.preorder-drinks-desc > div{ min-height: 1.2em; }
+
 /* Collection-time picker section */
 .collection-section{
   background:#F5F3FF;

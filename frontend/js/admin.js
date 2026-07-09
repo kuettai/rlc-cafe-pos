@@ -2057,8 +2057,8 @@ function openPreorderForm(container){
 
     <div class="admin-form-group">
       <label>Banner Message <span style="color:var(--text-light);font-weight:400">(optional, max 200 chars)</span></label>
-      <textarea id="pfBanner" class="pos-input" rows="3" maxlength="200" placeholder="Ministry Pre-Order — Kindly select one drink&#10;Sunday ${nextSunday.toLocaleDateString(undefined,{day:'numeric',month:'short'})} Service · Collect Sunday, ${nextSunday.toLocaleDateString(undefined,{day:'numeric',month:'short'})}" style="min-height:60px;font-family:inherit"></textarea>
-      <p style="font-size:.75rem;color:var(--text-light);margin-top:4px">Leave blank to use the default template above.</p>
+      <textarea id="pfBanner" class="pos-input" rows="3" maxlength="200" placeholder="Ministry Pre-Order — Kindly select one drink&#10;{$SUNDAY} Service · Collect {$SUNDAY}" style="min-height:60px;font-family:inherit"></textarea>
+      <p style="font-size:.75rem;color:var(--text-light);margin-top:4px">Use <code>{$SUNDAY}</code> to auto-insert the next Sunday date (e.g. "Sunday, 12 Jul"). Leave blank for the default template.</p>
     </div>
 
     <div class="admin-form-group">
@@ -2072,7 +2072,13 @@ function openPreorderForm(container){
       <div id="pfDrinkList" style="max-height:220px;overflow-y:auto;border:1px solid var(--cream-dark);border-radius:8px;padding:8px 12px;background:#fff">
         <div class="loading">Loading drinks…</div>
       </div>
-      <p style="font-size:.75rem;color:var(--text-light);margin-top:4px">Uncheck items to exclude them. Empty selection = all drinks (backward compatible).</p>
+      <p style="font-size:.75rem;color:var(--text-light);margin-top:4px">Defaults to the ministry list (Latte / Long Black / Decaf / Soda / Tea / Mineral Water). Adjust as needed.</p>
+    </div>
+
+    <div class="admin-form-group">
+      <label>Drinks Description <span style="color:var(--text-light);font-weight:400">(optional, max 500 chars)</span></label>
+      <textarea id="pfDrinksDesc" class="pos-input" rows="6" maxlength="500" placeholder="• Latte (hot, iced, oat)&#10;• Long Black (hot, iced)&#10;• Decaf (black / latte)&#10;• Soda (iced)&#10;• Tea&#10;• Mineral Water" style="min-height:120px;font-family:inherit"></textarea>
+      <p style="font-size:.75rem;color:var(--text-light);margin-top:4px">Shown to customers below the banner. Supports <code>{$SUNDAY}</code>. Leave blank for the default template above.</p>
     </div>
 
     <div class="admin-form-group">
@@ -2127,13 +2133,22 @@ function wirePreorderForm(form, container, menuP, collectionOpts) {
       listEl.innerHTML = '<div style="color:var(--text-light);padding:4px 0">No active drinks in the menu.</div>';
       return;
     }
-    // Default: all checked (matches spec's "backward compatible: empty = all").
+    // Default pre-check: ministry list only (Latte / Long Black / Decaf /
+    // Soda / Tea / Mineral Water). Substring match against the item name
+    // (case-insensitive) so variant naming doesn't matter. Admin can still
+    // freely tick / untick.
+    const DEFAULT_KEYWORDS = ['latte', 'long black', 'decaf', 'soda', 'tea', 'mineral water'];
+    const isDefault = (name) => {
+      const n = String(name || '').toLowerCase();
+      return DEFAULT_KEYWORDS.some(kw => n.includes(kw));
+    };
     listEl.innerHTML = drinks
       .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
       .map(m => {
         const id = m.menuItemId || m.id;
+        const checked = isDefault(m.name);
         return `<label style="display:flex;gap:8px;align-items:center;padding:4px 0;font-weight:400">
-          <input type="checkbox" data-drink-id="${escapeAttr(id)}" checked>
+          <input type="checkbox" data-drink-id="${escapeAttr(id)}"${checked ? ' checked' : ''}>
           <span>${escapeHtml(m.name || '(unnamed)')} <span style="color:var(--text-light);font-size:.85rem">— RM ${Number(m.basePrice || 0).toFixed(2)}</span></span>
         </label>`;
       }).join('');
@@ -2163,6 +2178,7 @@ function wirePreorderForm(form, container, menuP, collectionOpts) {
     }
 
     const bannerMessage = form.querySelector('#pfBanner').value.trim();
+    const drinksDescription = form.querySelector('#pfDrinksDesc').value.trim();
     // Only send eligibleItems when user has restricted the selection. A
     // check-none-or-check-all state both mean "no restriction" per the
     // backend's contract (empty array). Prefer explicit whitelist only
@@ -2182,6 +2198,7 @@ function wirePreorderForm(form, container, menuP, collectionOpts) {
       const result = await api('POST', '/api/admin/preorder-codes', {
         name, serviceDate, opensAt, expiresAt,
         bannerMessage,
+        drinksDescription,
         eligibleItems,
         collectionOptions,
       });

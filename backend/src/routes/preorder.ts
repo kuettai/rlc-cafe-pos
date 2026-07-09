@@ -50,13 +50,40 @@ export interface PreorderCode {
   isActive: boolean;
   // ─── Customizable per-campaign fields ──────────────────────────────
   // Optional; when absent the frontend falls back to defaults.
-  bannerMessage?: string;               // banner override; max 200 chars
+  bannerMessage?: string;               // banner override; max 200 chars; supports {$SUNDAY}
+  drinksDescription?: string;           // free-text list shown below banner; max 500 chars
   eligibleItems?: string[];             // whitelist of menuItemIds; empty/undefined = all active drinks
   collectionOptions?: string[];         // choices for the collection-time radios
 }
 
-// Server-side defaults for the two-option collection picker (Change 3).
+// Server-side defaults for the two-option collection picker.
 export const DEFAULT_COLLECTION_OPTIONS: string[] = ['After 1st Service', 'After 2nd Service'];
+
+/**
+ * Format "Sunday, D MMM" for the next Sunday in Malaysia time (UTC+8).
+ * If today (in MYT) is already Sunday, returns today. Independent of the
+ * campaign's stored serviceDate — this is a view-time-relative resolution
+ * per the spec, so a customer viewing the page sees the upcoming Sunday
+ * regardless of when the admin created the code.
+ */
+function resolveNextSundayLabel(now: Date = new Date()): string {
+  // Shift into MYT wall-clock so weekday math is done in the café's TZ.
+  const mytMs = now.getTime() + 8 * 60 * 60 * 1000;
+  const mytNow = new Date(mytMs);
+  const dow = mytNow.getUTCDay(); // 0 = Sunday
+  const daysUntilSun = (7 - dow) % 7; // 0 when today IS Sunday
+  const target = new Date(mytMs + daysUntilSun * 24 * 60 * 60 * 1000);
+  const monthShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][target.getUTCMonth()];
+  return `Sunday, ${target.getUTCDate()} ${monthShort}`;
+}
+
+/** Replace all `{$SUNDAY}` occurrences with the resolved label. Empty/undefined passes through. */
+function resolveTemplate(text: string | undefined | null): string {
+  if (!text) return '';
+  if (!text.includes('{$SUNDAY}')) return text;
+  const label = resolveNextSundayLabel();
+  return text.replace(/\{\$SUNDAY\}/g, label);
+}
 
 /**
  * Validate a code against the current time. Returned reasons match the
@@ -102,7 +129,10 @@ export async function handleValidatePreorder(event: APIGatewayProxyEvent): Promi
       opensAt: v.code.opensAt,
       expiresAt: v.code.expiresAt,
       serviceDate: v.code.serviceDate,
-      bannerMessage: v.code.bannerMessage || '',
+      // Template variables ({$SUNDAY}) resolved server-side so the frontend
+      // just renders the string. Both fields resolve; either can be empty.
+      bannerMessage: resolveTemplate(v.code.bannerMessage),
+      drinksDescription: resolveTemplate(v.code.drinksDescription),
       // Empty array (never null) so the client can rely on Array.isArray().
       eligibleItems: Array.isArray(v.code.eligibleItems) ? v.code.eligibleItems : [],
       collectionOptions:
@@ -134,6 +164,10 @@ async function createPreorderCode(event: APIGatewayProxyEvent, actor: string): P
   const rawBanner = typeof body.bannerMessage === 'string' ? body.bannerMessage.trim() : '';
   if (rawBanner.length > 200) return res(400, { error: 'bannerMessage cannot exceed 200 characters' });
   const bannerMessage = rawBanner;
+
+  const rawDrinks = typeof body.drinksDescription === 'string' ? body.drinksDescription.trim() : '';
+  if (rawDrinks.length > 500) return res(400, { error: 'drinksDescription cannot exceed 500 characters' });
+  const drinksDescription = rawDrinks;
 
   const rawEligible: unknown[] = Array.isArray(body.eligibleItems) ? body.eligibleItems : [];
   // Store as unique, trimmed, non-empty strings. Empty list = "all drinks".
@@ -175,6 +209,7 @@ async function createPreorderCode(event: APIGatewayProxyEvent, actor: string): P
     createdBy: actor || 'Unknown',
     isActive: true,
     bannerMessage,
+    drinksDescription,
     eligibleItems,
     collectionOptions,
   };
