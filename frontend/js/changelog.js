@@ -108,7 +108,21 @@
     document.querySelectorAll('.app-version').forEach(el => {
       if (el.dataset.changelogWired === '1') return;
       el.dataset.changelogWired = '1';
-      el.style.cursor = 'pointer';
+
+      // Preserve the original version text (e.g. "v1.51.0") and append a
+      // separate "What's new?" span that carries the clickable affordance
+      // (underline + pointer cursor). The version number itself stays
+      // unstyled so it doesn't look like a link. The whole element still
+      // handles click / Enter / Space to keep the hit target sensible for
+      // touch users, but the visual cue is on the span.
+      const versionText = el.textContent.trim();
+      el.textContent = '';
+      el.appendChild(document.createTextNode(versionText + ' '));
+      const link = document.createElement('span');
+      link.textContent = "· What's new?";
+      link.style.cssText = 'text-decoration:underline;opacity:.8;margin-left:4px;cursor:pointer';
+      el.appendChild(link);
+
       el.setAttribute('role', 'button');
       el.setAttribute('tabindex', '0');
       el.setAttribute('title', 'View changelog');
