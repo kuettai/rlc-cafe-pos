@@ -316,6 +316,8 @@ function renderSummary(container) {
 /** Fetch checklist + stock-snapshot dates once, cache within the module. */
 let cachedChecklist = null;
 let cachedSnapshotDates = null;
+/** Per-date snapshot detail, cached across renders in the same session. */
+const cachedSnapshotsByDate = new Map();
 
 async function renderActivityLog(host, dates) {
   if (!host || !dates || !dates.length) {
@@ -338,6 +340,20 @@ async function renderActivityLog(host, dates) {
     if (s && s.date) snapshotCountByDate[s.date] = Number(s.count || 0);
   }
 
+  // Fetch per-date snapshot detail (in parallel) for every visible date that
+  // has any snapshots. Cached per date so switching months doesn't re-fetch.
+  const datesNeedingDetail = dates.filter(d => (snapshotCountByDate[d] || 0) > 0 && !cachedSnapshotsByDate.has(d));
+  if (datesNeedingDetail.length) {
+    await Promise.all(datesNeedingDetail.map(async d => {
+      try {
+        const r = await api('GET', `/api/admin/stock-history?date=${encodeURIComponent(d)}`);
+        cachedSnapshotsByDate.set(d, r.snapshots || []);
+      } catch {
+        cachedSnapshotsByDate.set(d, []);
+      }
+    }));
+  }
+
   // Bucket checklist logs by date + phase.
   const logsByDate = {};
   for (const l of logs) {
@@ -351,26 +367,22 @@ async function renderActivityLog(host, dates) {
     const cell = (log) => {
       const c = phaseCompletionForReport(log);
       return c
-        ? `<span style="font-variant-numeric:tabular-nums">${fmtTimeShort(c.at)}</span> <span style="color:var(--text-light,#7A6355)">${escapeHtmlReport(c.by)}</span>`
+        ? `<span style="font-variant-numeric:tabular-nums">${fmtTimeShort(c.at)}</span> <span style="color:var(--text-light,#7A6355)">· ${escapeHtmlReport(c.by)}</span>`
         : '<span style="color:var(--text-light,#7A6355)">—</span>';
     };
-    const stockCount = snapshotCountByDate[date] || 0;
-    const stockCell = stockCount > 0
-      ? `<span style="font-weight:600">${stockCount}</span> <span style="color:var(--text-light,#7A6355)">count${stockCount === 1 ? '' : 's'}</span>`
-      : '<span style="color:var(--text-light,#7A6355)">—</span>';
     return `<tr>
       <td style="padding:6px 10px;border-bottom:1px solid var(--cream-dark,#E5DACB)">${formatDateHeader(date)}</td>
       <td style="padding:6px 10px;border-bottom:1px solid var(--cream-dark,#E5DACB)">${cell(b.open)}</td>
       <td style="padding:6px 10px;border-bottom:1px solid var(--cream-dark,#E5DACB)">${cell(b.handover)}</td>
       <td style="padding:6px 10px;border-bottom:1px solid var(--cream-dark,#E5DACB)">${cell(b.close)}</td>
-      <td style="padding:6px 10px;border-bottom:1px solid var(--cream-dark,#E5DACB)">${stockCell}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid var(--cream-dark,#E5DACB);max-width:360px">${stockCountCellHtml(date, snapshotCountByDate[date] || 0)}</td>
     </tr>`;
   }).join('');
 
   host.innerHTML = `
     <h3 style="margin:0 0 10px;color:var(--primary,#6B4226)">📋 Activity Log</h3>
     <div style="overflow-x:auto">
-      <table style="border-collapse:collapse;width:100%;min-width:560px">
+      <table style="border-collapse:collapse;width:100%;min-width:640px">
         <thead><tr>
           <th style="text-align:left;padding:8px 10px;border-bottom:2px solid var(--cream-dark,#E5DACB)">Date</th>
           <th style="text-align:left;padding:8px 10px;border-bottom:2px solid var(--cream-dark,#E5DACB)">Opened</th>
@@ -381,6 +393,32 @@ async function renderActivityLog(host, dates) {
         <tbody>${rowsHtml}</tbody>
       </table>
     </div>`;
+}
+
+/**
+ * Render the Stock Count cell: mini-list of "HH:MM · Submitter" for each
+ * snapshot on the date. When there are > 4 snapshots the list is compacted
+ * to "first ... last (N total)" so the row height stays sensible. Falls
+ * back to just "N counts" if per-snapshot detail is unavailable (e.g. the
+ * detail fetch failed).
+ */
+function stockCountCellHtml(date, count) {
+  if (!count) return '<span style="color:var(--text-light,#7A6355)">—</span>';
+  const snaps = cachedSnapshotsByDate.get(date);
+  if (!snaps || !snaps.length) {
+    return `<span style="font-weight:600">${count}</span> <span style="color:var(--text-light,#7A6355)">count${count === 1 ? '' : 's'}</span>`;
+  }
+  // SK sort is descending — resort ascending for chronological display.
+  const sorted = snaps.slice().sort((a, b) =>
+    String(a.timestamp || a.SK || '').localeCompare(String(b.timestamp || b.SK || ''))
+  );
+  const fmtOne = s => `<span style="font-variant-numeric:tabular-nums">${fmtTimeShort(s.timestamp || s.SK)}</span> <span style="color:var(--text-light,#7A6355)">· ${escapeHtmlReport(s.submittedBy || 'Unknown')}</span>`;
+  if (sorted.length <= 4) {
+    return sorted.map(fmtOne).join('<span style="color:var(--cream-dark,#E5DACB);margin:0 4px">·</span>');
+  }
+  const first = fmtOne(sorted[0]);
+  const last  = fmtOne(sorted[sorted.length - 1]);
+  return `${first} <span style="color:var(--text-light,#7A6355);margin:0 4px">…</span> ${last} <span style="color:var(--text-light,#7A6355)">(${sorted.length} total)</span>`;
 }
 
 /** Same phase-completion derivation as admin.js's dashboard. Kept local
