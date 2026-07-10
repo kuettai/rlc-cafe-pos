@@ -51,7 +51,6 @@ export interface PreorderCode {
   // ─── Customizable per-campaign fields ──────────────────────────────
   // Optional; when absent the frontend falls back to defaults.
   bannerMessage?: string;               // banner override; max 200 chars; supports {$SUNDAY}
-  drinksDescription?: string;           // free-text list shown below banner; max 500 chars
   eligibleItems?: string[];             // whitelist of menuItemIds; empty/undefined = all active drinks
   collectionOptions?: string[];         // choices for the collection-time radios
 }
@@ -130,9 +129,8 @@ export async function handleValidatePreorder(event: APIGatewayProxyEvent): Promi
       expiresAt: v.code.expiresAt,
       serviceDate: v.code.serviceDate,
       // Template variables ({$SUNDAY}) resolved server-side so the frontend
-      // just renders the string. Both fields resolve; either can be empty.
+      // just renders the string. Empty passes through as empty.
       bannerMessage: resolveTemplate(v.code.bannerMessage),
-      drinksDescription: resolveTemplate(v.code.drinksDescription),
       // Empty array (never null) so the client can rely on Array.isArray().
       eligibleItems: Array.isArray(v.code.eligibleItems) ? v.code.eligibleItems : [],
       collectionOptions:
@@ -164,10 +162,6 @@ async function createPreorderCode(event: APIGatewayProxyEvent, actor: string): P
   const rawBanner = typeof body.bannerMessage === 'string' ? body.bannerMessage.trim() : '';
   if (rawBanner.length > 200) return res(400, { error: 'bannerMessage cannot exceed 200 characters' });
   const bannerMessage = rawBanner;
-
-  const rawDrinks = typeof body.drinksDescription === 'string' ? body.drinksDescription.trim() : '';
-  if (rawDrinks.length > 500) return res(400, { error: 'drinksDescription cannot exceed 500 characters' });
-  const drinksDescription = rawDrinks;
 
   const rawEligible: unknown[] = Array.isArray(body.eligibleItems) ? body.eligibleItems : [];
   // Store as unique, trimmed, non-empty strings. Empty list = "all drinks".
@@ -209,7 +203,6 @@ async function createPreorderCode(event: APIGatewayProxyEvent, actor: string): P
     createdBy: actor || 'Unknown',
     isActive: true,
     bannerMessage,
-    drinksDescription,
     eligibleItems,
     collectionOptions,
   };

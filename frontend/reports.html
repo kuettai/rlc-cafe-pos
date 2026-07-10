@@ -5,18 +5,144 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#4A2C17">
 <title>Reports - RLC Café</title>
+<link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/admin.css">
 </head>
 <body>
 <header class="pos-header" style="background:linear-gradient(135deg,#4A2C17 0%,#6B4226 50%,#8B5E3C 100%)">
+  <button class="header-hamburger" id="adminHeaderToggle" aria-label="Toggle menu">☰</button>
   <h1>☕ RLC Café — Sales Reports</h1>
   <a href="admin.html" class="header-logout" style="text-decoration:none;display:inline-flex;align-items:center;gap:6px">← Admin</a>
 </header>
 <div class="error-banner" id="errorBanner" role="alert"></div>
-<div class="admin-app" id="app"></div>
+
+<!--
+  Static admin sidebar reused from admin.html's structure so the CSS
+  in admin.css lights up (.admin-sidebar, .sidebar-nav button, .admin-main).
+  Each button navigates to admin.html — that page loads its Dashboard tab
+  by default. The "📈 Reports" button stays on this page and is marked
+  .active to match the admin sidebar's visual convention.
+-->
+<aside class="admin-sidebar" id="adminSidebar">
+  <div class="sidebar-header"><span>☕ Admin</span><button class="sidebar-close" id="sidebarClose" aria-label="Close menu">✕</button></div>
+  <div class="sidebar-user">👤 <span id="sbUser">—</span></div>
+  <nav class="sidebar-nav">
+    <button type="button" onclick="window.location.href='admin.html'">📊 Dashboard</button>
+    <button type="button" onclick="window.location.href='admin.html'">🍽️ Menu</button>
+    <button type="button" onclick="window.location.href='admin.html'">🧪 Ingredients</button>
+    <button type="button" onclick="window.location.href='admin.html'">✅ Checklist</button>
+    <button type="button" onclick="window.location.href='admin.html'">📷 Planogram</button>
+    <button type="button" onclick="window.location.href='admin.html'">👥 Users</button>
+    <button type="button" onclick="window.location.href='admin.html'">🎟️ Vouchers</button>
+    <button type="button" onclick="window.location.href='admin.html'">🔗 Pre-Order Links</button>
+    <button type="button" class="active" aria-current="page">📈 Reports</button>
+    <button type="button" onclick="window.location.href='admin.html'">⚙️ Settings</button>
+  </nav>
+  <div class="sidebar-footer">
+    <a href="pos" class="pos-btn pos-btn-sm" style="text-decoration:none;display:block;text-align:center;margin-bottom:8px">Go to POS</a>
+    <button class="nav-logout" id="sbLogout">Logout</button>
+  </div>
+</aside>
+<div class="admin-overlay" id="adminOverlay"></div>
+
+<main class="admin-main">
+  <!-- reports.js renders login form and report content into #app. -->
+  <div class="admin-app" id="app"></div>
+</main>
+
+<footer class="app-footer" id="appFooter">
+  <span class="app-version">v1.50.2</span>
+  <button id="checkUpdateBtn" class="check-update-btn">Check for update</button>
+</footer>
 
 <script src="js/config.js"></script>
 <script src="js/reports.js"></script>
+<script>
+// Sidebar toggle + user label + logout wiring. Kept inline to avoid a
+// full-blown module — reports.js already exposes `logout` as a global
+// (it's declared at module scope in a classic-script context) and
+// `sessionStorage` holds the user name after a successful login.
+(function () {
+  const sidebar = document.getElementById('adminSidebar');
+  const overlay = document.getElementById('adminOverlay');
+  document.getElementById('adminHeaderToggle')?.addEventListener('click', () => {
+    sidebar.classList.toggle('open');
+  });
+  document.getElementById('sidebarClose')?.addEventListener('click', () => {
+    sidebar.classList.remove('open');
+  });
+  overlay?.addEventListener('click', () => {
+    sidebar.classList.remove('open');
+  });
+  // Desktop: sidebar open by default (matches admin.html behavior).
+  if (window.innerWidth >= 900) sidebar.classList.add('open');
+
+  // Update the sidebar user label on load and whenever storage changes
+  // (e.g., after login in reports.js sets sessionStorage.pos_user).
+  const refreshUser = () => {
+    const u = sessionStorage.getItem('pos_user') || '—';
+    const el = document.getElementById('sbUser');
+    if (el) el.textContent = u;
+  };
+  refreshUser();
+  // Poll briefly — sessionStorage doesn't fire the storage event within
+  // the same tab. Cheap and only runs a handful of times.
+  let ticks = 0;
+  const t = setInterval(() => { refreshUser(); if (++ticks > 20) clearInterval(t); }, 500);
+
+  document.getElementById('sbLogout')?.addEventListener('click', () => {
+    if (typeof window.logout === 'function') window.logout();
+    else {
+      sessionStorage.removeItem('pos_token');
+      sessionStorage.removeItem('pos_user');
+      location.reload();
+    }
+  });
+})();
+
+// Service-worker registration + update banner (matches admin.html).
+let swRegistration = null;
+if('serviceWorker' in navigator){
+  const hadPreviousController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register('sw.js').then(reg=>{
+    swRegistration = reg;
+    reg.addEventListener('updatefound',()=>{
+      const newWorker=reg.installing;
+      newWorker.addEventListener('statechange',()=>{
+        if(newWorker.state==='activated' && hadPreviousController){
+          const banner=document.createElement('div');
+          banner.style.cssText='position:fixed;bottom:70px;left:50%;transform:translateX(-50%);background:#6B4226;color:#fff;padding:12px 20px;border-radius:12px;z-index:999;font-size:.9rem;box-shadow:0 4px 12px rgba(0,0,0,.2);display:flex;gap:10px;align-items:center';
+          banner.innerHTML='<span>New version available</span><button onclick="location.reload()" style="background:#fff;color:#6B4226;border:none;padding:6px 12px;border-radius:8px;font-weight:700;cursor:pointer">Refresh</button>';
+          document.body.appendChild(banner);
+        }
+      });
+    });
+  });
+}
+document.getElementById('checkUpdateBtn').addEventListener('click',async function(){
+  const btn=this;
+  btn.textContent='Checking...';
+  btn.disabled=true;
+  try{
+    if(swRegistration){
+      await swRegistration.update();
+      const waiting=swRegistration.waiting;
+      if(waiting){
+        location.reload();
+      } else {
+        btn.textContent='You\'re up to date ✓';
+        setTimeout(()=>{btn.textContent='Check for update';btn.disabled=false},3000);
+      }
+    } else {
+      btn.textContent='No service worker';
+      setTimeout(()=>{btn.textContent='Check for update';btn.disabled=false},2000);
+    }
+  }catch(e){
+    btn.textContent='Check failed';
+    setTimeout(()=>{btn.textContent='Check for update';btn.disabled=false},2000);
+  }
+});
+</script>
 </body>
 </html>

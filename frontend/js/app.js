@@ -139,22 +139,6 @@ function renderMenu() {
         <span class="preorder-banner-icon">🎉</span>
         <div class="preorder-banner-text">${bannerBody}</div>
       </div>`;
-
-      // Drinks description — customer-facing summary of what's available.
-      // Falls back to a fixed default list when the campaign hasn't set one.
-      const DEFAULT_DRINKS_DESC =
-        '• Latte (hot, iced, oat)\n' +
-        '• Long Black (hot, iced)\n' +
-        '• Decaf (black / latte)\n' +
-        '• Soda (iced)\n' +
-        '• Tea\n' +
-        '• Mineral Water';
-      const drinksDesc = preorderInfo?.drinksDescription || DEFAULT_DRINKS_DESC;
-      shell += `<div class="preorder-drinks-desc">${
-        drinksDesc.split(/\r?\n/).map(line =>
-          `<div>${esc(line)}</div>`
-        ).join('')
-      }</div>`;
     }
     if (customerProfile) {
       shell += `<section class="name-section"><div class="profile-badge"><span class="profile-icon">👤</span><span class="profile-name">${customerProfile.name}</span><span class="profile-orders">${customerProfile.orderCount || 0} orders</span><button id="profileLogout" class="profile-logout">✕</button></div><div style="display:flex;gap:8px;align-items:center;margin-top:8px"><a href="track" class="layout-toggle" aria-label="My Orders" title="My Orders" style="text-decoration:none">📋</a><button id="layoutToggle" class="layout-toggle" aria-label="Toggle view">${menuLayout === 'grid' ? '☰' : '⊞'}</button></div></section>`;

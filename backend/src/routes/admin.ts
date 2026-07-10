@@ -623,9 +623,6 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
         bannerMessage: typeof stored.bannerMessage === 'string'
           ? stored.bannerMessage
           : 'Ministry Pre-Order — Kindly select one drink\n{$SUNDAY} Service · Collect {$SUNDAY}',
-        drinksDescription: typeof stored.drinksDescription === 'string'
-          ? stored.drinksDescription
-          : '• Latte (hot, iced, oat)\n• Long Black (hot, iced)\n• Decaf (black / latte)\n• Soda (iced)\n• Tea\n• Mineral Water',
         eligibleItemKeywords: Array.isArray(stored.eligibleItemKeywords) && stored.eligibleItemKeywords.length
           ? stored.eligibleItemKeywords
           : ['latte', 'long black', 'decaf', 'soda', 'tea', 'mineral water'],
@@ -641,8 +638,6 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
       // wrong-typed. Same shape as GET so the round-trip is symmetric.
       const banner = typeof body.bannerMessage === 'string' ? body.bannerMessage : '';
       if (banner.length > 500) return res(400, { error: 'bannerMessage cannot exceed 500 characters' });
-      const drinks = typeof body.drinksDescription === 'string' ? body.drinksDescription : '';
-      if (drinks.length > 1000) return res(400, { error: 'drinksDescription cannot exceed 1000 characters' });
 
       const rawKeywords: unknown[] = Array.isArray(body.eligibleItemKeywords) ? body.eligibleItemKeywords : [];
       const eligibleItemKeywords: string[] = Array.from(new Set(
@@ -665,7 +660,6 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
           PK: 'SETTINGS#PREORDER_TEMPLATES',
           SK: 'META',
           bannerMessage: banner,
-          drinksDescription: drinks,
           eligibleItemKeywords,
           collectionOptions,
           updatedAt: now,
@@ -674,7 +668,6 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
 
       return res(200, {
         bannerMessage: banner,
-        drinksDescription: drinks,
         eligibleItemKeywords,
         collectionOptions,
         updatedAt: now,

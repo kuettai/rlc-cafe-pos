@@ -1327,7 +1327,6 @@ function renderPreorderTemplatesSection(host, templates) {
   _preorderTplCollectionOpts = Array.isArray(templates.collectionOptions) ? templates.collectionOptions.slice() : [];
 
   const banner = typeof templates.bannerMessage === 'string' ? templates.bannerMessage : '';
-  const drinks = typeof templates.drinksDescription === 'string' ? templates.drinksDescription : '';
   const updated = templates.updatedAt ? new Date(templates.updatedAt).toLocaleString() : '';
 
   host.innerHTML = `
@@ -1341,12 +1340,6 @@ function renderPreorderTemplatesSection(host, templates) {
         <label>Banner Message</label>
         <textarea id="tplBanner" class="pos-input" rows="3" maxlength="500" style="min-height:60px;font-family:inherit">${escapeHtml(banner)}</textarea>
         <p style="font-size:.75rem;color:var(--text-light);margin-top:4px">Use <code>{$SUNDAY}</code> to auto-insert the next Sunday date (e.g. "Sunday, 12 Jul").</p>
-      </div>
-
-      <div class="admin-form-group">
-        <label>Drinks Description</label>
-        <textarea id="tplDrinks" class="pos-input" rows="6" maxlength="1000" style="min-height:120px;font-family:inherit">${escapeHtml(drinks)}</textarea>
-        <p style="font-size:.75rem;color:var(--text-light);margin-top:4px">Shown below the banner. Supports <code>{$SUNDAY}</code>.</p>
       </div>
 
       <div class="admin-form-group">
@@ -1421,7 +1414,6 @@ function renderPreorderTemplatesSection(host, templates) {
 
   host.querySelector('#btnSaveTemplates').onclick = async () => {
     const bannerMessage = host.querySelector('#tplBanner').value;
-    const drinksDescription = host.querySelector('#tplDrinks').value;
     const eligibleItemKeywords = _preorderTplKeywords.map(s => s.trim()).filter(Boolean);
     const collectionOptions = _preorderTplCollectionOpts.map(s => s.trim()).filter(Boolean);
     if (!collectionOptions.length) {
@@ -1430,7 +1422,7 @@ function renderPreorderTemplatesSection(host, templates) {
     }
     try {
       await api('PUT', '/api/admin/settings/preorder-templates', {
-        bannerMessage, drinksDescription, eligibleItemKeywords, collectionOptions,
+        bannerMessage, eligibleItemKeywords, collectionOptions,
       });
       showSuccess('Templates saved');
     } catch (e) {
@@ -2173,7 +2165,6 @@ function openPreorderForm(container){
     // Backstop defaults (also the backend defaults) so a failing endpoint
     // still gives the operator a usable form.
     bannerMessage: 'Ministry Pre-Order — Kindly select one drink\n{$SUNDAY} Service · Collect {$SUNDAY}',
-    drinksDescription: '• Latte (hot, iced, oat)\n• Long Black (hot, iced)\n• Decaf (black / latte)\n• Soda (iced)\n• Tea\n• Mineral Water',
     eligibleItemKeywords: ['latte', 'long black', 'decaf', 'soda', 'tea', 'mineral water'],
     collectionOptions: ['After 1st Service', 'After 2nd Service'],
   }));
@@ -2223,12 +2214,6 @@ function openPreorderForm(container){
         <div class="loading">Loading drinks…</div>
       </div>
       <p style="font-size:.75rem;color:var(--text-light);margin-top:4px">Defaults to the ministry list (Latte / Long Black / Decaf / Soda / Tea / Mineral Water). Adjust as needed.</p>
-    </div>
-
-    <div class="admin-form-group">
-      <label>Drinks Description <span style="color:var(--text-light);font-weight:400">(optional, max 500 chars)</span></label>
-      <textarea id="pfDrinksDesc" class="pos-input" rows="6" maxlength="500" placeholder="• Latte (hot, iced, oat)&#10;• Long Black (hot, iced)&#10;• Decaf (black / latte)&#10;• Soda (iced)&#10;• Tea&#10;• Mineral Water" style="min-height:120px;font-family:inherit"></textarea>
-      <p style="font-size:.75rem;color:var(--text-light);margin-top:4px">Shown to customers below the banner. Supports <code>{$SUNDAY}</code>. Leave blank for the default template above.</p>
     </div>
 
     <div class="admin-form-group">
@@ -2326,7 +2311,6 @@ function wirePreorderForm(form, container, menuP, collectionOpts, templatesP) {
     }
 
     const bannerMessage = form.querySelector('#pfBanner').value.trim();
-    const drinksDescription = form.querySelector('#pfDrinksDesc').value.trim();
     // Only send eligibleItems when user has restricted the selection. A
     // check-none-or-check-all state both mean "no restriction" per the
     // backend's contract (empty array). Prefer explicit whitelist only
@@ -2346,7 +2330,6 @@ function wirePreorderForm(form, container, menuP, collectionOpts, templatesP) {
       const result = await api('POST', '/api/admin/preorder-codes', {
         name, serviceDate, opensAt, expiresAt,
         bannerMessage,
-        drinksDescription,
         eligibleItems,
         collectionOptions,
       });
@@ -2364,9 +2347,6 @@ function wirePreorderForm(form, container, menuP, collectionOpts, templatesP) {
     if (!templates) return;
     if (typeof templates.bannerMessage === 'string' && !form.querySelector('#pfBanner').value) {
       form.querySelector('#pfBanner').value = templates.bannerMessage;
-    }
-    if (typeof templates.drinksDescription === 'string' && !form.querySelector('#pfDrinksDesc').value) {
-      form.querySelector('#pfDrinksDesc').value = templates.drinksDescription;
     }
     if (Array.isArray(templates.collectionOptions) && templates.collectionOptions.length) {
       collectionOpts.length = 0;
