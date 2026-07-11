@@ -18,6 +18,7 @@ let menuLayout = localStorage.getItem('menuLayout') || 'list';
 let menuFilter = '';
 let menuCategory = 'ALL';
 let customerProfile = JSON.parse(localStorage.getItem('customerProfile') || 'null');
+let featuredDrink = null;  // from /api/cafe/status
 
 // ─── Pre-order mode ─────────────────────────────────────────────────
 // Activated when the customer opens the page with ?code=<PREORDER_CODE>.
@@ -197,6 +198,31 @@ function renderMenu() {
   categories.forEach(c => { filteredGrouped[c] = filteredMenu.filter(i => i.category === c); });
 
   let html = '';
+
+  // ─── Featured Drink Hero ───────────────────────────────────────────
+  if (featuredDrink && !preorderMode) {
+    const featItem = menu.find(i => i.id === featuredDrink.menuItemId);
+    if (featItem) {
+      const featSlug = slugifyMenuName(featItem.name);
+      const featDisplayName = stripEmoji(featItem.name);
+      const featPrice = (celebrationMode && featItem.celebrationEligible === true) ? celebrationPrice : featItem.basePrice;
+      const featQty = cart.filter(c => c.id === featItem.id).reduce((s, c) => s + c.qty, 0);
+      html += `<div class="featured-drink-hero" data-id="${featItem.id}">
+        <div class="featured-badge">⭐ Featured Today</div>
+        <img class="featured-img" src="img/menu/${featSlug}.png" alt="${featDisplayName}" loading="lazy" onerror="this.style.display='none'">
+        <div class="featured-info">
+          <div class="featured-name">${featDisplayName}</div>
+          <div class="featured-price">RM ${featPrice.toFixed(2)}</div>
+        </div>
+        <div class="qty-controls">
+          <button aria-label="Decrease ${featDisplayName}" data-action="dec" data-id="${featItem.id}">−</button>
+          <span aria-live="polite">${featQty}</span>
+          <button aria-label="Increase ${featDisplayName}" data-action="inc" data-id="${featItem.id}">+</button>
+        </div>
+      </div>`;
+    }
+  }
+
   categories.forEach(cat => {
     if (!filteredGrouped[cat].length) return;
     filteredGrouped[cat].sort((a, b) => {
@@ -550,6 +576,7 @@ async function init() {
     queueSize = status.queueSize || 0;
     celebrationMode = status.celebrationMode || false;
     celebrationPrice = status.celebrationPrice || 5;
+    featuredDrink = status.featuredDrink || null;
     // Pre-order bypass: skip the café-closed lockout so ministry volunteers
     // can order ahead of Sunday service.
     if (!preorderMode && status.cafeStatus === 'CLOSED') {

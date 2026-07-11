@@ -1,4 +1,6 @@
 [
+  {"version": "v1.53.0", "date": "2026-07-11", "changes": ["Featured Drink: cashier can set one featured drink per session (shown hero on order screen, auto-resets on cafe close, full audit trail)", "New drink: Matcha Sparkling (RM 9, disabled by default)"]},
+  {"version": "v1.52.0", "date": "2026-07-10", "changes": ["Code split: admin.js → 7 files, pos.js → 6 files (no functional changes)"]},
   {"version": "v1.51.0", "date": "2026-07-10", "changes": ["Changelog popup (click version footer in admin/reports to view version history)"]},
   {"version": "v1.50.4", "date": "2026-07-10", "changes": ["Activity log shows time + person detail for open/close/handover/stock count"]},
   {"version": "v1.50.3", "date": "2026-07-10", "changes": ["Reports sidebar navigation", "Remove drinks description", "Bank reconciliation (56 orders = RM 360.80)", "Fixed order 70640940 tea pricing"]},

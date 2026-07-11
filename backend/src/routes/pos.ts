@@ -679,8 +679,15 @@ async function closeCafe(): Promise<APIGatewayProxyResult> {
   await docClient.send(new UpdateCommand({
     TableName: SETTINGS_TABLE,
     Key: { PK: 'SETTINGS', SK: 'CONFIG' },
-    UpdateExpression: 'SET cafeStatus = :s',
-    ExpressionAttributeValues: { ':s': 'CLOSED' },
+    UpdateExpression: 'SET cafeStatus = :s, featuredDrinkId = :n',
+    ExpressionAttributeValues: { ':s': 'CLOSED', ':n': null },
+  }));
+
+  // Audit the featured-drink reset if one was active
+  const today = new Date().toISOString().split('T')[0];
+  await docClient.send(new PutCommand({
+    TableName: SETTINGS_TABLE,
+    Item: { PK: `FEATURED_AUDIT#${today}`, SK: new Date().toISOString(), action: 'UNFEATURE', menuItemId: null, menuItemName: 'ALL', user: 'SYSTEM/CLOSE', timestamp: new Date().toISOString() },
   }));
 
   const now = new Date().toISOString();
@@ -1056,6 +1063,70 @@ function extractSegment(path: string, pattern: RegExp, index: number): string | 
   return match ? match[index] : null;
 }
 
+// ─── Featured Drink ─────────────────────────────────────────────────────────
+async function getFeaturedDrink(): Promise<APIGatewayProxyResult> {
+  const settings = await docClient.send(new GetCommand({
+    TableName: SETTINGS_TABLE,
+    Key: { PK: 'SETTINGS', SK: 'CONFIG' },
+  }));
+  const featuredId = settings.Item?.featuredDrinkId;
+  if (!featuredId) return res(200, { featured: null });
+
+  const menuItem = await getMenuItem(featuredId);
+  if (!menuItem) return res(200, { featured: null });
+
+  return res(200, {
+    featured: {
+      menuItemId: featuredId,
+      name: menuItem.name,
+      basePrice: menuItem.basePrice,
+      imageUrl: menuItem.imageUrl || null,
+      category: menuItem.category,
+    },
+  });
+}
+
+async function setFeaturedDrink(event: APIGatewayProxyEvent, actor: string): Promise<APIGatewayProxyResult> {
+  const body = event.body ? JSON.parse(event.body) : {};
+  const { menuItemId } = body;
+  if (!menuItemId) return res(400, { error: 'menuItemId is required' });
+
+  const menuItem = await getMenuItem(menuItemId);
+  if (!menuItem) return res(404, { error: 'Menu item not found' });
+
+  await docClient.send(new UpdateCommand({
+    TableName: SETTINGS_TABLE,
+    Key: { PK: 'SETTINGS', SK: 'CONFIG' },
+    UpdateExpression: 'SET featuredDrinkId = :id',
+    ExpressionAttributeValues: { ':id': menuItemId },
+  }));
+
+  const today = new Date().toISOString().split('T')[0];
+  await docClient.send(new PutCommand({
+    TableName: SETTINGS_TABLE,
+    Item: { PK: `FEATURED_AUDIT#${today}`, SK: new Date().toISOString(), action: 'FEATURE', menuItemId, menuItemName: menuItem.name, user: actor, timestamp: new Date().toISOString() },
+  }));
+
+  return res(200, { featured: { menuItemId, name: menuItem.name, basePrice: menuItem.basePrice, imageUrl: menuItem.imageUrl || null } });
+}
+
+async function unsetFeaturedDrink(actor: string): Promise<APIGatewayProxyResult> {
+  await docClient.send(new UpdateCommand({
+    TableName: SETTINGS_TABLE,
+    Key: { PK: 'SETTINGS', SK: 'CONFIG' },
+    UpdateExpression: 'SET featuredDrinkId = :n',
+    ExpressionAttributeValues: { ':n': null },
+  }));
+
+  const today = new Date().toISOString().split('T')[0];
+  await docClient.send(new PutCommand({
+    TableName: SETTINGS_TABLE,
+    Item: { PK: `FEATURED_AUDIT#${today}`, SK: new Date().toISOString(), action: 'UNFEATURE', menuItemId: null, menuItemName: '', user: actor, timestamp: new Date().toISOString() },
+  }));
+
+  return res(200, { featured: null });
+}
+
 export async function handlePos(event: APIGatewayProxyEvent, actor: string = ''): Promise<APIGatewayProxyResult> {
   const method = event.httpMethod;
   const path = event.path;
@@ -1109,6 +1180,9 @@ export async function handlePos(event: APIGatewayProxyEvent, actor: string = '')
   }
   if (method === 'GET' && path === '/api/pos/inventory') return getInventory();
   if (method === 'GET' && path === '/api/pos/menu') return listCashierMenu();
+  if (method === 'GET' && path === '/api/pos/featured-drink') return getFeaturedDrink();
+  if (method === 'PUT' && path === '/api/pos/featured-drink') return setFeaturedDrink(event, actor);
+  if (method === 'DELETE' && path === '/api/pos/featured-drink') return unsetFeaturedDrink(actor);
   if (method === 'GET' && path === '/api/pos/ingredients') return listIngredientsForCount();
   if (method === 'PUT' && path === '/api/pos/ingredients/bulk-update') return bulkUpdateStock(event, actor);
   if (method === 'GET' && path === '/api/pos/usage') return getUsageToday();

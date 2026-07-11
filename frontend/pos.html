@@ -14,7 +14,7 @@
 <div class="pos-app" id="app"></div>
 
 <footer class="app-footer" id="appFooter">
-  <span class="app-version">v1.51.0</span>
+  <span class="app-version">v1.53.0</span>
   <button id="checkUpdateBtn" class="check-update-btn">Check for update</button>
 </footer>
 
@@ -22,6 +22,12 @@
 <script src="js/phone.js"></script>
 <script src="js/variants.js"></script>
 <script src="js/pos.js"></script>
+<script src="js/pos-walkup.js"></script>
+<script src="js/pos-voucher.js"></script>
+<script src="js/pos-stock.js"></script>
+<script src="js/pos-checklist.js"></script>
+<script src="js/pos-history.js"></script>
+<script>token ? renderMain() : renderLogin();</script>
 <script>
 let swRegistration = null;
 if('serviceWorker' in navigator){

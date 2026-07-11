@@ -19,13 +19,20 @@
 <div class="admin-app" id="app"></div>
 
 <footer class="app-footer" id="appFooter">
-  <span class="app-version">v1.51.0</span>
+  <span class="app-version">v1.53.0</span>
   <button id="checkUpdateBtn" class="check-update-btn">Check for update</button>
 </footer>
 
 <script src="js/config.js"></script>
 <script src="js/admin.js"></script>
+<script src="js/admin-dashboard.js"></script>
+<script src="js/admin-menu.js"></script>
+<script src="js/admin-ingredients.js"></script>
+<script src="js/admin-checklist.js"></script>
+<script src="js/admin-vouchers.js"></script>
+<script src="js/admin-preorder.js"></script>
 <script src="js/changelog.js"></script>
+<script>token ? renderApp() : renderLogin();</script>
 <script>
 let swRegistration = null;
 if('serviceWorker' in navigator){

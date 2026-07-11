@@ -1,4 +1,9 @@
-(function(){
+// pos.js — Shell: sidebar, polling, board render, stats
+// Part of rlc-cafe-pos v1.52.0 file split
+// Depends on: config.js (API_BASE), phone.js, variants.js
+// Required by: pos-walkup.js, pos-voucher.js, pos-stock.js,
+//              pos-checklist.js, pos-history.js
+
 const $ = s => document.querySelector(s);
 const app = $('#app');
 let token = sessionStorage.getItem('pos_token');
@@ -12,6 +17,7 @@ let pollTimer = null;
 let viewMode = 'kanban';
 let cafeOpen = false;
 let celebrationMode = false;
+let featuredDrink = null;  // { menuItemId, name, basePrice, imageUrl } or null
 let searchFilter = '';
 let prevUrgentIds = [];
 
@@ -117,6 +123,7 @@ function renderMain(){
   <div id="posStats" class="pos-stats-bar"></div>
   <div class="pos-controls">
     <input id="orderSearch" class="pos-input pos-search" placeholder="Search customer...">
+    <button id="btnFeatured" class="pos-btn pos-btn-sm pos-btn-outline pos-btn-featured${featuredDrink?' pos-btn-featured-active':''}">⭐ ${featuredDrink?featuredDrink.name:'Set Featured'}</button>
     <button id="btnView" class="pos-btn pos-btn-sm pos-btn-outline">${viewMode==='kanban'?'📋 List':'📊 Kanban'}</button>
     <span id="lastRefresh" class="pos-last-refresh"></span>
   </div>
@@ -170,6 +177,7 @@ function renderMain(){
   $('#btnStats').onclick = ()=>{ $('#posStats').classList.toggle('visible'); };
   $('#btnView').onclick = ()=>{ viewMode = viewMode==='kanban'?'list':'kanban'; renderBoard(); $('#btnView').textContent = viewMode==='kanban'?'📋 List':'📊 Kanban'; };
   $('#orderSearch').oninput = e=>{ searchFilter=e.target.value.toLowerCase(); renderBoard(); };
+  $('#btnFeatured').onclick = openFeaturedDrinkModal;
   fetchCafeStatus();
   fetchOrders();
   startPolling();
@@ -207,6 +215,13 @@ async function fetchCafeStatus(){
         headerBadge.textContent = '';
         headerBadge.classList.remove('is-open');
       }
+    }
+    // Featured drink
+    featuredDrink = s.featuredDrink || null;
+    const featBtn = $('#btnFeatured');
+    if(featBtn){
+      featBtn.textContent = featuredDrink ? `⭐ ${featuredDrink.name}` : '⭐ Set Featured';
+      featBtn.classList.toggle('pos-btn-featured-active', !!featuredDrink);
     }
   } catch(e){}
 }
@@ -838,300 +853,6 @@ function showCancelCompletedDialog(id, parentModal){
   };
 }
 
-// --- Cafe toggle with checklist ---
-async function toggleCafe(){
-  const phase = cafeOpen ? 'close' : 'open';
-  openChecklist(phase);
-}
-
-async function showShiftSummary(){
-  try{
-    const data = await api('GET','/api/pos/shift-summary');
-    const modal = document.createElement('div');
-    modal.className = 'pos-modal-overlay';
-    modal.innerHTML = `<div class="pos-modal" style="max-width:360px;text-align:center">
-      <h3 style="font-size:1.5rem;margin-bottom:8px">🎉 Great shift!</h3>
-      <div style="border-top:2px solid var(--cream-dark,#eee);border-bottom:2px solid var(--cream-dark,#eee);padding:16px 0;margin:12px 0;text-align:left;font-size:1rem;line-height:2">
-        <div>Orders processed: <strong>${data.totalOrders}</strong></div>
-        <div>Revenue: <strong>RM ${data.totalRevenue}</strong></div>
-        <div>Newcomers served: <strong>${data.newcomersServed}</strong> 🙏</div>
-        <div>Most popular: <strong>☕ ${data.peakItem}</strong></div>
-      </div>
-      <p style="color:var(--text-light,#7A6355);margin-bottom:16px">See you next Sunday!</p>
-      <button class="pos-btn pos-btn-primary" id="shiftSummaryClose">Close</button>
-    </div>`;
-    document.body.appendChild(modal);
-    modal.querySelector('#shiftSummaryClose').onclick=()=>modal.remove();
-    modal.onclick=e=>{ if(e.target===modal) modal.remove(); };
-  } catch(e){}
-}
-
-async function openChecklist(phase){
-  let data;
-  try{ data = await api('GET','/api/pos/checklist'); } catch(e){ showError('Failed to load checklist'); return; }
-  const config = data.config || { open: [], close: [], handover: [] };
-  const log = data.log || { open: { items: {} }, close: { items: {} }, handover: { items: {} } };
-  const items = phase === 'open' ? config.open : phase === 'close' ? config.close : (config.handover || []);
-  const checked = log[phase]?.items || {};
-
-  const modal = document.createElement('div');
-  modal.className = 'pos-modal-overlay';
-
-  function titleFor(p){
-    if(p === 'open') return '☀️ Open Café Checklist';
-    if(p === 'close') return '🌙 Close Café Checklist';
-    return '🔄 Session Handover';
-  }
-  function submitLabelFor(p){
-    if(p === 'open') return '☀️ Open Café';
-    if(p === 'close') return '🌙 Close Café';
-    return '🔄 Complete Handover';
-  }
-  function subtitleFor(p){
-    if(p === 'open') return 'Complete all items before opening';
-    if(p === 'close') return 'Complete all items before closing';
-    return 'Complete all items to hand over to the next service team';
-  }
-
-  function renderChecklistModal(){
-    const allChecked = items.length > 0 && items.every(i => checked[i.id]?.checked);
-    modal.innerHTML = `<div class="pos-modal" style="max-width:520px">
-      <button class="pos-modal-close">✕</button>
-      <h3>${titleFor(phase)}</h3>
-      <p style="font-size:.85rem;color:var(--text-light,#7A6355);margin:8px 0 16px">${subtitleFor(phase)}</p>
-      <div class="checklist-items">
-        ${items.map(item => {
-          const isDone = checked[item.id]?.checked;
-          const doneBy = checked[item.id]?.completedBy;
-          const doneAt = checked[item.id]?.completedAt;
-          const timeStr = doneAt ? new Date(doneAt).toLocaleTimeString('en-MY',{hour:'2-digit',minute:'2-digit'}) : '';
-          return `<div class="checklist-row ${isDone?'done':''}">
-            <label class="checklist-label">
-              <input type="checkbox" data-item-id="${item.id}" ${isDone?'checked':''}>
-              <span>${item.name || item.label}</span>
-              ${item.type === 'image' ? '<span class="checklist-badge">📷</span>' : ''}
-              ${item.type === 'text' ? '<span class="checklist-badge">✏️</span>' : ''}
-            </label>
-            ${isDone ? `<span class="checklist-meta">${doneBy} · ${timeStr}</span>` : ''}
-          </div>`;
-        }).join('')}
-      </div>
-      <div style="margin-top:20px;display:flex;gap:10px">
-        <button id="clSubmit" class="pos-btn pos-btn-primary pos-btn-lg" ${allChecked?'':'disabled'}>
-          ${submitLabelFor(phase)}
-        </button>
-        <button id="clCancel" class="pos-btn pos-btn-lg">Cancel</button>
-      </div>
-    </div>`;
-
-    modal.querySelector('.pos-modal-close').onclick=()=>modal.remove();
-    modal.querySelector('#clCancel').onclick=()=>modal.remove();
-    modal.onclick=e=>{ if(e.target===modal) modal.remove(); };
-
-    modal.querySelectorAll('input[type=checkbox]').forEach(cb=>{
-      cb.onchange=async()=>{
-        const itemId = cb.dataset.itemId;
-        const item = items.find(i=>i.id===itemId);
-        if(cb.checked){
-          if(item.type === 'image'){
-            cb.checked = false;
-            const fileInput = document.createElement('input');
-            fileInput.type = 'file';
-            fileInput.accept = 'image/*';
-            fileInput.capture = 'environment';
-            fileInput.onchange = async () => {
-              if(!fileInput.files?.length) return;
-              checked[itemId] = { checked: true, completedBy: currentUser, completedAt: new Date().toISOString() };
-              api('PUT','/api/pos/checklist/check',{ phase, itemId, completedBy: currentUser }).catch(()=>{});
-              cb.checked = true;
-              const row = cb.closest('.checklist-row');
-              row.classList.add('done');
-              const allChecked = items.every(i => checked[i.id]?.checked);
-              const submitBtn = modal.querySelector('#clSubmit');
-              if(submitBtn) submitBtn.disabled = !allChecked;
-            };
-            fileInput.click();
-            return;
-          }
-          try{
-            await api('PUT','/api/pos/checklist/check',{ phase, itemId, completedBy: currentUser });
-            checked[itemId] = { checked: true, completedBy: currentUser, completedAt: new Date().toISOString() };
-          } catch(e){ cb.checked = false; showError('Failed to save'); return; }
-        } else {
-          try{
-            await api('PUT','/api/pos/checklist/uncheck',{ phase, itemId });
-            delete checked[itemId];
-          } catch(e){ cb.checked = true; showError('Failed to save'); return; }
-        }
-        const allChecked = items.every(i => checked[i.id]?.checked);
-        const submitBtn = modal.querySelector('#clSubmit');
-        if(submitBtn) submitBtn.disabled = !allChecked;
-        const row = cb.closest('.checklist-row');
-        if(cb.checked){ row.classList.add('done'); } else { row.classList.remove('done'); }
-      };
-    });
-
-    const submitBtn = modal.querySelector('#clSubmit');
-    if(submitBtn) submitBtn.onclick=async()=>{
-      if(phase === 'handover'){
-        // Handover: no cafe state change, just confirm + logout.
-        submitBtn.disabled = true;
-        submitBtn.textContent = 'Handover complete. Logging out...';
-        setTimeout(()=>{
-          modal.remove();
-          logout();
-        }, 900);
-        return;
-      }
-      if(phase === 'close'){
-        const activeCount = orders.filter(o=>o.status==='PENDING'||o.status==='PREPARING').length;
-        if(activeCount > 0 && !confirm(`This will expire ${activeCount} active order(s). Continue?`)) return;
-      }
-      try{
-        cafeOpen = phase === 'open';
-        await api('PUT',`/api/pos/cafe/${phase}`);
-        modal.remove();
-        if(phase === 'close') await showShiftSummary();
-        renderMain();
-      } catch(e){ cafeOpen = !cafeOpen; showError('Failed to toggle café'); }
-    };
-  }
-
-  renderChecklistModal();
-  document.body.appendChild(modal);
-}
-
-// --- Walk-up Order ---
-async function openWalkup(){
-  let menu=[];
-  try{ const d=await api('GET','/api/menu'); menu=Array.isArray(d)?d:d.items||[]; } catch(e){ showError('Failed to load menu'); return; }
-  const cart=[];
-  let wkFilter = '';
-  let wkCategory = 'ALL';
-  // Discount is preserved across re-renders since renderWalkup() rewrites
-  // innerHTML each time. Kept in closure state so the pill selection sticks
-  // when a user adds items or searches after picking a discount.
-  let selectedDiscount = '';
-  const modal=document.createElement('div');
-  modal.className='pos-modal-overlay';
-
-  // Sort by popularity (items ordered more often appear first)
-  const orderHistory = JSON.parse(localStorage.getItem('walkup_item_counts')||'{}');
-  menu.sort((a,b)=>{
-    const aCount = orderHistory[a.menuItemId||a.id]||0;
-    const bCount = orderHistory[b.menuItemId||b.id]||0;
-    if(bCount !== aCount) return bCount - aCount;
-    return (a.sortOrder||0)-(b.sortOrder||0);
-  });
-
-  function filteredMenu(){
-    return menu.filter(m=>{
-      if(m.isEnabledToday === false) return false;
-      if(wkCategory !== 'ALL' && m.category !== wkCategory) return false;
-      if(wkFilter && !m.name.toLowerCase().includes(wkFilter)) return false;
-      return true;
-    });
-  }
-
-  function renderWalkup(){
-    const filtered = filteredMenu();
-    const cartHtml=cart.map((c,i)=>`<li>${c.qty}x ${c.name}${c.variant?' ('+c.variant+')':''} <span style="color:var(--text-light,#7A6355);font-size:.85rem">RM${(c.price*c.qty).toFixed(2)}</span> <button data-ri="${i}" class="pos-remove-item">✕</button></li>`).join('');
-    const cartTotal = cart.reduce((s,c)=>s+c.price*c.qty,0);
-
-    modal.innerHTML=`<div class="pos-modal pos-modal-walkup">
-      <button class="pos-modal-close">✕</button>
-      <h3>Walk-up Order</h3>
-      <input id="wkName" class="pos-input" placeholder="Customer name" value="${cart._name||''}" style="margin-bottom:12px">
-      <input id="wkSearch" class="pos-input" placeholder="Search menu..." value="${wkFilter}" style="margin-bottom:8px">
-      <div class="pos-walkup-filters">
-        <button class="pos-btn pos-btn-sm ${wkCategory==='ALL'?'active':''}" data-wk-cat="ALL">All</button>
-        <button class="pos-btn pos-btn-sm ${wkCategory==='DRINK'?'active':''}" data-wk-cat="DRINK">Drinks</button>
-        <button class="pos-btn pos-btn-sm ${wkCategory==='FOOD'?'active':''}" data-wk-cat="FOOD">Food</button>
-      </div>
-      <div class="pos-walkup-menu">${filtered.length ? filtered.map(m=>{
-        const price = m.basePrice || m.price || 0;
-        let variantHtml = '';
-        if(m.variantGroups && m.variantGroups.length){
-          variantHtml = m.variantGroups.map(g=>g.options.map(o=>
-            `<button class="pos-variant-btn" data-mid="${m.menuItemId||m.id}" data-group="${g.group}" data-type="${g.type}" data-v="${o.name}" data-vp="${o.price||0}">${o.name}${o.price ? ' +'+o.price : ''}</button>`
-          ).join('')).join('');
-        } else if(m.variants && m.variants.length){
-          variantHtml = m.variants.map(v=>`<button class="pos-variant-btn" data-mid="${m.menuItemId||m.id}" data-v="${v.name||v.id}" data-vp="${v.priceModifier||0}">${v.name||v}${v.priceModifier ? ' +'+v.priceModifier : ''}</button>`).join('');
-        }
-        return `<div class="pos-walkup-item"><span>${m.name}${price ? ' - RM'+price.toFixed(2) : ''}</span>${variantHtml}<button class="pos-add-btn" data-mid="${m.menuItemId||m.id}" data-mname="${m.name}" data-mp="${price}">+</button></div>`;
-      }).join('') : '<div style="padding:16px;text-align:center;color:var(--text-light,#7A6355)">No items match</div>'}</div>
-      <div class="pos-walkup-cart"><h4>Cart${cart.length ? ' — RM'+cartTotal.toFixed(2) : ''}</h4><ul>${cartHtml||'<li>Empty</li>'}</ul></div>
-      <input id="wkNotes" class="pos-input" placeholder="Special requests (less sugar, extra hot)" style="margin-bottom:12px">
-      <fieldset class="pos-chip-group" id="wkDiscountGroup" aria-label="Discount">
-        <legend class="pos-chip-legend">Discount</legend>
-        ${[
-          {value:'',         label:'No Discount'},
-          {value:'STAFF',    label:'Staff (RM5)'},
-          {value:'PASTOR',   label:'Pastor (Free)'},
-          {value:'NEWCOMER', label:'Newcomer (Free)'},
-        ].map(o=>`<label class="pos-chip"><input type="radio" name="wkDiscount" value="${o.value}" ${selectedDiscount===o.value?'checked':''}><span>${o.label}</span></label>`).join('')}
-      </fieldset>
-      <button id="wkSubmit" class="pos-btn pos-btn-primary pos-btn-lg" ${cart.length?'':'disabled'}>Submit Order</button></div>`;
-
-    modal.querySelector('.pos-modal-close').onclick=()=>modal.remove();
-    modal.onclick=e=>{ if(e.target===modal) modal.remove(); };
-
-    modal.querySelector('#wkSearch').oninput=e=>{
-      wkFilter=e.target.value.toLowerCase();
-      cart._name=modal.querySelector('#wkName')?.value||'';
-      renderWalkup();
-      modal.querySelector('#wkSearch').focus();
-    };
-
-    modal.querySelectorAll('[data-wk-cat]').forEach(btn=>btn.onclick=()=>{
-      wkCategory=btn.dataset.wkCat;
-      cart._name=modal.querySelector('#wkName')?.value||'';
-      renderWalkup();
-    });
-
-    modal.querySelectorAll('.pos-add-btn').forEach(b=>b.onclick=()=>{
-      const existing = cart.find(c=>c.menuItemId===b.dataset.mid && !c.variant);
-      if(existing){ existing.qty++; }
-      else { cart.push({name:b.dataset.mname, menuItemId:b.dataset.mid, price:+b.dataset.mp, qty:1, variant:null}); }
-      cart._name=modal.querySelector('#wkName')?.value||'';
-      renderWalkup();
-    });
-    modal.querySelectorAll('.pos-variant-btn').forEach(b=>b.onclick=()=>{
-      const item=menu.find(m=>(m.menuItemId||m.id)===b.dataset.mid);
-      const basePrice = item.basePrice || item.price || 0;
-      const variantPrice = basePrice + (+b.dataset.vp||0);
-      const sv = [{group: b.dataset.group||'', option: b.dataset.v, price: +b.dataset.vp||0}];
-      const existing = cart.find(c=>c.menuItemId===b.dataset.mid && c.variant===b.dataset.v);
-      if(existing){ existing.qty++; }
-      else { cart.push({name:item.name, menuItemId:b.dataset.mid, price:variantPrice, qty:1, variant:b.dataset.v, selectedVariants:sv}); }
-      cart._name=modal.querySelector('#wkName')?.value||'';
-      renderWalkup();
-    });
-    modal.querySelectorAll('.pos-remove-item').forEach(b=>b.onclick=()=>{ cart.splice(+b.dataset.ri,1); cart._name=modal.querySelector('#wkName')?.value||''; renderWalkup(); });
-
-    modal.querySelectorAll('input[name="wkDiscount"]').forEach(r=>{
-      r.onchange=()=>{ if(r.checked) selectedDiscount = r.value; };
-    });
-
-    const submitBtn=modal.querySelector('#wkSubmit');
-    if(submitBtn) submitBtn.onclick=async()=>{
-      const name=modal.querySelector('#wkName').value||'Walk-up';
-      const disc=(modal.querySelector('input[name="wkDiscount"]:checked')?.value)||undefined;
-      const notes=modal.querySelector('#wkNotes')?.value||'';
-      try{
-        await api('POST','/api/pos/orders',{customerName:name, items:cart.map(c=>({menuItemId:c.menuItemId,name:c.name,variant:c.variant,selectedVariants:c.selectedVariants||[],quantity:c.qty,price:c.price})), discountType:disc, notes});
-        // Track item popularity for favourites sorting
-        const counts = JSON.parse(localStorage.getItem('walkup_item_counts')||'{}');
-        cart.forEach(c=>{ counts[c.menuItemId] = (counts[c.menuItemId]||0) + c.qty; });
-        localStorage.setItem('walkup_item_counts', JSON.stringify(counts));
-        modal.remove(); fetchOrders();
-      } catch(e){ showError('Failed to submit order'); }
-    };
-  }
-  renderWalkup();
-  document.body.appendChild(modal);
-}
-
 // --- Menu Toggle ---
 async function openMenuToggle(){
   let menu=[];
@@ -1261,98 +982,6 @@ async function updateFoodQty(menuItemId, qty){
   await api('PUT',`/api/pos/menu/${menuItemId}/quantity`, { foodQuantityToday: qty });
 }
 
-// --- Order History ---
-async function openHistory(){
-  const modal = document.createElement('div');
-  modal.className = 'pos-modal-overlay';
-  modal.innerHTML = `<div class="pos-modal" style="max-width:600px"><button class="pos-modal-close">✕</button><h3>Order History (Today)</h3><div class="loading">Loading...</div></div>`;
-  document.body.appendChild(modal);
-  modal.querySelector('.pos-modal-close').onclick=()=>modal.remove();
-  modal.onclick=e=>{ if(e.target===modal) modal.remove(); };
-
-  try{
-    const data = await api('GET','/api/pos/orders?all=true');
-    const allOrders = (Array.isArray(data) ? data : data.orders || [])
-      .filter(o => ['ARCHIVED','EXPIRED','CANCELLED','READY'].includes(o.status));
-    allOrders.sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
-
-    // Client-side filter state: default hides CANCELLED so the operator
-    // sees "what actually served" first. Toggle to see refunds/rejects
-    // separately, or All to compare.
-    let historyFilter = 'NON_CANCELLED';   // NON_CANCELLED | CANCELLED | ALL
-
-    function filtered() {
-      if (historyFilter === 'CANCELLED') return allOrders.filter(o => o.status === 'CANCELLED');
-      if (historyFilter === 'NON_CANCELLED') return allOrders.filter(o => o.status !== 'CANCELLED');
-      return allOrders;
-    }
-
-    function itemHtml(o){
-      const items = (o.items||[]).map(i=>`${i.quantity||i.qty||1}x ${i.name}`).join(', ');
-      const statusClass = o.status==='CANCELLED'||o.status==='EXPIRED' ? 'badge-inactive' : 'badge-active';
-      const oid = o.orderId || o.id;
-      const canCancel = (o.status === 'READY' || o.status === 'ARCHIVED');
-      return `<div class="pos-history-item">
-        <div class="pos-history-header">
-          <strong>${o.customerName||'Guest'}</strong>
-          <span class="admin-card-badge ${statusClass}">${o.status}</span>
-        </div>
-        <div class="pos-history-details">${items}</div>
-        ${o.cancelReason ? `<div style="font-size:.75rem;color:var(--text-light,#7A6355);margin-top:4px">Cancelled: ${o.cancelReason}${o.cancelledBy?' · by '+o.cancelledBy:''}</div>` : ''}
-        <div class="pos-history-footer">
-          <span>RM ${(o.total||o.totalAmount||0).toFixed(2)}</span>
-          <span>${new Date(o.createdAt).toLocaleTimeString('en-MY',{hour:'2-digit',minute:'2-digit'})}</span>
-          <button class="pos-btn pos-btn-sm" data-reorder='${JSON.stringify({name:o.customerName,items:o.items})}'>Reorder</button>
-          ${canCancel ? `<button class="pos-btn pos-btn-sm pos-btn-danger" data-cancel-completed="${oid}">Cancel / Refund</button>` : ''}
-        </div>
-      </div>`;
-    }
-
-    function renderHistory(){
-      const content = modal.querySelector('.pos-modal');
-      const counts = {
-        NON_CANCELLED: allOrders.filter(o => o.status !== 'CANCELLED').length,
-        CANCELLED:     allOrders.filter(o => o.status === 'CANCELLED').length,
-        ALL:           allOrders.length,
-      };
-      const list = filtered();
-      const filterRow = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 14px">
-        <button class="pos-btn pos-btn-sm ${historyFilter==='NON_CANCELLED'?'pos-btn-primary':''}" data-hf="NON_CANCELLED">Non-Cancelled (${counts.NON_CANCELLED})</button>
-        <button class="pos-btn pos-btn-sm ${historyFilter==='CANCELLED'?'pos-btn-primary':''}" data-hf="CANCELLED">Cancelled (${counts.CANCELLED})</button>
-        <button class="pos-btn pos-btn-sm ${historyFilter==='ALL'?'pos-btn-primary':''}" data-hf="ALL">All (${counts.ALL})</button>
-      </div>`;
-
-      if (!allOrders.length){
-        content.innerHTML = `<button class="pos-modal-close">✕</button><h3>Order History (Today)</h3>${filterRow}<div style="padding:24px;text-align:center;color:var(--text-light,#7A6355)">No completed orders yet</div>`;
-      } else if (!list.length) {
-        content.innerHTML = `<button class="pos-modal-close">✕</button><h3>Order History (Today)</h3>${filterRow}<div style="padding:24px;text-align:center;color:var(--text-light,#7A6355)">No orders match this filter.</div>`;
-      } else {
-        content.innerHTML = `<button class="pos-modal-close">✕</button><h3>Order History (Today)</h3>${filterRow}
-          <div class="pos-history-list">${list.map(itemHtml).join('')}</div>`;
-      }
-
-      // Re-wire close, filter buttons, and per-item actions after every render.
-      content.querySelector('.pos-modal-close').onclick=()=>modal.remove();
-      content.querySelectorAll('[data-hf]').forEach(btn=>{
-        btn.onclick = ()=>{ historyFilter = btn.dataset.hf; renderHistory(); };
-      });
-      content.querySelectorAll('[data-reorder]').forEach(btn=>btn.onclick=async()=>{
-        const data = JSON.parse(btn.dataset.reorder);
-        try{
-          await api('POST','/api/pos/orders',{customerName:data.name||'Walk-up', items:(data.items||[]).map(i=>({menuItemId:i.menuItemId,name:i.name,variant:i.variant,qty:i.quantity||i.qty||1,price:i.price||i.unitPrice||0}))});
-          modal.remove();
-          fetchOrders();
-        } catch(e){ showError('Reorder failed'); }
-      });
-      content.querySelectorAll('[data-cancel-completed]').forEach(btn=>{
-        btn.onclick = ()=> showCancelCompletedDialog(btn.dataset.cancelCompleted, modal);
-      });
-    }
-
-    renderHistory();
-  } catch(e){ showError('Failed to load history'); modal.remove(); }
-}
-
 // --- Prep View ---
 function openPrepView(){
   const preparing = orders.filter(o=>o.status==='PREPARING');
@@ -1379,695 +1008,6 @@ function openPrepView(){
   modal.onclick=e=>{ if(e.target===modal) modal.remove(); };
 }
 
-// --- Manual Stock Count GUI ---
-// Cashier flow: pick a location (or ALL), see current stock for every
-// ingredient, adjust with +/- or direct entry, hit Save. Backend persists
-// new counts and records a snapshot for admin backtrace.
-async function openManualStockCount(){
-  const modal = document.createElement('div');
-  modal.className = 'pos-modal-overlay';
-  modal.innerHTML = `<div class="pos-modal" style="max-width:640px;max-height:90vh;display:flex;flex-direction:column;padding:0">
-    <div style="padding:16px 20px;border-bottom:1px solid var(--cream-dark,#E7DFD5);display:flex;justify-content:space-between;align-items:center;gap:12px">
-      <h3 style="margin:0">📦 Stock Count</h3>
-      <button class="pos-modal-close" id="mscClose" style="position:static">✕</button>
-    </div>
-    <div style="padding:12px 20px;border-bottom:1px solid var(--cream-dark,#E7DFD5);display:flex;gap:8px;flex-wrap:wrap" id="mscFilters">
-      <button class="pos-btn pos-btn-sm pos-btn-primary" data-msc-loc="ALL">All</button>
-      <button class="pos-btn pos-btn-sm" data-msc-loc="FRIDGE">🧊 Fridge</button>
-      <button class="pos-btn pos-btn-sm" data-msc-loc="STOREROOM">🗄️ Storeroom</button>
-    </div>
-    <div id="mscBody" style="flex:1;overflow-y:auto;padding:12px 20px">
-      <div class="loading">Loading ingredients…</div>
-    </div>
-    <div style="padding:14px 20px;border-top:1px solid var(--cream-dark,#E7DFD5);display:flex;justify-content:space-between;align-items:center;gap:12px">
-      <span id="mscHint" style="font-size:.8rem;color:var(--text-light,#7A6355)"></span>
-      <button class="pos-btn pos-btn-primary pos-btn-lg" id="mscSave" disabled>Save Stock Count</button>
-    </div>
-  </div>`;
-  document.body.appendChild(modal);
-  modal.querySelector('#mscClose').onclick = ()=> modal.remove();
-  modal.onclick = e => { if(e.target === modal) modal.remove(); };
-
-  let ingredients = [];
-  let filter = 'ALL';
-  // Working values, keyed by ingredientId. Populated from currentStock on
-  // load; +/- and direct entry mutate this map only. Save reads it back.
-  const workingCounts = {};
-  // Track which ids have been touched, so hint can show diff count.
-  const dirty = new Set();
-
-  try {
-    const data = await api('GET','/api/pos/ingredients');
-    ingredients = data.ingredients || [];
-    for (const ing of ingredients) workingCounts[ing.ingredientId] = ing.currentStock;
-  } catch (e) {
-    modal.querySelector('#mscBody').innerHTML = '<div style="padding:20px;text-align:center;color:var(--danger,#B00020)">Failed to load ingredients</div>';
-    return;
-  }
-
-  function stepFor(unit){
-    // Fractional units (bottles, liters) get 0.5 step; discrete/gram units get 1.
-    const u = (unit || '').toLowerCase();
-    if (u === 'bottle' || u === 'bottles' || u === 'l' || u === 'liter' || u === 'liters') return 0.5;
-    return 1;
-  }
-
-  function render(){
-    const body = modal.querySelector('#mscBody');
-    // Items marked BOTH appear under either Fridge or Storeroom filter (and ALL).
-    const filtered = filter === 'ALL'
-      ? ingredients
-      : ingredients.filter(i => {
-          const loc = i.storageLocation || '';
-          return loc === filter || loc === 'BOTH';
-        });
-    // Disabled ingredients (isActive === false) sink to the bottom. Cashiers
-    // can still count them (they're not removed from stock physically),
-    // but they're visually muted.
-    const sorted = filtered.slice().sort((a, b) => {
-      const aA = a.isActive !== false ? 0 : 1;
-      const bA = b.isActive !== false ? 0 : 1;
-      return aA - bA;
-    });
-    if (!sorted.length){
-      body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-light,#7A6355)">No ingredients in this location</div>';
-      updateSaveState();
-      return;
-    }
-    body.innerHTML = sorted.map(ing => {
-      const val = workingCounts[ing.ingredientId];
-      const step = stepFor(ing.unit);
-      const isDirty = dirty.has(ing.ingredientId);
-      const isActive = ing.isActive !== false;
-      const last = ing.lastCountedAt ? `<div style="font-size:.7rem;color:var(--text-light,#7A6355);margin-top:2px">Last: ${new Date(ing.lastCountedAt).toLocaleString()}${ing.lastCountedBy?' by '+escapeHtmlPos(ing.lastCountedBy):''}</div>` : '';
-      const disabledTag = isActive ? '' : ' <span style="font-size:.7rem;background:var(--danger-bg,#fef2f2);color:var(--danger,#C0392B);padding:1px 6px;border-radius:999px;font-weight:600">disabled</span>';
-      return `<div class="msc-row${isActive ? '' : ' msc-row-disabled'}" data-id="${escapeHtmlPos(ing.ingredientId)}" style="padding:12px 0;border-bottom:1px solid #f0ebe4;display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;${isActive?'':'opacity:.55'}">
-        <div style="min-width:0">
-          <div style="font-weight:600;color:${isDirty?'var(--primary,#6B4226)':'inherit'}">${escapeHtmlPos(ing.name)}${disabledTag} ${isDirty?'<span style="font-size:.7rem;color:var(--primary,#6B4226)">•edited</span>':''}</div>
-          <div style="font-size:.75rem;color:var(--text-light,#7A6355)">${escapeHtmlPos(ing.storageLocation||'—')}</div>
-          ${last}
-        </div>
-        <div style="display:flex;align-items:center;gap:6px">
-          <button class="pos-btn pos-btn-sm msc-dec" data-step="${step}" aria-label="Decrease">−</button>
-          <input class="pos-input msc-input" type="number" inputmode="decimal" step="${step}" min="0" value="${val}" style="width:80px;text-align:center;margin:0" aria-label="${escapeHtmlPos(ing.name)} count">
-          <button class="pos-btn pos-btn-sm msc-inc" data-step="${step}" aria-label="Increase">+</button>
-          <span style="font-size:.8rem;color:var(--text-light,#7A6355);min-width:52px">${escapeHtmlPos(ing.unit||'')}</span>
-        </div>
-      </div>`;
-    }).join('');
-
-    // Wire up controls
-    body.querySelectorAll('.msc-row').forEach(row => {
-      const id = row.dataset.id;
-      const input = row.querySelector('.msc-input');
-      const dec = row.querySelector('.msc-dec');
-      const inc = row.querySelector('.msc-inc');
-
-      function commit(newVal){
-        const n = Math.max(0, Number(newVal));
-        if (!isFinite(n)) return;
-        // Round to 2dp to avoid float drift (e.g., 0.1+0.2)
-        workingCounts[id] = Math.round(n * 100) / 100;
-        input.value = workingCounts[id];
-        // Original = the loaded currentStock for that ingredient
-        const original = ingredients.find(i => i.ingredientId === id)?.currentStock;
-        if (workingCounts[id] !== original) dirty.add(id); else dirty.delete(id);
-        // Update the "•edited" marker without a full re-render
-        const marker = row.querySelector('span[style*="•edited"]');
-        const title = row.querySelector('div[style^="font-weight"]');
-        if (title){
-          const isD = dirty.has(id);
-          title.style.color = isD ? 'var(--primary,#6B4226)' : 'inherit';
-          title.innerHTML = escapeHtmlPos(ingredients.find(i => i.ingredientId === id)?.name || '') +
-            (isD ? ' <span style="font-size:.7rem;color:var(--primary,#6B4226)">•edited</span>' : '');
-        }
-        void marker; // (no-op — marker refreshed via innerHTML above)
-        updateSaveState();
-      }
-
-      dec.onclick = ()=> commit(workingCounts[id] - Number(dec.dataset.step || 1));
-      inc.onclick = ()=> commit(workingCounts[id] + Number(inc.dataset.step || 1));
-      input.oninput = ()=> commit(input.value);
-    });
-    updateSaveState();
-  }
-
-  function updateSaveState(){
-    const btn = modal.querySelector('#mscSave');
-    const hint = modal.querySelector('#mscHint');
-    if (dirty.size === 0){
-      btn.disabled = false; // still allow save-all if user just wants to log a snapshot
-      btn.textContent = 'Save Stock Count';
-      hint.textContent = 'No changes yet';
-    } else {
-      btn.disabled = false;
-      btn.textContent = `Save Stock Count (${dirty.size} changed)`;
-      hint.textContent = `${dirty.size} item${dirty.size===1?'':'s'} changed`;
-    }
-  }
-
-  // Filter buttons
-  modal.querySelectorAll('[data-msc-loc]').forEach(btn => {
-    btn.onclick = ()=>{
-      filter = btn.dataset.mscLoc;
-      modal.querySelectorAll('[data-msc-loc]').forEach(b => b.classList.toggle('pos-btn-primary', b.dataset.mscLoc === filter));
-      render();
-    };
-  });
-
-  modal.querySelector('#mscSave').onclick = async ()=>{
-    const btn = modal.querySelector('#mscSave');
-    // Send ALL counts (simpler, backend overwrites). Snapshot captures the
-    // full picture at this point in time, which is what admin history needs.
-    const counts = ingredients.map(i => ({ ingredientId: i.ingredientId, count: workingCounts[i.ingredientId] }));
-    btn.disabled = true;
-    btn.textContent = 'Saving…';
-    try {
-      const result = await api('PUT','/api/pos/ingredients/bulk-update', { counts });
-      showSuccessToast(`Stock count saved (${result.updated || counts.length} items)`);
-      modal.remove();
-    } catch (e){
-      btn.disabled = false;
-      btn.textContent = 'Save Stock Count';
-      showError('Failed to save stock count');
-    }
-  };
-
-  render();
-}
-
-// --- Planogram Stock Count ---
-async function openStockCount(location){
-  const modal = document.createElement('div');
-  modal.className = 'pos-modal-overlay';
-  modal.innerHTML = `<div class="pos-modal" style="max-width:560px">
-    <button class="pos-modal-close">✕</button>
-    <h3>📷 Stock Count — ${location === 'fridge' ? 'Fridge' : 'Storeroom'}</h3>
-    <p style="font-size:.85rem;color:var(--text-light,#7A6355);margin:8px 0 16px">Take 1-3 photos. AI will count your stock.</p>
-    <div id="stockPhotos" class="stock-photos"></div>
-    <div style="display:flex;gap:10px;margin:16px 0">
-      <label class="pos-btn pos-btn-primary" for="stockCameraInput" style="flex:1;text-align:center;cursor:pointer">📷 Take Photo</label>
-      <input type="file" id="stockCameraInput" accept="image/*" capture="environment" style="display:none" multiple>
-    </div>
-    <button id="stockAnalyze" class="pos-btn pos-btn-primary pos-btn-lg" disabled style="width:100%">Analyze Stock</button>
-    <div id="stockResults"></div>
-  </div>`;
-  document.body.appendChild(modal);
-  modal.querySelector('.pos-modal-close').onclick=()=>modal.remove();
-  modal.onclick=e=>{ if(e.target===modal) modal.remove(); };
-
-  let photos = [];
-
-  modal.querySelector('#stockCameraInput').onchange = (e)=>{
-    const files = Array.from(e.target.files);
-    files.forEach(file=>{
-      const reader = new FileReader();
-      reader.onload = ()=>{
-        photos.push(reader.result);
-        renderPhotos();
-      };
-      reader.readAsDataURL(file);
-    });
-  };
-
-  function renderPhotos(){
-    const container = modal.querySelector('#stockPhotos');
-    container.innerHTML = photos.map((p,i)=>`<div class="stock-photo-thumb">
-      <img src="${p}" alt="Photo ${i+1}">
-      <button data-remove-photo="${i}">✕</button>
-    </div>`).join('') || '<p style="color:var(--text-light,#7A6355);text-align:center">No photos yet</p>';
-    container.querySelectorAll('[data-remove-photo]').forEach(btn=>btn.onclick=()=>{
-      photos.splice(+btn.dataset.removePhoto, 1);
-      renderPhotos();
-    });
-    modal.querySelector('#stockAnalyze').disabled = photos.length === 0;
-  }
-
-  modal.querySelector('#stockAnalyze').onclick = async()=>{
-    const btn = modal.querySelector('#stockAnalyze');
-    const resultsEl = modal.querySelector('#stockResults');
-    btn.disabled = true;
-    btn.textContent = 'Analyzing...';
-    resultsEl.innerHTML = '<p style="text-align:center;color:var(--primary,#6B4226)">🤖 AI is counting your stock...</p>';
-
-    try{
-      const data = await api('POST','/api/pos/planogram/analyze',{ location, images: photos });
-      const counts = data.counts || [];
-      const ingredients = data.ingredients || [];
-      const logId = data.logId || null;
-
-      let html = '<div class="stock-results-list"><h4 style="margin:16px 0 12px;color:var(--primary,#6B4226)">Results — adjust if needed</h4>';
-      counts.forEach((item,i)=>{
-        const match = ingredients.find(ing=>ing.name.toLowerCase().includes(item.name.toLowerCase()));
-        const confidence = item.confidence === 'high' ? '🟢' : item.confidence === 'medium' ? '🟡' : '🔴';
-        html += `<div class="stock-result-row">
-          <span class="stock-result-name">${confidence} ${item.name}</span>
-          <input type="number" step="0.1" class="stock-result-input" value="${item.count}" data-idx="${i}" data-ing-id="${match?.ingredientId||''}">
-          ${item.notes ? `<span class="stock-result-note">${item.notes}</span>` : ''}
-        </div>`;
-      });
-      html += `<button id="stockConfirm" class="pos-btn pos-btn-primary pos-btn-lg" style="width:100%;margin-top:16px">✓ Confirm & Save</button></div>`;
-      resultsEl.innerHTML = html;
-      btn.textContent = 'Re-analyze';
-      btn.disabled = false;
-
-      resultsEl.querySelector('#stockConfirm').onclick = async()=>{
-        const inputs = resultsEl.querySelectorAll('.stock-result-input');
-        const updates = [];
-        inputs.forEach(inp=>{
-          if(inp.dataset.ingId) updates.push({ ingredientId: inp.dataset.ingId, count: +inp.value });
-        });
-        try{
-          await api('POST','/api/pos/planogram/confirm',{ counts: updates, logId });
-          showError(''); // clear any error
-          modal.querySelector('.pos-modal').innerHTML = `<div style="text-align:center;padding:40px"><div style="font-size:2rem;margin-bottom:12px">✅</div><h3 style="color:var(--primary,#6B4226)">Stock Updated!</h3><p style="color:var(--text-light,#7A6355);margin-top:8px">${updates.length} items saved</p><button class="pos-btn pos-btn-primary" id="stockDone" style="margin-top:20px">Done</button></div>`;
-          modal.querySelector('#stockDone').onclick=()=>modal.remove();
-        } catch(e){ showError('Failed to save stock'); }
-      };
-    } catch(e){
-      resultsEl.innerHTML = `<p style="color:var(--danger,#C0392B);text-align:center">Failed to analyze. Please try again.</p>`;
-      btn.textContent = 'Retry Analysis';
-      btn.disabled = false;
-    }
-  };
-
-  renderPhotos();
-}
-
-// --- Voucher redemption (cashier-driven) ---
-//
-// Single re-rendering modal that walks the cashier through three steps:
-//   1. phone entry
-//   2. voucher list (eligible + past) for that phone
-//   3. menu picker (filtered to drinks or food per voucher type) + variant picker
-//
-// All UI state is local to the modal — closing it cleanly resets everything.
-function openVoucherFlow(){
-  const modal = document.createElement('div');
-  modal.className = 'pos-modal-overlay';
-  document.body.appendChild(modal);
-
-  const state = {
-    step: 'phone',     // 'phone' | 'list' | 'pick' | 'summary'
-    rawPhone: '',
-    phone: '',
-    customerName: '',
-    eligible: [],
-    past: [],
-    selectedVoucher: null,
-    allMenuItems: [],  // full menu fetched once when a voucher is chosen
-    // For single-item vouchers: slots=[{category:'DRINK'|'FOOD',label}], picks length 1.
-    // For FREE_COMBO: slots=[{category:'DRINK',label:'drink'},{category:'FOOD',label:'food'}].
-    slots: [],
-    picks: [],         // parallel to slots — { menuItem, selectedVariants } | null
-    pickIndex: 0,
-  };
-
-  modal.onclick = e => { if(e.target === modal) modal.remove(); };
-
-  function setStep(step){ state.step = step; render(); }
-
-  function render(){
-    if(state.step === 'phone')   return renderPhone();
-    if(state.step === 'list')    return renderList();
-    if(state.step === 'pick')    return renderPick();
-    if(state.step === 'summary') return renderSummary();
-  }
-
-  // ── Step 1: phone entry ──────────────────────────────────────────
-  function renderPhone(){
-    modal.innerHTML = `<div class="pos-modal" style="max-width:420px">
-      <button class="pos-modal-close">✕</button>
-      <h3>🎟️ Redeem Voucher</h3>
-      <p style="font-size:.85rem;color:var(--text-light,#7A6355);margin:8px 0 14px">
-        Enter the customer's phone number to look up their vouchers.
-      </p>
-      <input id="vfPhone" type="tel" inputmode="tel" autocomplete="off"
-             class="pos-input" placeholder="0168089999"
-             value="${state.rawPhone}" style="margin-bottom:12px">
-      <button id="vfLookup" class="pos-btn pos-btn-primary pos-btn-lg" style="width:100%">Look up</button>
-    </div>`;
-
-    modal.querySelector('.pos-modal-close').onclick = ()=> modal.remove();
-    const phoneInput = modal.querySelector('#vfPhone');
-    phoneInput.focus();
-    phoneInput.select();
-
-    const submit = async ()=>{
-      const raw = phoneInput.value.trim();
-      if(!raw){ showError('Phone number required'); return; }
-      const normalized = (typeof window.normalizePhone === 'function')
-        ? window.normalizePhone(raw)
-        : raw.replace(/[^0-9]/g, '');
-      if(!normalized){ showError('Invalid phone number'); return; }
-      state.rawPhone = raw;
-      state.phone = normalized;
-      await lookupVouchers();
-    };
-
-    modal.querySelector('#vfLookup').onclick = submit;
-    phoneInput.onkeydown = (e)=>{ if(e.key === 'Enter'){ e.preventDefault(); submit(); } };
-  }
-
-  async function lookupVouchers(){
-    modal.innerHTML = `<div class="pos-modal" style="max-width:420px;text-align:center">
-      <p style="margin:24px 0;color:var(--text-light,#7A6355)">Looking up vouchers…</p>
-    </div>`;
-    try{
-      const data = await api('GET', `/api/pos/vouchers/${encodeURIComponent(state.phone)}`);
-      state.eligible = data.eligible || [];
-      state.past = data.past || [];
-      state.customerName = (state.eligible[0]?.name) || (state.past[0]?.name) || '';
-      setStep('list');
-    } catch(e){
-      showError('Failed to look up vouchers');
-      setStep('phone');
-    }
-  }
-
-  // ── Step 2: voucher list ─────────────────────────────────────────
-  function renderList(){
-    const eligibleHtml = state.eligible.length
-      ? state.eligible.map(v => voucherCardHtml(v, true)).join('')
-      : '<p style="text-align:center;color:var(--text-light,#7A6355);padding:16px 0;font-size:.9rem">No eligible vouchers.</p>';
-
-    const pastHtml = state.past.length
-      ? `<h4 style="margin:20px 0 8px;color:var(--text-light,#7A6355);font-size:.9rem">Past (${state.past.length})</h4>` +
-        state.past.map(v => voucherCardHtml(v, false)).join('')
-      : '';
-
-    const headline = state.customerName
-      ? `${state.phone} · ${escapeHtmlPos(state.customerName)}`
-      : state.phone;
-
-    modal.innerHTML = `<div class="pos-modal" style="max-width:520px;max-height:85vh;overflow-y:auto">
-      <button class="pos-modal-close">✕</button>
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-        <button class="pos-btn pos-btn-sm pos-btn-outline" id="vfBack">← Back</button>
-        <h3 style="margin:0;flex:1">${headline}</h3>
-      </div>
-      ${state.eligible.length === 0 && state.past.length === 0
-        ? '<p style="text-align:center;color:var(--text-light,#7A6355);padding:32px 0">No vouchers found for this number.</p>'
-        : `<h4 style="margin:12px 0 8px;font-size:.9rem">Available (${state.eligible.length})</h4>${eligibleHtml}${pastHtml}`}
-    </div>`;
-
-    modal.querySelector('.pos-modal-close').onclick = ()=> modal.remove();
-    modal.querySelector('#vfBack').onclick = ()=> setStep('phone');
-
-    modal.querySelectorAll('[data-redeem-id]').forEach(btn => {
-      btn.onclick = ()=>{
-        const v = state.eligible.find(x => x.voucherId === btn.dataset.redeemId);
-        if(!v) return;
-        state.selectedVoucher = v;
-        // Build the pick slots based on voucher type.
-        if(v.voucherType === 'FREE_COMBO'){
-          state.slots = [
-            { category: 'DRINK', label: 'drink' },
-            { category: 'FOOD',  label: 'food'  },
-          ];
-        } else if(v.voucherType === 'FREE_FOOD'){
-          state.slots = [{ category: 'FOOD', label: 'food' }];
-        } else {
-          state.slots = [{ category: 'DRINK', label: 'drink' }];
-        }
-        state.picks = state.slots.map(()=> null);
-        state.pickIndex = 0;
-        loadMenuForVoucher();
-      };
-    });
-  }
-
-  function voucherCardHtml(v, isEligible){
-    let typeBadge;
-    if(v.voucherType === 'FREE_DRINK'){
-      typeBadge = '<span class="pos-card-tag" style="background:#3B82F6;color:#fff">🥤 FREE DRINK</span>';
-    } else if(v.voucherType === 'FREE_FOOD'){
-      typeBadge = '<span class="pos-card-tag" style="background:#F59E0B;color:#fff">🍪 FREE FOOD</span>';
-    } else {
-      typeBadge = '<span class="pos-card-tag" style="background:#7C3AED;color:#fff">🥤🍪 FREE COMBO</span>';
-    }
-
-    const opacity = isEligible ? '1' : '.55';
-    const cursor  = isEligible ? 'default' : 'default';
-
-    let bottom = '';
-    if(isEligible){
-      const expiresAt = v.expiresAt ? new Date(v.expiresAt) : null;
-      const daysLeft = expiresAt ? Math.ceil((expiresAt - Date.now()) / (24*60*60*1000)) : null;
-      const expiryText = expiresAt
-        ? (daysLeft <= 0 ? 'Expires today' :
-           daysLeft === 1 ? 'Expires tomorrow' :
-           `Expires in ${daysLeft} days (${expiresAt.toLocaleDateString()})`)
-        : '';
-      bottom = `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
-        <span style="font-size:.8rem;color:var(--text-light,#7A6355)">${expiryText}</span>
-        <button class="pos-btn pos-btn-primary pos-btn-sm" data-redeem-id="${v.voucherId}">Use →</button>
-      </div>`;
-    } else {
-      const display = v.displayStatus || v.status;
-      let detail = '';
-      if(display === 'REDEEMED'){
-        const when = v.redeemedAt ? new Date(v.redeemedAt).toLocaleDateString() : '';
-        const what = v.menuItemName ? `${escapeHtmlPos(v.menuItemName)}${v.variant ? ' ('+escapeHtmlPos(v.variant)+')' : ''}` : '';
-        detail = `Redeemed ${when}${what ? ' · '+what : ''}`;
-      } else if(display === 'EXPIRED'){
-        const when = v.expiresAt ? new Date(v.expiresAt).toLocaleDateString() : '';
-        detail = `Expired ${when}`;
-      }
-      bottom = `<div style="font-size:.8rem;color:var(--text-light,#7A6355);margin-top:6px">${detail}</div>`;
-    }
-
-    return `<div class="pos-card" style="opacity:${opacity};cursor:${cursor};margin-bottom:8px">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">${typeBadge}<strong>${escapeHtmlPos(v.campaignName || 'Voucher')}</strong></div>
-      ${v.note ? '<div style="font-size:.8rem;color:var(--text-light,#7A6355)">'+escapeHtmlPos(v.note)+'</div>' : ''}
-      ${bottom}
-    </div>`;
-  }
-
-  // ── Step 3: item picker ──────────────────────────────────────────
-  async function loadMenuForVoucher(){
-    modal.innerHTML = `<div class="pos-modal" style="max-width:420px;text-align:center">
-      <p style="margin:24px 0;color:var(--text-light,#7A6355)">Loading menu…</p>
-    </div>`;
-    try{
-      const data = await api('GET', '/api/menu');
-      const all = Array.isArray(data) ? data : (data.items || []);
-      state.allMenuItems = all
-        .filter(m => m.isActive !== false && m.isEnabledToday !== false)
-        .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0) || (a.name || '').localeCompare(b.name || ''));
-      setStep('pick');
-    } catch(e){
-      showError('Failed to load menu');
-      setStep('list');
-    }
-  }
-
-  function renderPick(){
-    const v = state.selectedVoucher;
-    const isCombo = v.voucherType === 'FREE_COMBO';
-    const slot = state.slots[state.pickIndex];
-    const pick = state.picks[state.pickIndex]; // current pick (may be null)
-    const isLastSlot = state.pickIndex === state.slots.length - 1;
-
-    // Heading + step indicator (only meaningful for combo).
-    let typeLabel;
-    if(v.voucherType === 'FREE_DRINK')      typeLabel = '🥤 FREE DRINK';
-    else if(v.voucherType === 'FREE_FOOD')  typeLabel = '🍪 FREE FOOD';
-    else                                    typeLabel = '🥤🍪 FREE COMBO';
-    const stepLabel = isCombo
-      ? `<span style="color:var(--text-light,#7A6355);font-size:.85rem;margin-left:8px">Step ${state.pickIndex + 1} of ${state.slots.length}: pick a ${slot.label}</span>`
-      : '';
-
-    const filtered = state.allMenuItems.filter(m => m.category === slot.category);
-    const itemsHtml = filtered.length
-      ? filtered.map(m => {
-          const id = m.menuItemId || m.id;
-          const isSelected = pick && (pick.menuItem.menuItemId || pick.menuItem.id) === id;
-          const price = m.basePrice || 0;
-          return `<div class="pos-card" data-pick-id="${id}" style="cursor:pointer;margin-bottom:6px;${isSelected ? 'border:2px solid var(--primary,#6B4226)' : ''}">
-            <div style="display:flex;justify-content:space-between;align-items:center">
-              <strong>${escapeHtmlPos(m.name)}</strong>
-              <span style="color:var(--text-light,#7A6355);font-size:.85rem">RM ${price.toFixed(2)}</span>
-            </div>
-          </div>`;
-        }).join('')
-      : '<p style="text-align:center;color:var(--text-light,#7A6355);padding:24px 0">No items available.</p>';
-
-    let variantHtml = '';
-    if(pick){
-      const m = pick.menuItem;
-      const hasVariants = (m.variantGroups && m.variantGroups.length) || (m.variants && m.variants.length);
-      if(hasVariants){
-        variantHtml = `<div style="margin-top:12px;padding:12px;background:var(--cream-lighter,#FAF6F0);border-radius:var(--radius,8px)">
-          <div style="font-size:.85rem;font-weight:600;margin-bottom:6px">Pick options</div>
-          <div id="vfVariantHost"></div>
-        </div>`;
-      }
-    }
-
-    // Header back-button: combo step 2+ goes to step 1; otherwise back to list.
-    const backLabel = (isCombo && state.pickIndex > 0) ? '← Back' : '← Vouchers';
-    // Primary button label: last slot in combo says "Review →"; single-item says "Confirm Redemption".
-    const primaryLabel = isCombo
-      ? (isLastSlot ? 'Review →' : 'Next →')
-      : 'Confirm Redemption';
-    const primaryClass = (isCombo && !isLastSlot) ? 'pos-btn pos-btn-outline pos-btn-lg' : 'pos-btn pos-btn-primary pos-btn-lg';
-
-    modal.innerHTML = `<div class="pos-modal" style="max-width:520px;max-height:85vh;overflow-y:auto">
-      <button class="pos-modal-close">✕</button>
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-        <button class="pos-btn pos-btn-sm pos-btn-outline" id="vfBackList">${backLabel}</button>
-        <h3 style="margin:0;flex:1">${typeLabel}${stepLabel}</h3>
-      </div>
-      <p style="font-size:.85rem;color:var(--text-light,#7A6355);margin:4px 0 12px">
-        ${escapeHtmlPos(v.campaignName || '')} · ${state.phone}${state.customerName ? ' · '+escapeHtmlPos(state.customerName) : ''}
-      </p>
-      <div style="max-height:45vh;overflow-y:auto;margin-bottom:12px">${itemsHtml}</div>
-      ${variantHtml}
-      <div style="margin-top:14px;display:flex;gap:8px">
-        <button class="${primaryClass}" id="vfConfirm" style="flex:1" ${pick ? '' : 'disabled'}>
-          ${primaryLabel}
-        </button>
-      </div>
-    </div>`;
-
-    modal.querySelector('.pos-modal-close').onclick = ()=> modal.remove();
-    modal.querySelector('#vfBackList').onclick = ()=>{
-      if(isCombo && state.pickIndex > 0){
-        state.pickIndex -= 1;
-        setStep('pick');
-      } else {
-        setStep('list');
-      }
-    };
-
-    modal.querySelectorAll('[data-pick-id]').forEach(card => {
-      card.onclick = ()=>{
-        const id = card.dataset.pickId;
-        const m = state.allMenuItems.find(item => (item.menuItemId || item.id) === id) || null;
-        if(!m) return;
-        state.picks[state.pickIndex] = { menuItem: m, selectedVariants: [] };
-        renderPick(); // re-render to show variants + enable next/confirm
-      };
-    });
-
-    // Wire variant picker via the shared module if present.
-    const variantHost = modal.querySelector('#vfVariantHost');
-    if(variantHost && pick && window.RLCVariants){
-      window.RLCVariants.renderVariantPicker(pick.menuItem, variantHost, (selected)=>{
-        // Mutate the pick in place — same object referenced from state.picks.
-        pick.selectedVariants = selected || [];
-      });
-    }
-
-    modal.querySelector('#vfConfirm').onclick = ()=>{
-      if(!pick) return;
-      // Validate single-select variant groups have an option chosen.
-      const m = pick.menuItem;
-      if(m.variantGroups && m.variantGroups.length){
-        const required = m.variantGroups.filter(g => g.type === 'single').map(g => g.group);
-        const chosen = new Set((pick.selectedVariants || []).map(sv => sv.group));
-        for(const g of required){
-          if(!chosen.has(g)){ showError(`Pick a ${g} option`); return; }
-        }
-      }
-
-      if(isCombo && !isLastSlot){
-        state.pickIndex += 1;
-        setStep('pick');
-      } else if(isCombo && isLastSlot){
-        setStep('summary');
-      } else {
-        confirmRedeem();
-      }
-    };
-  }
-
-  // ── Step 4: combo summary (combo only) ───────────────────────────
-  function renderSummary(){
-    const v = state.selectedVoucher;
-    const rows = state.picks.map((p, i) => {
-      const m = p.menuItem;
-      const price = m.basePrice + (p.selectedVariants || []).reduce((s, sv) => s + (sv.price || 0), 0);
-      const vlabel = (p.selectedVariants || []).map(sv => sv.option).filter(Boolean).join(', ');
-      return `<div class="pos-card" style="margin-bottom:8px">
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <div>
-            <div style="font-size:.75rem;color:var(--text-light,#7A6355);text-transform:uppercase;letter-spacing:.05em">${escapeHtmlPos(state.slots[i].label)}</div>
-            <strong>${escapeHtmlPos(m.name)}</strong>
-            ${vlabel ? '<div style="font-size:.85rem;color:var(--text-light,#7A6355)">'+escapeHtmlPos(vlabel)+'</div>' : ''}
-          </div>
-          <span style="color:var(--text-light,#7A6355);font-size:.85rem;text-decoration:line-through">RM ${price.toFixed(2)}</span>
-        </div>
-      </div>`;
-    }).join('');
-
-    const total = state.picks.reduce((s, p) => {
-      return s + (p.menuItem.basePrice || 0) + (p.selectedVariants || []).reduce((a, sv) => a + (sv.price || 0), 0);
-    }, 0);
-
-    modal.innerHTML = `<div class="pos-modal" style="max-width:520px;max-height:85vh;overflow-y:auto">
-      <button class="pos-modal-close">✕</button>
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-        <button class="pos-btn pos-btn-sm pos-btn-outline" id="vfBackPick">← Back</button>
-        <h3 style="margin:0;flex:1">🥤🍪 Review Redemption</h3>
-      </div>
-      <p style="font-size:.85rem;color:var(--text-light,#7A6355);margin:4px 0 12px">
-        ${escapeHtmlPos(v.campaignName || '')} · ${state.phone}${state.customerName ? ' · '+escapeHtmlPos(state.customerName) : ''}
-      </p>
-      ${rows}
-      <div style="text-align:right;margin:12px 0;font-size:.95rem">
-        Total value: <strong>RM ${total.toFixed(2)}</strong> — voucher covers everything
-      </div>
-      <button class="pos-btn pos-btn-primary pos-btn-lg" id="vfConfirm" style="width:100%">Confirm Redemption</button>
-    </div>`;
-
-    modal.querySelector('.pos-modal-close').onclick = ()=> modal.remove();
-    modal.querySelector('#vfBackPick').onclick = ()=>{
-      state.pickIndex = state.slots.length - 1;
-      setStep('pick');
-    };
-    modal.querySelector('#vfConfirm').onclick = confirmRedeem;
-  }
-
-  // ── Confirm + redeem ─────────────────────────────────────────────
-  async function confirmRedeem(){
-    if(!state.selectedVoucher) return;
-    if(state.picks.some(p => !p)) return;
-
-    const btn = modal.querySelector('#vfConfirm');
-    if(btn){ btn.disabled = true; btn.textContent = 'Redeeming…'; }
-
-    try{
-      await api('POST', '/api/pos/vouchers/redeem', {
-        voucherId: state.selectedVoucher.voucherId,
-        phone: state.phone,
-        customerName: state.customerName || state.selectedVoucher.name || '',
-        items: state.picks.map(p => ({
-          menuItemId: p.menuItem.menuItemId || p.menuItem.id,
-          selectedVariants: p.selectedVariants || [],
-        })),
-      });
-      modal.remove();
-      try{ playReadySound(); } catch(e){}
-      showSuccessToast('Voucher redeemed — order created');
-      try{ fetchOrders(); } catch(e){}
-    } catch(e){
-      const msg = String(e && e.message || '');
-      if(msg.includes('already redeemed') || msg.includes('expired')){
-        showError('Voucher is no longer valid');
-        await lookupVouchers();
-      } else {
-        showError('Redemption failed');
-        if(btn){ btn.disabled = false; btn.textContent = 'Confirm Redemption'; }
-      }
-    }
-  }
-
-  render();
-}
-
-// Reuse the existing toast host pattern but with a success palette.
 function showSuccessToast(msg){
   let host = document.getElementById('posToastHost');
   if(!host){
@@ -2090,6 +1030,57 @@ function escapeHtmlPos(s){
     .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
+// --- Featured Drink Modal ---
+async function openFeaturedDrinkModal(){
+  const modal = document.createElement('div');
+  modal.className = 'pos-modal-overlay';
+
+  if(featuredDrink){
+    // Show current + option to unfeature
+    modal.innerHTML = `<div class="pos-modal" style="max-width:400px;text-align:center">
+      <button class="pos-modal-close">✕</button>
+      <h3>⭐ Featured Drink</h3>
+      <p style="margin:16px 0;font-size:1.1rem;font-weight:600">${featuredDrink.name}</p>
+      <p style="color:var(--text-light);font-size:.85rem;margin-bottom:20px">RM ${featuredDrink.basePrice.toFixed(2)}</p>
+      <button id="featUnset" class="pos-btn pos-btn-sm" style="background:var(--danger,#C0392B);color:#fff;width:100%">Remove Featured Drink</button>
+    </div>`;
+    document.body.appendChild(modal);
+    modal.querySelector('.pos-modal-close').onclick = ()=> modal.remove();
+    modal.onclick = e=>{ if(e.target===modal) modal.remove(); };
+    modal.querySelector('#featUnset').onclick = async()=>{
+      try{ await api('DELETE','/api/pos/featured-drink'); featuredDrink=null; fetchCafeStatus(); modal.remove(); showSuccessToast('Featured drink removed'); }
+      catch(e){ showError('Failed to remove featured drink'); }
+    };
+    return;
+  }
+
+  // Show list of drinks to pick from
+  let drinks = [];
+  try{ const r = await api('GET','/api/pos/menu'); drinks = (r.items||r).filter(i=>i.category==='DRINK'&&i.isEnabledToday!==false); }
+  catch(e){ showError('Failed to load menu'); return; }
+
+  modal.innerHTML = `<div class="pos-modal" style="max-width:500px;max-height:80vh;overflow-y:auto">
+    <button class="pos-modal-close">✕</button>
+    <h3>⭐ Set Featured Drink</h3>
+    <p style="color:var(--text-light);font-size:.85rem;margin:8px 0 16px">Pick one drink to feature on the order screen today.</p>
+    <div class="pos-featured-list">
+      ${drinks.map(d=>`<button class="pos-featured-pick" data-id="${d.menuItemId}">
+        <span class="feat-name">${d.name}</span>
+        <span class="feat-price">RM ${d.basePrice.toFixed(2)}</span>
+      </button>`).join('')}
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+  modal.querySelector('.pos-modal-close').onclick = ()=> modal.remove();
+  modal.onclick = e=>{ if(e.target===modal) modal.remove(); };
+  modal.querySelectorAll('.pos-featured-pick').forEach(btn=>{
+    btn.onclick = async()=>{
+      try{ await api('PUT','/api/pos/featured-drink',{menuItemId:btn.dataset.id}); fetchCafeStatus(); modal.remove(); showSuccessToast('Featured drink set!'); }
+      catch(e){ showError('Failed to set featured drink'); }
+    };
+  });
+}
+
 // --- Keyboard shortcuts ---
 document.addEventListener('keydown', e=>{
   if(!token) return;
@@ -2103,6 +1094,3 @@ document.addEventListener('keydown', e=>{
   if(e.key==='/'){ e.preventDefault(); const s=$('#orderSearch'); if(s) s.focus(); }
 });
 
-// --- Init ---
-token ? renderMain() : renderLogin();
-})();

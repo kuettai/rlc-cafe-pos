@@ -607,6 +607,18 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
       return res(200, { message: 'Coming soon' });
     }
 
+    // Featured Drink Audit
+    if (method === 'GET' && path.endsWith('/admin/featured-drink/audit')) {
+      const dateParam = event.queryStringParameters?.date || new Date().toISOString().split('T')[0];
+      const result = await docClient.send(new QueryCommand({
+        TableName: SETTINGS_TABLE,
+        KeyConditionExpression: 'PK = :pk',
+        ExpressionAttributeValues: { ':pk': `FEATURED_AUDIT#${dateParam}` },
+        ScanIndexForward: false,
+      }));
+      return res(200, { date: dateParam, entries: result.Items || [] });
+    }
+
     // ─── Pre-Order Templates (admin-editable defaults) ────────────────
     // Single record stored at PK=SETTINGS#PREORDER_TEMPLATES,SK=META.
     // When creating a new pre-order code, the admin form pre-fills from
