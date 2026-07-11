@@ -54,7 +54,9 @@ const ingredients = await doc.send(new ScanCommand({ TableName: INGREDIENTS_TABL
 const allIngredients = (ingredients.Items || []).filter(i => i.SK === 'META');
 
 function findIngredient(name) {
-  const found = allIngredients.find(i => i.name.toLowerCase().includes(name.toLowerCase()));
+  const found = allIngredients.find(i => i.name.toLowerCase() === name.toLowerCase())
+    || allIngredients.find(i => i.name.toLowerCase().includes(name.toLowerCase())
+       && !i.name.toLowerCase().includes('decaf'));
   if (!found) {
     console.warn(`  ⚠ Ingredient "${name}" not found — skipping recipe entry`);
     return null;
