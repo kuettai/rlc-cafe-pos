@@ -557,9 +557,6 @@ async function pollOrder() {
     if (statusRes.ok) { const s = await statusRes.json(); queueSize = s.queueSize || 0; }
     if (prevStatus && order.status !== prevStatus) {
       const msgs = { PREPARING: '☕ Your order is being prepared!', READY: '🎉 Your order is ready for pickup!' };
-      if (msgs[order.status] && Notification.permission === 'granted') {
-        new Notification('CafePOS', { body: msgs[order.status] });
-      }
       if (order.status === 'READY') {
         setTimeout(() => document.querySelector('.status-indicator')?.classList.add('pulse'), 50);
       }

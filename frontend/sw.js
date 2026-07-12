@@ -60,7 +60,7 @@ self.addEventListener('push', event => {
     badge: './img/icon-72.png',
     vibrate: [200, 100, 200],
     tag: 'order-' + (data.orderId || 'unknown'),
-    renotify: false,
+    renotify: true,
     data: { orderId: data.orderId },
   };
   event.waitUntil(self.registration.showNotification(title, options));
