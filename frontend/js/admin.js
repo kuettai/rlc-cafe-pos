@@ -136,6 +136,7 @@ function loadTab(){
     case 'planogram': loadPlanogram(c); break;
     case 'vouchers': loadVouchers(c); break;
     case 'preorder': loadPreorderCodes(c); break;
+    case 'display': loadDisplay(c); break;
     case 'settings': loadSettings(c); break;
     case 'verses': loadVerses(c); break;
     // Historical reports (weekly/monthly) live on reports.html — sidebar

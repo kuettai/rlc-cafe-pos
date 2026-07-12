@@ -868,6 +868,10 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
       });
       const uploadUrl = await getSignedUrl(s3, command, { expiresIn: 300 });
 
+      // Store a relative path in DynamoDB (bucket-agnostic). The
+      // display page fetches slides via /api/display/slides, which
+      // signs a short-lived S3 GET URL per slide at read time — see
+      // routes/display.ts. This keeps the bucket private.
       return res(200, { uploadUrl, imageUrl: `/${key}` });
     }
 

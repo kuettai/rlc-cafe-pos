@@ -135,11 +135,11 @@ export class InfraStack extends cdk.Stack {
     // deployment friction for no security gain (the PUT is already gated
     // by the presigned URL).
     //
-    // NOTE: Public read is intentionally OFF. Images are served from the
-    // same origin as the frontend (/display-slides/*) via CloudFront /
-    // BucketDeployment — the backend records `/display-slides/<file>`
-    // as the imageUrl. If a future setup needs direct S3 access, add a
-    // BucketPolicy for public GET on the display-slides/* prefix.
+    // Bucket stays PRIVATE. The account has S3 Block Public Access
+    // enforced at the account level, so a public-read policy is not
+    // possible here anyway. Instead, `/api/display/slides` in the
+    // Lambda signs short-lived (1-hour) GET URLs per slide at read
+    // time — see backend/src/routes/display.ts.
     const displaySlidesBucket = new s3.Bucket(this, 'DisplaySlidesBucket', {
       bucketName: `rlc-cafe-display-slides-${this.account}`,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
@@ -214,9 +214,14 @@ export class InfraStack extends cdk.Stack {
     // `display-slides/*` prefix, not the whole bucket. This is narrower
     // than grantReadWrite() so if the bucket later serves other content
     // (e.g. frontend static assets), the Lambda can't mutate those.
+    //
+    // Read (GetObject) is also scoped to the same prefix so
+    // /api/display/slides can sign short-lived GET URLs for the
+    // display page (bucket itself is private — see comment on the
+    // bucket construct above).
     apiHandler.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
-      actions: ['s3:PutObject', 's3:PutObjectAcl'],
+      actions: ['s3:PutObject', 's3:PutObjectAcl', 's3:GetObject'],
       resources: [`${displaySlidesBucket.bucketArn}/display-slides/*`],
     }));
 

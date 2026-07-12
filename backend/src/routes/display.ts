@@ -9,6 +9,13 @@ import {
   docClient, ORDERS_TABLE, SETTINGS_TABLE,
   QueryCommand, ScanCommand,
 } from '../lib/db';
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+
+// Reused across Lambda invocations. Region is picked up from
+// AWS_REGION (auto-set by the runtime).
+const s3 = new S3Client({});
+const BUCKET = process.env.FRONTEND_BUCKET || '';
 
 function res(statusCode: number, body: object): APIGatewayProxyResult {
   return { statusCode, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
@@ -56,14 +63,31 @@ export async function handleDisplay(event: APIGatewayProxyEvent): Promise<APIGat
         ExpressionAttributeValues: { ':prefix': 'DISPLAY_SLIDE#' },
       }));
 
-      const slides = (result.Items || [])
+      const active = (result.Items || [])
         .filter(s => s.startDate <= today && s.expiryDate >= today)
-        .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
-        .map(s => ({
-          slideId: s.slideId,
-          imageUrl: s.imageUrl,
-          title: s.title || '',
-        }));
+        .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+
+      // Sign a short-lived GET URL per slide. Bucket is private (see
+      // infra-stack.ts); 1-hour expiry is well beyond the display
+      // page's 60s slide-list refresh interval, so the <img src>
+      // always sees a fresh URL. Skips signing (returns null URL) if
+      // FRONTEND_BUCKET isn't configured — the display page hides
+      // slides with a falsy imageUrl.
+      const slides = await Promise.all(active.map(async s => {
+        const raw: string = s.imageUrl || '';
+        // imageUrl is stored as "/display-slides/<file>" — strip the
+        // leading slash to get the S3 key.
+        const key = raw.startsWith('/') ? raw.slice(1) : raw;
+        let imageUrl = '';
+        if (BUCKET && key) {
+          imageUrl = await getSignedUrl(
+            s3,
+            new GetObjectCommand({ Bucket: BUCKET, Key: key }),
+            { expiresIn: 3600 },
+          );
+        }
+        return { slideId: s.slideId, imageUrl, title: s.title || '' };
+      }));
 
       return res(200, { slides });
     }
