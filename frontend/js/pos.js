@@ -107,7 +107,7 @@ function renderMain(){
     <button id="btnPrep" class="pos-sidebar-btn">☕ Prep Queue</button>
     <button id="btnMenu" class="pos-sidebar-btn">📋 Menu</button>
     <button id="btnChecklist" class="pos-sidebar-btn">☑️ Checklist</button>
-    ${cafeOpen ? '<button id="btnHandover" class="pos-sidebar-btn">🔄 Handover</button>' : ''}
+    <button id="btnHandover" class="pos-sidebar-btn" style="${cafeOpen ? '' : 'display:none'}">🔄 Handover</button>
     <button id="btnStockCount" class="pos-sidebar-btn">📦 Stock Count</button>
     <button id="btnPlanogram" class="pos-sidebar-btn">📷 AI Scan</button>
     <button id="btnHistory" class="pos-sidebar-btn">📜 History</button>
@@ -216,6 +216,9 @@ async function fetchCafeStatus(){
         headerBadge.classList.remove('is-open');
       }
     }
+    // Handover button visibility
+    const handoverBtn = document.getElementById('btnHandover');
+    if(handoverBtn) handoverBtn.style.display = cafeOpen ? '' : 'none';
     // Featured drink
     featuredDrink = s.featuredDrink || null;
     const featBtn = $('#btnFeatured');
