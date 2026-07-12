@@ -68,11 +68,13 @@ export async function handleDisplay(event: APIGatewayProxyEvent): Promise<APIGat
         .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
 
       // Sign a short-lived GET URL per slide. Bucket is private (see
-      // infra-stack.ts); 1-hour expiry is well beyond the display
-      // page's 60s slide-list refresh interval, so the <img src>
-      // always sees a fresh URL. Skips signing (returns null URL) if
-      // FRONTEND_BUCKET isn't configured — the display page hides
-      // slides with a falsy imageUrl.
+      // infra-stack.ts); 12-hour expiry easily covers a full Sunday
+      // service window, and the display page refreshes the slide list
+      // every 30 minutes anyway (see frontend/js/display.js), so
+      // <img src> always sees a fresh URL well before expiry. Skips
+      // signing (returns null URL) if FRONTEND_BUCKET isn't
+      // configured — the display page hides slides with a falsy
+      // imageUrl.
       const slides = await Promise.all(active.map(async s => {
         const raw: string = s.imageUrl || '';
         // imageUrl is stored as "/display-slides/<file>" — strip the
@@ -83,7 +85,7 @@ export async function handleDisplay(event: APIGatewayProxyEvent): Promise<APIGat
           imageUrl = await getSignedUrl(
             s3,
             new GetObjectCommand({ Bucket: BUCKET, Key: key }),
-            { expiresIn: 3600 },
+            { expiresIn: 43200 },
           );
         }
         return { slideId: s.slideId, imageUrl, title: s.title || '' };

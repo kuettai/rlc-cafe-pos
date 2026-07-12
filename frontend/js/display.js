@@ -179,9 +179,9 @@ function startPolling() {
   // Prime immediately, then on the interval.
   fetchDisplayOrders();
   fetchSlides();
-  ordersTimer    = setInterval(fetchDisplayOrders, 5000);   // 5s
-  slideshowTimer = setInterval(nextSlide,          10000);  // 10s
-  slidesTimer    = setInterval(fetchSlides,        60000);  // 60s
+  ordersTimer    = setInterval(fetchDisplayOrders, 5000);     // 5s
+  slideshowTimer = setInterval(nextSlide,          10000);    // 10s
+  slidesTimer    = setInterval(fetchSlides,        1800000);  // 30min
 }
 
 function stopPolling() {
