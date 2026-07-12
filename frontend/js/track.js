@@ -6,6 +6,61 @@ let prevStatus = null;
 let queueSize = 0;
 let isEditing = false;
 
+// --- Push Notification Subscription ---
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
+async function offerPushSubscription(orderId, customerName) {
+  if (!('PushManager' in window) || !('serviceWorker' in navigator)) return;
+  if (Notification.permission === 'denied') return;
+
+  // Show soft prompt above the tracking view. trackApp gets its innerHTML
+  // fully rewritten on each poll, so the banner is inserted as a sibling
+  // (before trackApp) to survive re-renders.
+  const banner = document.createElement('div');
+  banner.className = 'push-prompt';
+  banner.innerHTML = `<div class="push-prompt-inner">
+    <span>🔔 Want to know when your drink is ready?</span>
+    <div class="push-prompt-btns">
+      <button id="pushYes" class="pos-btn pos-btn-primary pos-btn-sm">Yes, notify me</button>
+      <button id="pushNo" class="pos-btn pos-btn-sm">No thanks</button>
+    </div>
+  </div>`;
+  trackApp.parentNode.insertBefore(banner, trackApp);
+
+  banner.querySelector('#pushNo').onclick = () => banner.remove();
+  banner.querySelector('#pushYes').onclick = async () => {
+    banner.remove();
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') return;
+
+      const reg = await navigator.serviceWorker.ready;
+      const vapidRes = await fetch(`${API_BASE}/api/push/vapid-public-key`);
+      const { publicKey } = await vapidRes.json();
+
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey),
+      });
+
+      await fetch(`${API_BASE}/api/push/subscribe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, subscription: sub.toJSON(), customerName }),
+      });
+    } catch (e) {
+      console.error('Push subscription failed:', e);
+    }
+  };
+}
+
 function showError(msg) {
   errorBanner.textContent = msg;
   errorBanner.classList.add('show');
@@ -656,4 +711,15 @@ if (!orderId) {
   if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
   pollOrder();
   pollTimer = setInterval(pollOrder, 7000);
+}
+
+// Offer a push subscription if the customer just placed an order and was
+// redirected here from the ordering flow. app.js drops the orderId into
+// sessionStorage right before navigating; we consume it once so refreshes
+// don't re-prompt.
+const pushOrderId = sessionStorage.getItem('push_offer_order');
+if (pushOrderId) {
+  sessionStorage.removeItem('push_offer_order');
+  const name = localStorage.getItem('customerName') || '';
+  offerPushSubscription(pushOrderId, name);
 }

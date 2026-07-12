@@ -3,6 +3,7 @@ import { v4 as uuid } from 'uuid';
 import { docClient, ORDERS_TABLE, MENU_TABLE, SETTINGS_TABLE, INGREDIENTS_TABLE, GetCommand, PutCommand, UpdateCommand, QueryCommand, ScanCommand } from '../lib/db';
 import { sendEndOfDaySummary } from '../lib/email';
 import { logOrder, summarizeItems } from '../lib/audit';
+import { sendOrderPush } from '../lib/push';
 
 const res = (statusCode: number, body: object): APIGatewayProxyResult => ({
   statusCode, headers: {}, body: JSON.stringify(body),
@@ -294,6 +295,8 @@ async function approveOrder(event: APIGatewayProxyEvent, actor: string = ''): Pr
     status: 'PREPARING',
   });
 
+  await sendOrderPush(id, '☕ Order Confirmed', 'Your order is being prepared!');
+
   return res(200, { orderId: id, status: 'PREPARING', totalAmount, discountOffset });
 }
 
@@ -408,6 +411,8 @@ async function markReady(event: APIGatewayProxyEvent, actor: string = ''): Promi
   }
 
   logOrder('READY', id, { by: actor });
+
+  await sendOrderPush(id, '✅ Order Ready!', 'Your order is ready for collection!');
 
   return res(200, { orderId: id, status: 'READY', readyAt: now });
 }

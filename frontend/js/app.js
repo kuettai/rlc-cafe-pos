@@ -536,6 +536,8 @@ cartSubmit.addEventListener('click', async () => {
     localStorage.setItem('lastOrderId', data.orderId);
     cartOverlay.classList.remove('open');
 
+    sessionStorage.setItem('push_offer_order', data.orderId);
+
     if (!customerProfile) {
       showRegistrationPrompt(data.orderId);
     } else {

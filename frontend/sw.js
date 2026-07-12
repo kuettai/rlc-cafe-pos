@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rlc-cafe-v1.53.1';
+const CACHE_NAME = 'rlc-cafe-v1.54.0';
 const SHELL = [
   './', './index.html', './track.html', './pos.html', './admin.html',
   './css/style.css', './css/admin.css',
@@ -47,4 +47,34 @@ self.addEventListener('fetch', e => {
       return r;
     }).catch(() => caches.match(e.request)));
   }
+});
+
+// --- Push Notifications ---
+self.addEventListener('push', event => {
+  const data = event.data ? event.data.json() : {};
+  const title = data.title || '☕ RLC Café';
+  const options = {
+    body: data.body || 'Your order status has been updated',
+    icon: './img/icon-192.png',
+    badge: './img/icon-72.png',
+    vibrate: [200, 100, 200],
+    tag: 'order-' + (data.orderId || 'unknown'),
+    renotify: true,
+    data: { orderId: data.orderId },
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  const orderId = event.notification.data?.orderId;
+  const url = orderId ? './track.html?highlight=' + orderId : './track.html';
+  event.waitUntil(
+    clients.matchAll({ type: 'window' }).then(windowClients => {
+      for (const client of windowClients) {
+        if (client.url.includes('track') && 'focus' in client) return client.focus();
+      }
+      return clients.openWindow(url);
+    })
+  );
 });

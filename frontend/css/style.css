@@ -2158,3 +2158,19 @@ header h1{
   grid-column:2/3; grid-row:2/3;
   justify-self:start;
 }
+
+
+/* --- Push Notification Prompt --- */
+.push-prompt{
+  background:linear-gradient(135deg,#EEF2FF,#E0E7FF);
+  border:1px solid #A5B4FC;
+  border-radius:12px; padding:14px 16px;
+  margin:12px 0; animation:slideDown .3s ease;
+}
+.push-prompt-inner{
+  display:flex; flex-wrap:wrap; align-items:center;
+  justify-content:space-between; gap:10px;
+}
+.push-prompt-inner span{ font-weight:600; color:#3730A3; font-size:.9rem; }
+.push-prompt-btns{ display:flex; gap:8px; }
+@keyframes slideDown{ from{opacity:0;transform:translateY(-10px)} to{opacity:1;transform:translateY(0)} }

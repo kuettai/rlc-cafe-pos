@@ -64,6 +64,7 @@ export class InfraStack extends cdk.Stack {
       partitionKey: { name: 'PK', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'SK', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      timeToLiveAttribute: 'expiresAt',
       pointInTimeRecovery: true,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
@@ -164,6 +165,9 @@ export class InfraStack extends cdk.Stack {
         // is 'true', requests missing/mismatching X-Origin-Verify are rejected with 403.
         ORIGIN_VERIFY_SECRET: process.env.ORIGIN_VERIFY_SECRET || 'CHANGE_ME_WHEN_CLOUDFRONT_ENABLED',
         ENFORCE_ORIGIN_HEADER: process.env.ENFORCE_ORIGIN_HEADER || 'false',
+        VAPID_PUBLIC_KEY: 'BJhjhWwODVjkkJsxxEZr0fkAjtFkyR8GJhqz36_8Y7GrY6aKgMsoBjhzxTLSaF8VSitOMzW8Vx7DQT-19U0eBlE',
+        VAPID_PRIVATE_KEY: process.env.VAPID_PRIVATE_KEY || '',
+        VAPID_SUBJECT: 'mailto:admin@rlccafe.com',
       },
     });
 

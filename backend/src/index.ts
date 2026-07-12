@@ -12,6 +12,7 @@ import { handlePlanogram } from './routes/planogram';
 import { handleCustomers } from './routes/customers';
 import { handleVouchers } from './routes/vouchers';
 import { handleAdminPreorder, handleValidatePreorder } from './routes/preorder';
+import { handlePush } from './routes/push';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -84,6 +85,12 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
   }
   if (path.startsWith('/api/orders')) {
     const res = await handleOrders(event);
+    res.headers = { ...CORS_HEADERS, ...res.headers };
+    return res;
+  }
+
+  if (path.startsWith('/api/push')) {
+    const res = await handlePush(event);
     res.headers = { ...CORS_HEADERS, ...res.headers };
     return res;
   }
