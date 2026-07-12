@@ -32,14 +32,19 @@ async function releaseFood(items: { menuItemId: string; quantity: number; catego
 }
 
 /**
- * Called when a FOOD-containing order reaches a terminal "the food was
- * actually made" state — currently ARCHIVED (collected) and post-completion
- * CANCELLED coming out of READY. Decrements *both* `foodReserved` (release
- * the slot) and `foodQuantityToday` (the food is out of inventory whether
- * it got handed over or not; the kitchen already used it up).
+ * Called when a FOOD-containing order transitions to the "food was
+ * actually made" state — namely markReady (PREPARING → READY), which is
+ * the moment the kitchen hands the item over the counter. Decrements
+ * *both* `foodReserved` (release the slot) and `foodQuantityToday` (the
+ * food is out of inventory).
  *
- * Drift note: counters may go negative if reservations have already drifted
- * from historical bugs. That's tolerated — the periodic
+ * Historically this ran on archive (ARCHIVED = "collected") and on
+ * post-completion cancels; moved to markReady in v1.51.x because
+ * cashiers rarely explicitly archive, so archive-triggered decrements
+ * were unreliable in practice.
+ *
+ * Drift note: counters may go negative if reservations have already
+ * drifted from historical bugs. That's tolerated — the periodic
  * `scripts/reset-food-reserved.mjs` clean-up is the correct fix, not
  * clamping here (clamping could hide real accounting errors).
  */
@@ -61,6 +66,31 @@ async function consumeFoodOnCollection(items: any[]) {
       // fail the customer-facing state transition just because a legacy
       // record lacks the counter attribute.
       console.error('consumeFoodOnCollection failed for', item.menuItemId, e?.name || e);
+    }
+  }
+}
+
+/**
+ * Exact inverse of `consumeFoodOnCollection` — restores both counters
+ * when a READY → PREPARING undo rolls a state transition back. Used only
+ * by undoToPreparingFromReady so an accidental "Ready" click that gets
+ * corrected within seconds doesn't permanently burn a food slot.
+ */
+async function unconsumeFoodOnUndo(items: any[]) {
+  if (!Array.isArray(items)) return;
+  for (const item of items) {
+    if (!item || item.category !== 'FOOD' || !item.menuItemId) continue;
+    const qty = Number(item.quantity || item.qty || 1);
+    if (!isFinite(qty) || qty <= 0) continue;
+    try {
+      await docClient.send(new UpdateCommand({
+        TableName: MENU_TABLE,
+        Key: { PK: `MENU#${item.menuItemId}`, SK: 'META' },
+        UpdateExpression: 'SET foodReserved = foodReserved + :q, foodQuantityToday = foodQuantityToday + :q',
+        ExpressionAttributeValues: { ':q': qty },
+      }));
+    } catch (e: any) {
+      console.error('unconsumeFoodOnUndo failed for', item.menuItemId, e?.name || e);
     }
   }
 }
@@ -347,14 +377,35 @@ async function markReady(event: APIGatewayProxyEvent, actor: string = ''): Promi
   if (!id) return res(400, { error: 'Missing order id' });
 
   const now = new Date().toISOString();
-  await docClient.send(new UpdateCommand({
-    TableName: ORDERS_TABLE,
-    Key: { PK: `ORDER#${id}`, SK: 'META' },
-    UpdateExpression: 'SET #s = :s, updatedAt = :u, readyAt = :u',
-    ExpressionAttributeNames: { '#s': 'status' },
-    ExpressionAttributeValues: { ':s': 'READY', ':u': now, ':prev': 'PREPARING' },
-    ConditionExpression: '#s = :prev',
-  }));
+
+  // Race-safe status flip; ReturnValues=ALL_OLD gives us the items array
+  // so we can consume food once the transition commits. Guarded so a
+  // duplicate "Ready" click doesn't double-decrement.
+  let old: any;
+  try {
+    const r = await docClient.send(new UpdateCommand({
+      TableName: ORDERS_TABLE,
+      Key: { PK: `ORDER#${id}`, SK: 'META' },
+      UpdateExpression: 'SET #s = :s, updatedAt = :u, readyAt = :u',
+      ExpressionAttributeNames: { '#s': 'status' },
+      ExpressionAttributeValues: { ':s': 'READY', ':u': now, ':prev': 'PREPARING' },
+      ConditionExpression: '#s = :prev',
+      ReturnValues: 'ALL_OLD',
+    }));
+    old = r.Attributes;
+  } catch (e: any) {
+    if (e.name === 'ConditionalCheckFailedException') {
+      return res(409, { error: 'Order is not in PREPARING state' });
+    }
+    throw e;
+  }
+
+  // Food was prepared and served — release the reservation AND deduct
+  // from today's quantity. Drinks and pre-orders naturally no-op inside
+  // the helper (category filter).
+  if (old && Array.isArray(old.items)) {
+    await consumeFoodOnCollection(old.items);
+  }
 
   logOrder('READY', id, { by: actor });
 
@@ -381,25 +432,36 @@ async function undoToPending(event: APIGatewayProxyEvent, actor: string = ''): P
 
 // Roll a READY order back to PREPARING — for when a cashier accidentally
 // hit "Ready" too soon. Guarded so an already-archived/cancelled order
-// isn't resurrected.
+// isn't resurrected. Restores food counters since markReady already
+// decremented them at the READY transition.
 async function undoToPreparingFromReady(event: APIGatewayProxyEvent, actor: string = ''): Promise<APIGatewayProxyResult> {
   const id = event.pathParameters?.id;
   if (!id) return res(400, { error: 'Missing order id' });
 
+  let old: any;
   try {
-    await docClient.send(new UpdateCommand({
+    const r = await docClient.send(new UpdateCommand({
       TableName: ORDERS_TABLE,
       Key: { PK: `ORDER#${id}`, SK: 'META' },
       UpdateExpression: 'SET #s = :s, updatedAt = :u',
       ExpressionAttributeNames: { '#s': 'status' },
       ExpressionAttributeValues: { ':s': 'PREPARING', ':u': new Date().toISOString(), ':prev': 'READY' },
       ConditionExpression: '#s = :prev',
+      ReturnValues: 'ALL_OLD',
     }));
+    old = r.Attributes;
   } catch (e: any) {
     if (e.name === 'ConditionalCheckFailedException') {
       return res(409, { error: 'Order is no longer in READY state' });
     }
     throw e;
+  }
+
+  // Restore what markReady deducted — foodReserved goes back to
+  // "reserved but not yet served" and foodQuantityToday returns to its
+  // pre-serve level. Drinks / pre-orders no-op inside the helper.
+  if (old && Array.isArray(old.items)) {
+    await unconsumeFoodOnUndo(old.items);
   }
 
   logOrder('UNDO_PREPARING', id, { by: actor });
@@ -411,8 +473,10 @@ async function archiveOrder(event: APIGatewayProxyEvent, actor: string = ''): Pr
   const id = event.pathParameters?.id;
   if (!id) return res(400, { error: 'Missing order id' });
 
-  // Race-safe status flip; ReturnValues=ALL_OLD gives us the items array
-  // so we can consume the food after the transition commits.
+  // Race-safe status flip. Food inventory was already consumed at
+  // markReady (READY transition), so archive is now purely a status
+  // change plus TTL clear. ReturnValues=ALL_OLD still needed for the
+  // audit log payload.
   let old: any;
   try {
     const r = await docClient.send(new UpdateCommand({
@@ -430,13 +494,6 @@ async function archiveOrder(event: APIGatewayProxyEvent, actor: string = ''): Pr
       return res(409, { error: 'Order is not in READY state' });
     }
     throw e;
-  }
-
-  // Food was prepared and (presumably) served — release the reservation
-  // AND deduct from today's quantity. Drinks/pre-orders naturally no-op
-  // inside the helper (category filter).
-  if (old && Array.isArray(old.items)) {
-    await consumeFoodOnCollection(old.items);
   }
 
   logOrder('ARCHIVE', id, {
@@ -482,9 +539,10 @@ async function rejectOrder(event: APIGatewayProxyEvent, actor: string = ''): Pro
 // or never actually produced. Distinct from rejectOrder (which only acts
 // on PENDING) and the customer-side cancel (also PENDING-only).
 //
-// Food reservations are intentionally NOT released — the items were
-// physically prepared/consumed by the time the order reached READY, so
-// returning them to inventory would double-count.
+// Food inventory is intentionally NOT touched — foodReserved and
+// foodQuantityToday were already decremented at markReady (the moment
+// the item was handed over the counter). Adjusting them again here
+// would double-count.
 async function cancelCompletedOrder(event: APIGatewayProxyEvent, actor: string): Promise<APIGatewayProxyResult> {
   const id = event.pathParameters?.id;
   if (!id) return res(400, { error: 'Missing order id' });
@@ -530,12 +588,10 @@ async function cancelCompletedOrder(event: APIGatewayProxyEvent, actor: string):
 
   const fresh = await docClient.send(new GetCommand({ TableName: ORDERS_TABLE, Key: { PK: `ORDER#${id}`, SK: 'META' } }));
 
-  // Only consume food inventory if this was a READY → CANCELLED transition.
-  // ARCHIVED orders already had their food deducted at collection time, so
-  // cancelling them post-facto must NOT decrement again (would double-count).
-  if (existing.Item.status === 'READY' && Array.isArray(existing.Item.items)) {
-    await consumeFoodOnCollection(existing.Item.items);
-  }
+  // Food inventory is NOT touched here. Any order in READY or ARCHIVED
+  // has already had its foodReserved + foodQuantityToday decremented at
+  // markReady time — decrementing again would double-count and drive the
+  // counters negative.
 
   logOrder('CANCEL_COMPLETED', id, {
     customer: existing.Item.customerName,
