@@ -101,13 +101,13 @@ function renderMain(){
     <button id="btnVoucher" class="pos-action-btn pos-action-primary">🎟️ Voucher</button>
     <button id="btnCelebration" class="pos-action-btn pos-action-toggle ${celebrationMode?'active':''}" aria-pressed="${celebrationMode?'true':'false'}">${celebrationMode?'🎉 Celebration: ON':'🎉 Celebration: OFF'}</button>
     <button id="btnCafeToggle" class="pos-action-btn ${cafeOpen?'pos-action-cafe-open':'pos-action-cafe-closed'}">${cafeOpen?'☕ Café Open ✓':'☕ Open Café'}</button>
+    <button id="btnHandover" class="pos-action-btn" style="${cafeOpen ? '' : 'display:none'}">🔄 Handover</button>
   </div>
   <div class="pos-sidebar-section-label">Navigation</div>
   <nav class="pos-sidebar-nav">
     <button id="btnPrep" class="pos-sidebar-btn">☕ Prep Queue</button>
     <button id="btnMenu" class="pos-sidebar-btn">📋 Menu</button>
     <button id="btnChecklist" class="pos-sidebar-btn">☑️ Checklist</button>
-    <button id="btnHandover" class="pos-sidebar-btn" style="${cafeOpen ? '' : 'display:none'}">🔄 Handover</button>
     <button id="btnStockCount" class="pos-sidebar-btn">📦 Stock Count</button>
     <button id="btnPlanogram" class="pos-sidebar-btn">📷 AI Scan</button>
     <button id="btnHistory" class="pos-sidebar-btn">📜 History</button>
