@@ -6,8 +6,8 @@
 
 const $ = s => document.querySelector(s);
 const app = $('#app');
-let token = sessionStorage.getItem('pos_token');
-let currentUser = sessionStorage.getItem('pos_user') || '';
+let token = localStorage.getItem('pos_token');
+let currentUser = localStorage.getItem('pos_user') || '';
 
 function showFormModal(form){
   const overlay = document.createElement('div');
@@ -57,14 +57,14 @@ function renderLogin(){
       if(data.role !== 'ADMIN'){ showError('Admin access required'); return; }
       token = data.token;
       currentUser = data.name || 'Admin';
-      sessionStorage.setItem('pos_token', token);
-      sessionStorage.setItem('pos_user', currentUser);
+      localStorage.setItem('pos_token', token);
+      localStorage.setItem('pos_user', currentUser);
       renderApp();
     } catch(e){ showError('Invalid credentials'); }
   };
 }
 
-function logout(){ token=null; sessionStorage.removeItem('pos_token'); sessionStorage.removeItem('pos_user'); renderLogin(); }
+function logout(){ token=null; localStorage.removeItem('pos_token'); localStorage.removeItem('pos_user'); renderLogin(); }
 
 // --- Main app shell ---
 function renderApp(){
