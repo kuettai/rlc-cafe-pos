@@ -80,8 +80,10 @@ function renderApp(){
     <button data-tab="users">👥 Users</button>
     <button data-tab="vouchers">🎟️ Vouchers</button>
     <button data-tab="preorder">🔗 Pre-Order Links</button>
+    <button data-tab="display">📺 Display</button>
     <button id="navReports" type="button">📈 Reports</button>
     <button data-tab="settings">⚙️ Settings</button>
+    <button data-tab="verses">✝️ Verses</button>
   </nav>
   <div class="sidebar-footer">
     <a href="pos" class="pos-btn pos-btn-sm" style="text-decoration:none;display:block;text-align:center;margin-bottom:8px">Go to POS</a>
@@ -135,6 +137,7 @@ function loadTab(){
     case 'vouchers': loadVouchers(c); break;
     case 'preorder': loadPreorderCodes(c); break;
     case 'settings': loadSettings(c); break;
+    case 'verses': loadVerses(c); break;
     // Historical reports (weekly/monthly) live on reports.html — sidebar
     // link `navReports` handles that navigation directly.
   }

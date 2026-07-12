@@ -8,6 +8,38 @@ const cartTotalExpanded = document.getElementById('cartTotalExpanded');
 const cartSubmit = document.getElementById('cartSubmit');
 const errorBanner = document.getElementById('errorBanner');
 
+// --- Bible verse overlay ---
+// Shown after an order is placed successfully, before redirecting to
+// track.html. Auto-redirects after 8 seconds if the user does not tap
+// Continue. On fetch failure or no verses configured, redirects
+// immediately without showing anything.
+async function showVerseAndRedirect(trackUrl) {
+  try {
+    const verseRes = await fetch(`${API_BASE}/api/verses/random`);
+    const { verse } = await verseRes.json();
+    if (verse) {
+      const overlay = document.createElement('div');
+      overlay.className = 'verse-overlay';
+      overlay.innerHTML = `<div class="verse-card">
+        <div class="verse-icon">✝️</div>
+        <p class="verse-text">"${verse.text}"</p>
+        <p class="verse-ref">— ${verse.reference}</p>
+        <button class="verse-continue pos-btn pos-btn-primary">Continue</button>
+      </div>`;
+      document.body.appendChild(overlay);
+      overlay.querySelector('.verse-continue').onclick = () => {
+        window.location.href = trackUrl;
+      };
+      // Auto-redirect after 8 seconds if they don't tap
+      setTimeout(() => { window.location.href = trackUrl; }, 8000);
+      return;
+    }
+  } catch(e) {}
+  // Fallback: redirect immediately
+  window.location.href = trackUrl;
+}
+
+
 let menu = [];
 let cart = JSON.parse(localStorage.getItem('cart') || '[]');
 function saveCart(){ localStorage.setItem('cart', JSON.stringify(cart)); }
@@ -541,7 +573,7 @@ cartSubmit.addEventListener('click', async () => {
     if (!customerProfile) {
       showRegistrationPrompt(data.orderId);
     } else {
-      window.location.href = `track?id=${data.orderId}`;
+      showVerseAndRedirect(`track?id=${data.orderId}`);
     }
   } catch (e) {
     showError('Connection error, please try again');
@@ -690,15 +722,15 @@ function showRegistrationPrompt(orderId) {
       customerProfile = { phone, name, birthday, orderCount: 1, totalSpent: 0 };
       localStorage.setItem('customerProfile', JSON.stringify(customerProfile));
       overlay.remove();
-      window.location.href = `track?id=${orderId}`;
+      showVerseAndRedirect(`track?id=${orderId}`);
     } catch (e) { errEl.textContent = e.message; errEl.style.display = 'block'; btn.disabled = false; btn.textContent = 'Save Profile'; }
   }
 
   btn.onclick = doRegister;
   phoneInput.onkeydown = e => { if (e.key === 'Enter') birthdayInput.focus(); };
   birthdayInput.onkeydown = e => { if (e.key === 'Enter') doRegister(); };
-  skip.onclick = () => { overlay.remove(); window.location.href = `track?id=${orderId}`; };
-  overlay.onclick = e => { if (e.target === overlay) { overlay.remove(); window.location.href = `track?id=${orderId}`; } };
+  skip.onclick = () => { overlay.remove(); showVerseAndRedirect(`track?id=${orderId}`); };
+  overlay.onclick = e => { if (e.target === overlay) { overlay.remove(); showVerseAndRedirect(`track?id=${orderId}`); } };
 }
 
 init();

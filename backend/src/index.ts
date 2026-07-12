@@ -13,6 +13,8 @@ import { handleCustomers } from './routes/customers';
 import { handleVouchers } from './routes/vouchers';
 import { handleAdminPreorder, handleValidatePreorder } from './routes/preorder';
 import { handlePush } from './routes/push';
+import { handleDisplay } from './routes/display';
+import { handleVerses } from './routes/verses';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -95,9 +97,24 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
     return res;
   }
 
+  if (path.startsWith('/api/verses')) {
+    const res = await handleVerses(event);
+    res.headers = { ...CORS_HEADERS, ...res.headers };
+    return res;
+  }
+
   // Authenticated routes
   const user = getToken(event);
   if (!user) return respond(401, { error: 'Unauthorized' });
+
+  // Display screen endpoints — read-only, any authenticated role (Cashier
+  // or Admin). Placed here so a valid token is required; the TV logs in
+  // once and keeps the token in localStorage.
+  if (path.startsWith('/api/display')) {
+    const res = await handleDisplay(event);
+    res.headers = { ...CORS_HEADERS, ...res.headers };
+    return res;
+  }
 
   if (path.startsWith('/api/admin/checklist')) {
     if (user.role !== 'ADMIN') return respond(403, { error: 'Forbidden' });

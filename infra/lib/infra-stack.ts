@@ -128,6 +128,28 @@ export class InfraStack extends cdk.Stack {
       }],
     });
 
+    // Display slides bucket — TV display screen promo images uploaded
+    // by admin. Contents are non-sensitive marketing material. CORS is
+    // permissive because uploads go directly from the admin browser via
+    // a presigned PUT URL; a strict origin allowlist would just add
+    // deployment friction for no security gain (the PUT is already gated
+    // by the presigned URL).
+    //
+    // NOTE: Public read is intentionally OFF. Images are served from the
+    // same origin as the frontend (/display-slides/*) via CloudFront /
+    // BucketDeployment — the backend records `/display-slides/<file>`
+    // as the imageUrl. If a future setup needs direct S3 access, add a
+    // BucketPolicy for public GET on the display-slides/* prefix.
+    const displaySlidesBucket = new s3.Bucket(this, 'DisplaySlidesBucket', {
+      bucketName: `rlc-cafe-display-slides-${this.account}`,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      cors: [{
+        allowedMethods: [s3.HttpMethods.PUT, s3.HttpMethods.POST, s3.HttpMethods.GET],
+        allowedOrigins: ['*'],
+        allowedHeaders: ['*'],
+      }],
+    });
+
     // ─── Lambda Functions (bundled with esbuild) ───────────────────────
 
     const backendPath = path.join(__dirname, '../../backend/src');
@@ -156,6 +178,13 @@ export class InfraStack extends cdk.Stack {
         VOUCHERS_TABLE: vouchersTable.tableName,
         RECEIPTS_BUCKET: receiptsBucket.bucketName,
         PLANOGRAM_BUCKET: planogramBucket.bucketName,
+        // FRONTEND_BUCKET is used by the /admin/display/upload-url endpoint
+        // to generate presigned PUT URLs for TV display slide uploads.
+        // Named FRONTEND_BUCKET (not DISPLAY_SLIDES_BUCKET) to match the
+        // display-screen spec — the intent is that this bucket holds
+        // static frontend assets when the migration off GitHub Pages
+        // happens; until then, only the display-slides/ prefix is used.
+        FRONTEND_BUCKET: displaySlidesBucket.bucketName,
         JWT_SECRET: 'CHANGE_ME_BEFORE_DEPLOY',
         GMAIL_USER: process.env.GMAIL_USER || '',
         GMAIL_APP_PASSWORD: process.env.GMAIL_APP_PASSWORD || '',
@@ -180,6 +209,16 @@ export class InfraStack extends cdk.Stack {
     vouchersTable.grantReadWriteData(apiHandler);
     receiptsBucket.grantReadWrite(apiHandler);
     planogramBucket.grantReadWrite(apiHandler);
+
+    // Scoped write access for display slide uploads: only the
+    // `display-slides/*` prefix, not the whole bucket. This is narrower
+    // than grantReadWrite() so if the bucket later serves other content
+    // (e.g. frontend static assets), the Lambda can't mutate those.
+    apiHandler.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['s3:PutObject', 's3:PutObjectAcl'],
+      resources: [`${displaySlidesBucket.bucketArn}/display-slides/*`],
+    }));
 
     apiHandler.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,

@@ -2174,3 +2174,27 @@ header h1{
 .push-prompt-inner span{ font-weight:600; color:#3730A3; font-size:.9rem; }
 .push-prompt-btns{ display:flex; gap:8px; }
 @keyframes slideDown{ from{opacity:0;transform:translateY(-10px)} to{opacity:1;transform:translateY(0)} }
+
+/* --- Bible Verse Overlay --- */
+.verse-overlay{
+  position:fixed; inset:0; z-index:9999;
+  background:rgba(0,0,0,0.7); backdrop-filter:blur(4px);
+  display:flex; align-items:center; justify-content:center;
+  animation:fadeIn 0.5s ease;
+}
+.verse-card{
+  background:#fff; border-radius:20px; padding:40px 32px;
+  max-width:400px; width:90%; text-align:center;
+  box-shadow:0 20px 60px rgba(0,0,0,0.3);
+}
+.verse-icon{ font-size:2.5rem; margin-bottom:16px; }
+.verse-text{
+  font-size:1.15rem; line-height:1.6; color:#1f2937;
+  font-style:italic; margin-bottom:16px;
+}
+.verse-ref{
+  font-size:0.9rem; color:#6B4226; font-weight:600;
+  margin-bottom:24px;
+}
+.verse-continue{ width:100%; }
+@keyframes fadeIn{ from{opacity:0} to{opacity:1} }

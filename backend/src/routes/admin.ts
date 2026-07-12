@@ -5,6 +5,13 @@ import {
   GetCommand, PutCommand, UpdateCommand, QueryCommand, ScanCommand, DeleteCommand
 } from '../lib/db';
 import { hashPin } from '../lib/auth';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+
+// Shared S3 client for presigned upload URL generation. Reused across
+// invocations (Lambda container reuse) so we're not paying for a new
+// client per request.
+const s3 = new S3Client({});
 
 function extractId(path: string, segment: string): string {
   const parts = path.split('/');
@@ -722,6 +729,146 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
         ScanIndexForward: false, // newest snapshot first (SK is ISO timestamp)
       }));
       return res(200, { date, snapshots: result.Items || [] });
+    }
+
+    // ─── Bible Verses ────────────────────────────────────────────────────
+
+    // GET /api/admin/verses — list all verses
+    if (method === 'GET' && path.endsWith('/admin/verses')) {
+      const result = await docClient.send(new ScanCommand({
+        TableName: SETTINGS_TABLE,
+        FilterExpression: 'begins_with(PK, :prefix)',
+        ExpressionAttributeValues: { ':prefix': 'BIBLE_VERSE#' },
+      }));
+      const verses = (result.Items || []).sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+      return res(200, { verses });
+    }
+
+    // POST /api/admin/verses — create verse
+    if (method === 'POST' && path.endsWith('/admin/verses')) {
+      const { text, reference } = body;
+      if (!text || !reference) return res(400, { error: 'text and reference required' });
+      const verseId = uuid();
+      const item = {
+        PK: `BIBLE_VERSE#${verseId}`, SK: 'META', verseId,
+        text, reference, isActive: true, createdAt: new Date().toISOString(),
+      };
+      await docClient.send(new PutCommand({ TableName: SETTINGS_TABLE, Item: item }));
+      return res(201, item);
+    }
+
+    // PUT /api/admin/verses/{id} — update verse
+    if (method === 'PUT' && /\/admin\/verses\/[^/]+$/.test(path)) {
+      const id = extractId(path, 'verses');
+      const updates: string[] = [];
+      const names: Record<string, string> = {};
+      const values: Record<string, unknown> = {};
+      if (body.text !== undefined) { updates.push('#t = :t'); names['#t'] = 'text'; values[':t'] = body.text; }
+      if (body.reference !== undefined) { updates.push('#r = :r'); names['#r'] = 'reference'; values[':r'] = body.reference; }
+      if (body.isActive !== undefined) { updates.push('#a = :a'); names['#a'] = 'isActive'; values[':a'] = body.isActive; }
+      if (!updates.length) return res(400, { error: 'No fields to update' });
+      await docClient.send(new UpdateCommand({
+        TableName: SETTINGS_TABLE,
+        Key: { PK: `BIBLE_VERSE#${id}`, SK: 'META' },
+        UpdateExpression: 'SET ' + updates.join(', '),
+        ExpressionAttributeNames: names,
+        ExpressionAttributeValues: values,
+      }));
+      return res(200, { updated: id });
+    }
+
+    // DELETE /api/admin/verses/{id}
+    if (method === 'DELETE' && /\/admin\/verses\/[^/]+$/.test(path)) {
+      const id = extractId(path, 'verses');
+      await docClient.send(new DeleteCommand({
+        TableName: SETTINGS_TABLE,
+        Key: { PK: `BIBLE_VERSE#${id}`, SK: 'META' },
+      }));
+      return res(200, { deleted: id });
+    }
+
+    // ─── Display Slides ──────────────────────────────────────────────────
+    // TV display screen promo slideshow. Stored as DISPLAY_SLIDE#<id>
+    // records in SETTINGS_TABLE. Images are uploaded to S3 via presigned
+    // PUT URL (see /admin/display/upload-url below).
+
+    // GET /api/admin/display/slides — list ALL slides (active, scheduled,
+    // expired). Public read endpoint (/api/display/slides) filters to
+    // active-today; the admin UI needs the full list to show status.
+    if (method === 'GET' && path.endsWith('/admin/display/slides')) {
+      const result = await docClient.send(new ScanCommand({
+        TableName: SETTINGS_TABLE,
+        FilterExpression: 'begins_with(PK, :prefix)',
+        ExpressionAttributeValues: { ':prefix': 'DISPLAY_SLIDE#' },
+      }));
+      const slides = (result.Items || []).sort(
+        (a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)
+      );
+      return res(200, { slides });
+    }
+
+    // POST /api/admin/display/slides — create a slide record.
+    // Assumes the image has already been PUT to S3 via a presigned URL
+    // obtained from /admin/display/upload-url. `imageUrl` should be the
+    // final URL (or relative path) that the display page will fetch.
+    if (method === 'POST' && path.endsWith('/admin/display/slides')) {
+      const slideId = uuid();
+      const { imageUrl, title, startDate, expiryDate, sortOrder } = body;
+      if (!imageUrl || !startDate || !expiryDate) {
+        return res(400, { error: 'imageUrl, startDate, expiryDate required' });
+      }
+      const item = {
+        PK: `DISPLAY_SLIDE#${slideId}`, SK: 'META', slideId,
+        imageUrl,
+        title: title || '',
+        startDate,
+        expiryDate,
+        sortOrder: sortOrder || 0,
+        createdAt: new Date().toISOString(),
+      };
+      await docClient.send(new PutCommand({ TableName: SETTINGS_TABLE, Item: item }));
+      return res(201, item);
+    }
+
+    // DELETE /api/admin/display/slides/{id} — remove a slide record.
+    // Note: does NOT delete the underlying S3 object. Orphaned images are
+    // cheap and safer to leave (avoids accidental deletion mid-display).
+    if (method === 'DELETE' && /\/admin\/display\/slides\/[^/]+$/.test(path)) {
+      const id = extractId(path, 'slides');
+      await docClient.send(new DeleteCommand({
+        TableName: SETTINGS_TABLE,
+        Key: { PK: `DISPLAY_SLIDE#${id}`, SK: 'META' },
+      }));
+      return res(200, { deleted: id });
+    }
+
+    // GET /api/admin/display/upload-url — generate a presigned S3 URL
+    // that the browser can PUT the resized image to directly (skips the
+    // Lambda payload cap and CPU cost). URL expires in 5 minutes.
+    //
+    // Returns:
+    //   uploadUrl : presigned PUT URL (send image bytes + Content-Type)
+    //   imageUrl  : the final path/URL to store on the slide record and
+    //               feed into <img src> on the display page
+    if (method === 'GET' && path.endsWith('/admin/display/upload-url')) {
+      const bucket = process.env.FRONTEND_BUCKET;
+      if (!bucket) return res(500, { error: 'FRONTEND_BUCKET not configured' });
+
+      const rawName = event.queryStringParameters?.filename || `slide-${Date.now()}.jpg`;
+      // Strip any path segments client might inject — only keep the leaf
+      // filename. Prevents `../` traversal into a different bucket prefix.
+      const filename = rawName.replace(/[^A-Za-z0-9._-]/g, '_').slice(-100);
+      const contentType = event.queryStringParameters?.contentType || 'image/jpeg';
+      const key = `display-slides/${filename}`;
+
+      const command = new PutObjectCommand({
+        Bucket: bucket,
+        Key: key,
+        ContentType: contentType,
+      });
+      const uploadUrl = await getSignedUrl(s3, command, { expiresIn: 300 });
+
+      return res(200, { uploadUrl, imageUrl: `/${key}` });
     }
 
     return res(404, { error: 'Not found', path, method });

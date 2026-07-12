@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#1a1a2e">
+<title>RLC Café — Display</title>
+<link rel="stylesheet" href="css/display.css">
+</head>
+<body>
+<!-- Login gate — shown on first load until a valid token is in localStorage.
+     Either CASHIER or ADMIN can sign in; the display page just needs
+     "some" authenticated user. Token persists across TV power cycles. -->
+<div class="display-login" id="displayLogin" style="display:none">
+  <div class="display-login-card">
+    <h1>☕ RLC Café Display</h1>
+    <p class="display-login-hint">Sign in with a Cashier or Admin account to start the display.</p>
+    <form id="displayLoginForm" autocomplete="off">
+      <input id="displayLoginUser" placeholder="Name" required autocomplete="username">
+      <input id="displayLoginPin" type="password" inputmode="numeric" maxlength="6" placeholder="PIN" required autocomplete="current-password">
+      <button type="submit">Start Display</button>
+    </form>
+    <p class="display-login-error" id="displayLoginError"></p>
+  </div>
+</div>
+
+<!-- Main display container — hidden until authenticated. -->
+<div class="display-container" id="displayContainer" style="display:none">
+  <div class="display-promo" id="promoPanel">
+    <img id="promoImg" src="" alt="">
+    <div class="display-promo-fallback" id="promoFallback">☕ RLC Café</div>
+  </div>
+  <div class="display-orders" id="ordersPanel">
+    <div class="display-header">☕ Ready to Collect</div>
+    <div id="heroOrders" class="display-heroes"></div>
+    <div class="display-divider" id="alsoReadyDivider" style="display:none">also ready</div>
+    <div id="compactOrders" class="display-compact"></div>
+    <div id="noOrders" class="display-empty" style="display:none">No drinks waiting ☕</div>
+  </div>
+</div>
+
+<script src="js/config.js"></script>
+<script src="js/display.js"></script>
+</body>
+</html>
