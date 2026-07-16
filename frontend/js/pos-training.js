@@ -141,7 +141,7 @@ function startTrainingTour() {
   }));
 
   // Initialize TourGuide
-  tourGuide = new TourGuideClient({
+  tourGuide = new tourguide.TourGuideClient({
     steps: tgSteps,
     dialogAnimate: true,
     dialogPlacement: 'bottom',
