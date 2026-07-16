@@ -4,7 +4,7 @@
       "id": "approve",
       "title": "Approve an Order",
       "content": "A customer has placed an order! Tap on this pending order card to see the details, then tap <strong>Approve</strong> to start preparing it.",
-      "target": "[data-order-id='training-001']",
+      "target": "[data-id='training-001']",
       "order": 1,
       "mockTrigger": "approve"
     },
@@ -12,7 +12,7 @@
       "id": "mark-ready",
       "title": "Mark Ready",
       "content": "Great! The drink is now being prepared. Once it's done, tap the order card and tap <strong>Ready</strong> to notify the customer.",
-      "target": "[data-order-id='training-001']",
+      "target": "[data-id='training-001']",
       "order": 2,
       "mockTrigger": "mark-ready"
     },
@@ -20,7 +20,7 @@
       "id": "collect",
       "title": "Collect Order",
       "content": "The customer is here to pick up! Tap the ready order and tap <strong>Collected</strong> to complete it.",
-      "target": "[data-order-id='training-001']",
+      "target": "[data-id='training-001']",
       "order": 3,
       "mockTrigger": "collect"
     },

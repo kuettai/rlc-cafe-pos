@@ -125,6 +125,14 @@ async function initTrainingMode(progress) {
 function startTrainingTour() {
   if (!trainingConfig || !trainingConfig.steps) return;
 
+  // Guard: TourGuide.js loaded? CDN could fail silently. Bail cleanly
+  // instead of blowing up on `new tourguide.TourGuideClient(...)`.
+  if (typeof tourguide === 'undefined' || !tourguide.TourGuideClient) {
+    console.error('TourGuide not loaded — skipping training tour');
+    completeOnboarding();
+    return;
+  }
+
   // Find the first incomplete step
   const remainingSteps = trainingConfig.steps.filter(s => !onboardingProgress.includes(s.id));
   if (!remainingSteps.length) {
@@ -132,49 +140,79 @@ function startTrainingTour() {
     return;
   }
 
-  // Build TourGuide steps from config
-  const tgSteps = remainingSteps.map(s => ({
-    title: s.title,
-    content: s.content,
-    target: s.target,
-    order: s.order,
-  }));
-
-  // Initialize TourGuide
-  tourGuide = new tourguide.TourGuideClient({
-    steps: tgSteps,
-    dialogAnimate: true,
-    dialogPlacement: 'bottom',
-    targetPadding: 8,
-    closeButton: false,    // Can't skip training
-    exitOnClickOutside: false,
-    completeOnFinish: false,
-    progressBar: true,
-    showStepDots: true,
-    showButtons: true,
-    nextLabel: 'Do it →',
-    prevLabel: '← Back',
-    finishLabel: 'Complete ✓',
-  });
-
-  // On step change — detect completion
-  tourGuide.onAfterStepChange((step) => {
-    const configStep = remainingSteps[step.currentStep - 1];
-    if (configStep && !onboardingProgress.includes(configStep.id)) {
-      markTrainingStepComplete(configStep.id);
+  // Wait for the first step's target to exist in the DOM. renderMain →
+  // fetchOrders is async, so cards may not be there yet when this fires.
+  // Steps whose targets never resolve (e.g. mock order card missing) get
+  // their `target` dropped so TourGuide falls back to a centered dialog
+  // instead of crashing on `.remove()` of undefined.
+  const firstTarget = remainingSteps[0].target;
+  const MAX_WAIT_MS = 5000;
+  const POLL_MS = 100;
+  const start = Date.now();
+  const waitForTarget = () => {
+    if (firstTarget && document.querySelector(firstTarget)) return launch();
+    if (Date.now() - start >= MAX_WAIT_MS) {
+      console.warn('Training: first target not found after', MAX_WAIT_MS, 'ms — starting anyway with fallback');
+      return launch();
     }
-  });
+    setTimeout(waitForTarget, POLL_MS);
+  };
 
-  tourGuide.onFinish(() => {
-    // Mark the last step complete
-    const lastStep = remainingSteps[remainingSteps.length - 1];
-    if (lastStep && !onboardingProgress.includes(lastStep.id)) {
-      markTrainingStepComplete(lastStep.id);
+  const launch = () => {
+    // Build TourGuide steps from config; drop targets that don't exist
+    // (TourGuide handles missing/empty target by centering the dialog).
+    const tgSteps = remainingSteps.map(s => ({
+      title: s.title,
+      content: s.content,
+      target: (s.target && document.querySelector(s.target)) ? s.target : '',
+      order: s.order,
+    }));
+
+    // Initialize TourGuide
+    try {
+      tourGuide = new tourguide.TourGuideClient({
+        steps: tgSteps,
+        dialogAnimate: true,
+        dialogPlacement: 'bottom',
+        targetPadding: 8,
+        closeButton: false,    // Can't skip training
+        exitOnClickOutside: false,
+        completeOnFinish: false,
+        progressBar: true,
+        showStepDots: true,
+        showButtons: true,
+        nextLabel: 'Do it →',
+        prevLabel: '← Back',
+        finishLabel: 'Complete ✓',
+      });
+    } catch(e) {
+      console.error('TourGuide init failed:', e);
+      completeOnboarding();
+      return;
     }
-    completeOnboarding();
-  });
 
-  tourGuide.start();
+    // On step change — detect completion
+    tourGuide.onAfterStepChange((step) => {
+      const configStep = remainingSteps[step.currentStep - 1];
+      if (configStep && !onboardingProgress.includes(configStep.id)) {
+        markTrainingStepComplete(configStep.id);
+      }
+    });
+
+    tourGuide.onFinish(() => {
+      // Mark the last step complete
+      const lastStep = remainingSteps[remainingSteps.length - 1];
+      if (lastStep && !onboardingProgress.includes(lastStep.id)) {
+        markTrainingStepComplete(lastStep.id);
+      }
+      completeOnboarding();
+    });
+
+    try { tourGuide.start(); }
+    catch(e) { console.error('TourGuide start failed:', e); completeOnboarding(); }
+  };
+
+  waitForTarget();
 }
 
 async function markTrainingStepComplete(stepId) {
