@@ -1,6 +1,6 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { v4 as uuid } from 'uuid';
-import { docClient, ORDERS_TABLE, MENU_TABLE, SETTINGS_TABLE, INGREDIENTS_TABLE, GetCommand, PutCommand, UpdateCommand, QueryCommand, ScanCommand } from '../lib/db';
+import { docClient, ORDERS_TABLE, MENU_TABLE, SETTINGS_TABLE, INGREDIENTS_TABLE, USERS_TABLE, GetCommand, PutCommand, UpdateCommand, QueryCommand, ScanCommand } from '../lib/db';
 import { sendEndOfDaySummary } from '../lib/email';
 import { logOrder, summarizeItems } from '../lib/audit';
 import { sendOrderPush } from '../lib/push';
@@ -1250,6 +1250,39 @@ export async function handlePos(event: APIGatewayProxyEvent, actor: string = '')
   if (method === 'PUT' && path.match(/\/api\/pos\/inventory\/[^/]+$/)) {
     const id = extractSegment(path, /\/api\/pos\/inventory\/([^/]+)/, 1);
     if (id) { event.pathParameters = { id }; return adjustStock(event); }
+  }
+
+  if (method === 'PUT' && path === '/api/pos/onboarding-progress') {
+    const { step } = JSON.parse(event.body || '{}');
+    if (!step) return res(400, { error: 'step required' });
+
+    // Find user by name (actor). USERS_TABLE has PK=USER#<userId>,SK=META and
+    // the JWT carries the display name, not the userId, so we scan by name.
+    const userScan = await docClient.send(new ScanCommand({
+      TableName: USERS_TABLE,
+      FilterExpression: '#n = :name',
+      ExpressionAttributeNames: { '#n': 'name' },
+      ExpressionAttributeValues: { ':name': actor },
+    }));
+    const user = userScan.Items?.[0];
+    if (!user) return res(404, { error: 'User not found' });
+
+    const progress: string[] = Array.isArray(user.onboardingProgress) ? [...user.onboardingProgress] : [];
+    if (!progress.includes(step)) progress.push(step);
+
+    // Kept in sync with training-config.json step ids. If steps are added
+    // or renamed there, update this list too so completion is detected.
+    const ALL_STEPS = ['approve', 'mark-ready', 'collect', 'walk-up', 'menu-toggle', 'stock-count', 'open-close'];
+    const complete = ALL_STEPS.every(s => progress.includes(s));
+
+    await docClient.send(new UpdateCommand({
+      TableName: USERS_TABLE,
+      Key: { PK: user.PK, SK: user.SK },
+      UpdateExpression: 'SET onboardingProgress = :p, onboardingComplete = :c',
+      ExpressionAttributeValues: { ':p': progress, ':c': complete },
+    }));
+
+    return res(200, { progress, onboardingComplete: complete });
   }
 
   return res(404, { error: 'Not found' });

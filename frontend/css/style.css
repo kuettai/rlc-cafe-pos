@@ -2198,3 +2198,37 @@ header h1{
 }
 .verse-continue{ width:100%; }
 @keyframes fadeIn{ from{opacity:0} to{opacity:1} }
+
+/* --- Training Mode (TourGuide.js overrides) --- */
+.tg-dialog{
+  font-family:inherit !important;
+  border-radius:16px !important;
+  box-shadow:0 8px 32px rgba(0,0,0,0.2) !important;
+}
+.tg-dialog-title{
+  color:var(--primary,#6B4226) !important;
+  font-size:1.1rem !important;
+}
+.tg-dialog-body{
+  font-size:.9rem !important;
+  color:var(--text,#3D2B1F) !important;
+}
+.tg-dialog-btn{
+  border-radius:8px !important;
+  font-weight:600 !important;
+}
+.tg-dialog-btn.tg-dialog-btn-next,
+.tg-dialog-btn.tg-dialog-btn-complete{
+  background:var(--primary,#6B4226) !important;
+  color:#fff !important;
+}
+.training-banner{
+  position:fixed; top:0; left:0; right:0; z-index:9999;
+  background:linear-gradient(135deg,#1e40af,#3b82f6);
+  color:#fff; padding:12px 20px; text-align:center;
+  font-weight:600; font-size:.9rem;
+  box-shadow:0 2px 12px rgba(30,64,175,0.3);
+}
+.training-banner .training-progress-text{
+  font-size:.75rem; opacity:.8; margin-top:4px;
+}

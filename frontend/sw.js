@@ -1,9 +1,10 @@
-const CACHE_NAME = 'rlc-cafe-v1.55.0';
+const CACHE_NAME = 'rlc-cafe-v1.56.0';
 const SHELL = [
   './', './index.html', './track.html', './pos.html', './admin.html', './display.html',
   './css/style.css', './css/admin.css', './css/display.css',
   './js/config.js', './js/phone.js', './js/variants.js', './js/app.js', './js/track.js',
   './js/pos.js', './js/pos-walkup.js', './js/pos-voucher.js', './js/pos-stock.js', './js/pos-checklist.js', './js/pos-history.js',
+  './js/pos-training.js', './js/training-config.json',
   './js/admin.js', './js/admin-dashboard.js', './js/admin-menu.js', './js/admin-ingredients.js',
   './js/admin-checklist.js', './js/admin-vouchers.js', './js/admin-preorder.js', './js/admin-verses.js', './js/admin-display.js',
   './js/display.js',

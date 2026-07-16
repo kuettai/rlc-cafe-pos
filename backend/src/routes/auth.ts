@@ -46,7 +46,7 @@ export async function handleAuth(event: APIGatewayProxyEvent): Promise<APIGatewa
       UpdateExpression: 'SET lastLoginAt = :now',
       ExpressionAttributeValues: { ':now': new Date().toISOString() },
     }));
-    return { statusCode: 200, headers: {}, body: JSON.stringify({ token, userId: user.userId, name: user.name, role: user.role, forceUpdatePin: !!user.forceUpdatePin }) };
+    return { statusCode: 200, headers: {}, body: JSON.stringify({ token, userId: user.userId, name: user.name, role: user.role, forceUpdatePin: !!user.forceUpdatePin, onboardingComplete: user.onboardingComplete || false, onboardingProgress: user.onboardingProgress || [] }) };
   }
 
   if (event.httpMethod === 'POST' && event.path === '/api/auth/update-pin') {

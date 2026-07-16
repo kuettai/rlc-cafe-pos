@@ -1,0 +1,60 @@
+{
+  "steps": [
+    {
+      "id": "approve",
+      "title": "Approve an Order",
+      "content": "A customer has placed an order! Tap on this pending order card to see the details, then tap <strong>Approve</strong> to start preparing it.",
+      "target": "[data-order-id='training-001']",
+      "order": 1,
+      "mockTrigger": "approve"
+    },
+    {
+      "id": "mark-ready",
+      "title": "Mark Ready",
+      "content": "Great! The drink is now being prepared. Once it's done, tap the order card and tap <strong>Ready</strong> to notify the customer.",
+      "target": "[data-order-id='training-001']",
+      "order": 2,
+      "mockTrigger": "mark-ready"
+    },
+    {
+      "id": "collect",
+      "title": "Collect Order",
+      "content": "The customer is here to pick up! Tap the ready order and tap <strong>Collected</strong> to complete it.",
+      "target": "[data-order-id='training-001']",
+      "order": 3,
+      "mockTrigger": "collect"
+    },
+    {
+      "id": "walk-up",
+      "title": "Walk-up Order",
+      "content": "A customer at the counter wants to order. Tap the <strong>Walk-up</strong> button to create an order directly.",
+      "target": "#btnWalkup",
+      "order": 4,
+      "mockTrigger": "walk-up"
+    },
+    {
+      "id": "menu-toggle",
+      "title": "Toggle Menu Items",
+      "content": "Sold out of something? Tap <strong>Menu</strong> to enable or disable items for today.",
+      "target": "#btnMenu",
+      "order": 5,
+      "mockTrigger": "menu-toggle"
+    },
+    {
+      "id": "stock-count",
+      "title": "Stock Count",
+      "content": "Time to count stock! Tap <strong>Stock Count</strong> and submit your count.",
+      "target": "#btnStockCount",
+      "order": 6,
+      "mockTrigger": "stock-count"
+    },
+    {
+      "id": "open-close",
+      "title": "Close the Café",
+      "content": "Last step! At the end of service, tap <strong>Café Open</strong> to close. This ends ordering for the day.",
+      "target": "#btnCafeToggle",
+      "order": 7,
+      "mockTrigger": "open-close"
+    }
+  ]
+}

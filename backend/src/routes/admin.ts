@@ -281,6 +281,18 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
       return res(200, { deleted: id });
     }
 
+    // PUT /api/admin/users/:id/reset-onboarding
+    if (method === 'PUT' && /\/admin\/users\/[^/]+\/reset-onboarding$/.test(path)) {
+      const id = extractId(path, 'users');
+      await docClient.send(new UpdateCommand({
+        TableName: USERS_TABLE,
+        Key: { PK: `USER#${id}`, SK: 'META' },
+        UpdateExpression: 'SET onboardingComplete = :c, onboardingProgress = :p',
+        ExpressionAttributeValues: { ':c': false, ':p': [] },
+      }));
+      return res(200, { reset: true });
+    }
+
     // Settings
     if (method === 'GET' && path.endsWith('/admin/settings')) {
       const result = await docClient.send(new GetCommand({ TableName: SETTINGS_TABLE, Key: { PK: 'SETTINGS', SK: 'CONFIG' } }));

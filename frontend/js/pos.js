@@ -60,6 +60,9 @@ function renderLogin(){
       sessionStorage.setItem('pos_user', currentUser);
       localStorage.setItem('pos_last_user', $('#loginUser').value);
       if(data.forceUpdatePin){ showPinChangeModal(); return; }
+      if(!data.onboardingComplete && typeof initTrainingMode === 'function'){
+        await initTrainingMode(data.onboardingProgress);
+      }
       renderMain();
     } catch(e){ showError('Invalid PIN'); }
   };
@@ -181,6 +184,10 @@ function renderMain(){
   fetchCafeStatus();
   fetchOrders();
   startPolling();
+  if(typeof trainingMode !== 'undefined' && trainingMode && typeof startTrainingTour === 'function'){
+    // Give the board a moment to render with mock data, then start tour
+    setTimeout(startTrainingTour, 1000);
+  }
 }
 
 async function fetchCafeStatus(){
