@@ -259,9 +259,98 @@ async function hardDeletePreorderCode(code: string): Promise<APIGatewayProxyResu
 }
 
 /**
+ * Partial update — only supplied fields are written. Any subset of
+ * {name, opensAt, expiresAt, serviceDate, bannerMessage, eligibleItems,
+ *  collectionOptions, isActive} may be provided. Updating serviceDate
+ * also recomputes serviceEndTime to keep the 15:00 MYT cutoff in sync.
+ */
+async function updatePreorderCode(code: string, event: APIGatewayProxyEvent, actor: string): Promise<APIGatewayProxyResult> {
+  const body = JSON.parse(event.body || '{}');
+
+  // Verify the code exists before attempting to update.
+  const existing = await docClient.send(new GetCommand({
+    TableName: SETTINGS_TABLE,
+    Key: { PK: pk(code), SK: 'META' },
+  }));
+  if (!existing.Item) return res(404, { error: 'Pre-order code not found' });
+
+  // Build update expression dynamically from provided fields.
+  const updates: string[] = [];
+  const names: Record<string, string> = {};
+  const values: Record<string, any> = {};
+
+  if (typeof body.name === 'string' && body.name.trim()) {
+    updates.push('#n = :n'); names['#n'] = 'name'; values[':n'] = body.name.trim();
+  }
+  if (typeof body.opensAt === 'string' && body.opensAt) {
+    updates.push('opensAt = :oa'); values[':oa'] = body.opensAt;
+  }
+  if (typeof body.expiresAt === 'string' && body.expiresAt) {
+    updates.push('expiresAt = :ea'); values[':ea'] = body.expiresAt;
+  }
+  if (typeof body.serviceDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.serviceDate)) {
+    updates.push('serviceDate = :sd'); values[':sd'] = body.serviceDate;
+    updates.push('serviceEndTime = :set'); values[':set'] = computeServiceEndTime(body.serviceDate);
+  }
+  if (typeof body.bannerMessage === 'string') {
+    if (body.bannerMessage.length > 200) return res(400, { error: 'bannerMessage cannot exceed 200 characters' });
+    updates.push('bannerMessage = :bm'); values[':bm'] = body.bannerMessage.trim();
+  }
+  if (Array.isArray(body.eligibleItems)) {
+    const cleaned: string[] = Array.from(new Set(
+      body.eligibleItems
+        .filter((x: unknown): x is string => typeof x === 'string' && x.trim().length > 0)
+        .map((x: string) => x.trim())
+    ));
+    updates.push('eligibleItems = :ei'); values[':ei'] = cleaned;
+  }
+  if (Array.isArray(body.collectionOptions)) {
+    const cleaned: string[] = body.collectionOptions
+      .filter((x: unknown): x is string => typeof x === 'string' && x.trim().length > 0)
+      .map((x: string) => x.trim().slice(0, 60));
+    updates.push('collectionOptions = :co');
+    values[':co'] = cleaned.length ? cleaned : DEFAULT_COLLECTION_OPTIONS.slice();
+  }
+  if (typeof body.isActive === 'boolean') {
+    updates.push('isActive = :ia'); values[':ia'] = body.isActive;
+  }
+
+  if (!updates.length) return res(400, { error: 'No fields to update' });
+
+  // Additional guard: if both opensAt and expiresAt supplied, keep them ordered.
+  if (typeof body.opensAt === 'string' && typeof body.expiresAt === 'string'
+      && Date.parse(body.opensAt) >= Date.parse(body.expiresAt)) {
+    return res(400, { error: 'expiresAt must be after opensAt' });
+  }
+
+  updates.push('updatedAt = :ua'); values[':ua'] = new Date().toISOString();
+  updates.push('updatedBy = :ub'); values[':ub'] = actor || 'Unknown';
+
+  await docClient.send(new UpdateCommand({
+    TableName: SETTINGS_TABLE,
+    Key: { PK: pk(code), SK: 'META' },
+    UpdateExpression: 'SET ' + updates.join(', '),
+    ...(Object.keys(names).length ? { ExpressionAttributeNames: names } : {}),
+    ExpressionAttributeValues: values,
+  }));
+
+  // Return the updated item (fresh read so callers see the canonical shape).
+  const updated = await docClient.send(new GetCommand({
+    TableName: SETTINGS_TABLE,
+    Key: { PK: pk(code), SK: 'META' },
+  }));
+
+  const item = updated.Item;
+  return res(200, item
+    ? { ...item, link: `${PREORDER_URL_BASE}/?code=${encodeURIComponent(code)}` }
+    : { code, updated: true });
+}
+
+/**
  * Path style: /api/admin/preorder-codes[/<code>[?hard=1]]
  * - POST   /api/admin/preorder-codes            → create
  * - GET    /api/admin/preorder-codes            → list
+ * - PUT    /api/admin/preorder-codes/<code>     → update (partial; any subset of fields)
  * - DELETE /api/admin/preorder-codes/<code>     → deactivate (soft)
  * - DELETE /api/admin/preorder-codes/<code>?hard=1 → hard delete
  */
@@ -277,6 +366,10 @@ export async function handleAdminPreorder(event: APIGatewayProxyEvent, actor: st
       return await listPreorderCodes();
     }
     const match = path.match(/\/admin\/preorder-codes\/([^/]+)$/);
+    if (method === 'PUT' && match) {
+      const code = decodeURIComponent(match[1]).toUpperCase();
+      return await updatePreorderCode(code, event, actor);
+    }
     if (method === 'DELETE' && match) {
       const code = decodeURIComponent(match[1]).toUpperCase();
       if (event.queryStringParameters?.hard === '1') {

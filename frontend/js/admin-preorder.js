@@ -30,6 +30,10 @@ function fmtDT(iso){
 
 function renderPreorderCodes(container, codes){
   const nowIso = new Date().toISOString();
+  // Cache the list keyed by code so the Edit button can pre-fill the form
+  // without a second network round-trip.
+  container._codesByCode = {};
+  codes.forEach(c => { if (c && c.code) container._codesByCode[c.code] = c; });
   let html = `<div class="admin-section">
     <div class="admin-section-header">
       <h2>Pre-Order Links</h2>
@@ -68,6 +72,7 @@ function renderPreorderCodes(container, codes){
           <div class="admin-card-actions" style="flex-shrink:0">
             <span class="admin-card-badge ${st.cls}">${st.label}</span>
             <button class="pos-btn pos-btn-sm" data-copy-link="${escapeAttr(link)}">📋 Copy</button>
+            <button class="pos-btn pos-btn-sm" data-edit-code="${escapeAttr(c.code)}">✏️ Edit</button>
             ${c.isActive !== false ? `<button class="pos-btn pos-btn-sm pos-btn-danger" data-deactivate-code="${escapeAttr(c.code)}">Deactivate</button>` : ''}
           </div>
         </div>
@@ -101,9 +106,18 @@ function renderPreorderCodes(container, codes){
       } catch(e){ showError('Deactivate failed'); }
     };
   });
+  container.querySelectorAll('[data-edit-code]').forEach(btn => {
+    btn.onclick = () => {
+      const code = btn.dataset.editCode;
+      const existing = container._codesByCode && container._codesByCode[code];
+      if (!existing) { showError('Code not found in current view — refresh and retry'); return; }
+      openPreorderForm(container, existing);
+    };
+  });
 }
 
-function openPreorderForm(container){
+function openPreorderForm(container, existingCode){
+  const isEdit = !!(existingCode && existingCode.code);
   // Default: opens now, expires 8 days from now, service date next Sunday
   const now = new Date();
   const nextSunday = new Date(now);
@@ -118,6 +132,19 @@ function openPreorderForm(container){
   const expiresGuess = new Date(nextSunday);
   expiresGuess.setHours(15, 0, 0, 0); // Sunday 3PM local
 
+  // ─── Resolve initial field values (edit vs create) ────────────────
+  const initialName = isEdit
+    ? String(existingCode.name || '')
+    : `Sunday ${nextSunday.toLocaleDateString(undefined,{day:'numeric',month:'short'})} Service`;
+  const initialServiceDate = isEdit && existingCode.serviceDate ? existingCode.serviceDate : serviceDate;
+  const initialOpensLocal = isEdit && existingCode.opensAt
+    ? toLocalInput(new Date(existingCode.opensAt))
+    : toLocalInput(now);
+  const initialExpiresLocal = isEdit && existingCode.expiresAt
+    ? toLocalInput(new Date(existingCode.expiresAt))
+    : toLocalInput(expiresGuess);
+  const initialBanner = isEdit ? String(existingCode.bannerMessage || '') : '';
+
   // Fetch admin menu (all active DRINKs) for the eligibility checkboxes,
   // and the current default templates in parallel. Both kicked off eagerly;
   // the form renders as they arrive.
@@ -130,27 +157,29 @@ function openPreorderForm(container){
     collectionOptions: ['After 1st Service', 'After 2nd Service'],
   }));
   // Collection-option working state (mutated by wirePreorderForm).
-  // Populated from templates once the fetch resolves; kick off with the
-  // hardcoded default so the form has something to show if templates take
-  // a moment. wirePreorderForm re-renders when templates land.
-  let collectionOpts = ['After 1st Service', 'After 2nd Service'];
+  // In edit mode seed from the existing code; otherwise start with the
+  // hardcoded default and let the templates fetch overwrite.
+  let collectionOpts = isEdit && Array.isArray(existingCode.collectionOptions) && existingCode.collectionOptions.length
+    ? existingCode.collectionOptions.slice()
+    : ['After 1st Service', 'After 2nd Service'];
 
   // Placeholder shell — the drink list slot gets populated once menuP settles.
   const form = document.createElement('div');
   form.className = 'admin-form';
-  form.innerHTML = `<h3>Create Pre-Order Link</h3>
+  form.innerHTML = `<h3>${isEdit ? 'Edit Pre-Order Link' : 'Create Pre-Order Link'}</h3>
+    ${isEdit ? `<p style="color:var(--text-light);font-size:.85rem;margin-top:-4px">Code: <strong style="font-family:monospace;letter-spacing:.05em">${escapeHtml(existingCode.code)}</strong></p>` : ''}
     <div class="admin-form-group"><label>Event Name</label>
-      <input id="pfName" class="pos-input" placeholder="e.g. Sunday 6 Jul Service" value="Sunday ${nextSunday.toLocaleDateString(undefined,{day:'numeric',month:'short'})} Service">
+      <input id="pfName" class="pos-input" placeholder="e.g. Sunday 6 Jul Service" value="${escapeAttr(initialName)}">
     </div>
     <div class="admin-form-row">
       <div class="admin-form-group"><label>Service Date</label>
-        <input id="pfDate" type="date" class="pos-input" value="${serviceDate}">
+        <input id="pfDate" type="date" class="pos-input" value="${initialServiceDate}">
       </div>
       <div class="admin-form-group"><label>Opens At</label>
-        <input id="pfOpens" type="datetime-local" class="pos-input" value="${toLocalInput(now)}">
+        <input id="pfOpens" type="datetime-local" class="pos-input" value="${initialOpensLocal}">
       </div>
       <div class="admin-form-group"><label>Expires At</label>
-        <input id="pfExpires" type="datetime-local" class="pos-input" value="${toLocalInput(expiresGuess)}">
+        <input id="pfExpires" type="datetime-local" class="pos-input" value="${initialExpiresLocal}">
       </div>
     </div>
     <p style="font-size:.8rem;color:var(--text-light);margin-top:4px">
@@ -159,7 +188,7 @@ function openPreorderForm(container){
 
     <div class="admin-form-group">
       <label>Banner Message <span style="color:var(--text-light);font-weight:400">(optional, max 200 chars)</span></label>
-      <textarea id="pfBanner" class="pos-input" rows="3" maxlength="200" placeholder="Ministry Pre-Order — Kindly select one drink&#10;{$SUNDAY} Service · Collect {$SUNDAY}" style="min-height:60px;font-family:inherit"></textarea>
+      <textarea id="pfBanner" class="pos-input" rows="3" maxlength="200" placeholder="Ministry Pre-Order — Kindly select one drink&#10;{$SUNDAY} Service · Collect {$SUNDAY}" style="min-height:60px;font-family:inherit">${escapeHtml(initialBanner)}</textarea>
       <p style="font-size:.75rem;color:var(--text-light);margin-top:4px">Use <code>{$SUNDAY}</code> to auto-insert the next Sunday date (e.g. "Sunday, 12 Jul"). Leave blank for the default template.</p>
     </div>
 
@@ -174,7 +203,9 @@ function openPreorderForm(container){
       <div id="pfDrinkList" style="max-height:220px;overflow-y:auto;border:1px solid var(--cream-dark);border-radius:8px;padding:8px 12px;background:#fff">
         <div class="loading">Loading drinks…</div>
       </div>
-      <p style="font-size:.75rem;color:var(--text-light);margin-top:4px">Defaults to the ministry list (Latte / Long Black / Decaf / Soda / Tea / Mineral Water). Adjust as needed.</p>
+      <p style="font-size:.75rem;color:var(--text-light);margin-top:4px">${isEdit
+        ? 'Currently-eligible drinks are pre-checked. Uncheck to restrict; check all (or none) to allow every drink.'
+        : 'Defaults to the ministry list (Latte / Long Black / Decaf / Soda / Tea / Mineral Water). Adjust as needed.'}</p>
     </div>
 
     <div class="admin-form-group">
@@ -184,19 +215,26 @@ function openPreorderForm(container){
     </div>
 
     <div class="admin-form-actions">
-      <button class="pos-btn pos-btn-primary" id="pfSubmit">Create Link</button>
+      <button class="pos-btn pos-btn-primary" id="pfSubmit">${isEdit ? 'Save Changes' : 'Create Link'}</button>
       <button class="pos-btn" id="pfCancel">Cancel</button>
     </div>`;
 
   showFormModal(form);
-  wirePreorderForm(form, container, menuP, collectionOpts, templatesP);
+  wirePreorderForm(form, container, menuP, collectionOpts, templatesP, existingCode || null);
 }
 
-function wirePreorderForm(form, container, menuP, collectionOpts, templatesP) {
+function wirePreorderForm(form, container, menuP, collectionOpts, templatesP, existingCode) {
+  const isEdit = !!(existingCode && existingCode.code);
   // Templates seed the form defaults; applied at the bottom of this
   // function after all local helpers are defined so we can reuse them.
   // Fallback keyword list matches what the backend returns by default.
   form._eligibleKeywords = ['latte', 'long black', 'decaf', 'soda', 'tea', 'mineral water'];
+  // In edit mode, the existing whitelist is the source of truth for which
+  // drinks should be pre-checked (rather than keyword matching). An empty
+  // list means "no restriction" — check them all.
+  const existingEligible = isEdit && Array.isArray(existingCode.eligibleItems)
+    ? existingCode.eligibleItems
+    : null;
 
 
   // ─── Collection-options list ──────────────────────────────────────
@@ -236,11 +274,22 @@ function wirePreorderForm(form, container, menuP, collectionOpts, templatesP) {
       return;
     }
     form._drinks = drinks; // cached for applyDrinkDefaultChecks re-tick
+    // In edit mode with an explicit whitelist, only those IDs are checked.
+    // An empty existing list means "all" — check everything to reflect that.
+    const editEligibleSet = existingEligible
+      ? new Set(existingEligible.map(String))
+      : null;
+    const editAllowAll = isEdit && existingEligible && existingEligible.length === 0;
     listEl.innerHTML = drinks
       .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
       .map(m => {
         const id = m.menuItemId || m.id;
-        const checked = matchesEligibilityKeywords(m.name, form._eligibleKeywords);
+        let checked;
+        if (isEdit) {
+          checked = editAllowAll || (editEligibleSet && editEligibleSet.has(String(id)));
+        } else {
+          checked = matchesEligibilityKeywords(m.name, form._eligibleKeywords);
+        }
         return `<label style="display:flex;gap:8px;align-items:center;padding:4px 0;font-weight:400">
           <input type="checkbox" data-drink-id="${escapeAttr(id)}"${checked ? ' checked' : ''}>
           <span>${escapeHtml(m.name || '(unnamed)')} <span style="color:var(--text-light);font-size:.85rem">— RM ${Number(m.basePrice || 0).toFixed(2)}</span></span>
@@ -288,24 +337,29 @@ function wirePreorderForm(form, container, menuP, collectionOpts, templatesP) {
     }
 
     try {
-      const result = await api('POST', '/api/admin/preorder-codes', {
+      const payload = {
         name, serviceDate, opensAt, expiresAt,
         bannerMessage,
         eligibleItems,
         collectionOptions,
-      });
+      };
+      const result = isEdit
+        ? await api('PUT', `/api/admin/preorder-codes/${encodeURIComponent(existingCode.code)}`, payload)
+        : await api('POST', '/api/admin/preorder-codes', payload);
       form._overlay.remove();
-      showSuccess(`Link created: ${result.code}`);
+      showSuccess(isEdit ? `Updated: ${result.code || existingCode.code}` : `Link created: ${result.code}`);
       loadPreorderCodes(container);
-    } catch(e){ showError('Failed to create link'); }
+    } catch(e){ showError(isEdit ? 'Failed to save changes' : 'Failed to create link'); }
   };
 
   // ─── Apply template defaults (fired after all helpers exist) ──────
   // Runs asynchronously; the form is already interactive by the time
   // this settles. Only overwrites empty textareas so a fast typist's
-  // input isn't clobbered by a late-arriving template.
+  // input isn't clobbered by a late-arriving template. In edit mode we
+  // skip template application entirely — the existing code's values are
+  // the source of truth.
   templatesP.then(templates => {
-    if (!templates) return;
+    if (!templates || isEdit) return;
     if (typeof templates.bannerMessage === 'string' && !form.querySelector('#pfBanner').value) {
       form.querySelector('#pfBanner').value = templates.bannerMessage;
     }
