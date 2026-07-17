@@ -279,6 +279,18 @@ function startTrainingTour() {
     return;
   }
 
+  // Guard: if a tour is already running (e.g. this function was scheduled
+  // twice by re-entrant callers), tear it down before starting a new one.
+  // Otherwise we end up with two overlays and duplicate "Do it →" buttons.
+  if (tourGuide) {
+    try { tourGuide.exit(); } catch (e) {}
+    tourGuide = null;
+  }
+  // Belt-and-braces: sweep any stray TourGuide DOM left behind by a prior
+  // instance whose exit() didn't fully clean up.
+  document.querySelectorAll('.tg-dialog, .tg-backdrop')
+    .forEach(el => el.remove());
+
   // Force sidebar open so the trainee can see nav buttons the tour
   // will highlight (Menu, Stock Count, Handover, Café toggle, etc.).
   document.getElementById('posSidebar')?.classList.add('open');

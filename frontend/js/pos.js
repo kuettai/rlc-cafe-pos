@@ -179,8 +179,11 @@ function renderMain(){
     if(!confirm('Start the training tutorial?')) return;
     try{
       await initTrainingMode([]);
+      // renderMain() itself schedules startTrainingTour when trainingMode
+      // is true (see the tail of this function), so we must NOT schedule
+      // it again here — doing so spawns a second TourGuide instance and
+      // produces duplicate "Do it →" buttons.
       renderMain();
-      setTimeout(startTrainingTour, 1000);
     } catch(e){ showError('Failed to start tutorial'); }
   };
   $('#btnView').onclick = ()=>{ viewMode = viewMode==='kanban'?'list':'kanban'; renderBoard(); $('#btnView').textContent = viewMode==='kanban'?'📋 List':'📊 Kanban'; };
