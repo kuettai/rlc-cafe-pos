@@ -365,6 +365,10 @@ function startTrainingTour() {
           catch (e) { console.error('Training action failed:', configStep.action, e); }
         }
       }
+      // Sync the sidebar-dim state to the UPCOMING step's target.
+      // See CSS `.training-active .pos-sidebar::after` — this class
+      // controls whether the sidebar is dimmed or lit.
+      updateSidebarTargetState(steps[newIndex]);
       return true;
     });
 
@@ -387,6 +391,10 @@ function startTrainingTour() {
 
     try { tourGuide.start(); }
     catch (e) { console.error('TourGuide start failed:', e); completeOnboarding(); }
+    // Mark the tour as active (CSS uses this to dim the sidebar during
+    // non-sidebar steps) and sync the target-in-sidebar flag for step 0.
+    document.body.classList.add('training-active');
+    updateSidebarTargetState(steps[0]);
     // Debug/test hook: expose the instance so tests can inspect state
     // (activeStep, _promiseWaiting). Safe to keep in prod — it's just
     // a reference to the same instance the module already holds.
@@ -394,6 +402,20 @@ function startTrainingTour() {
   };
 
   waitForTarget();
+}
+
+// Toggles `body.training-target-sidebar` based on whether the given
+// step's target resolves to an element inside `.pos-sidebar`. Used by
+// CSS to hide the sidebar dim overlay for sidebar-targeted steps.
+function updateSidebarTargetState(configStep) {
+  let inSidebar = false;
+  if (configStep && configStep.target) {
+    try {
+      const el = document.querySelector(configStep.target);
+      inSidebar = !!(el && el.closest('.pos-sidebar'));
+    } catch (e) { /* invalid selector — treat as non-sidebar */ }
+  }
+  document.body.classList.toggle('training-target-sidebar', inSidebar);
 }
 
 async function markTrainingStepComplete(stepId) {
@@ -410,6 +432,9 @@ function completeOnboarding() {
   if (window._origApi) api = window._origApi;
   // Remove tour overlay
   if (tourGuide) { try { tourGuide.exit(); } catch (e) {} }
+  // Clear tour-lifecycle body classes so the sidebar dim overlay is
+  // removed on cancel/complete.
+  document.body.classList.remove('training-active', 'training-target-sidebar');
   // Show completion message
   if (typeof showSuccessToast === 'function') {
     showSuccessToast('🎉 Training complete! Welcome to RLC Café POS');
