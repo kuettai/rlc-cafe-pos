@@ -112,7 +112,6 @@ function renderMain(){
     <button id="btnPlanogram" class="pos-sidebar-btn">📷 AI Scan</button>
     <button id="btnHistory" class="pos-sidebar-btn">📜 History</button>
     <button id="btnStats" class="pos-sidebar-btn">📊 Stats</button>
-    <button id="btnRerunTutorial" class="pos-sidebar-btn">📖 Rerun Tutorial</button>
   </nav>
   <div class="pos-sidebar-footer">
   </div>
@@ -176,16 +175,14 @@ function renderMain(){
   document.getElementById('headerLogout').onclick = logout;
   $('#btnHistory').onclick = openHistory;
   $('#btnStats').onclick = ()=>{ $('#posStats').classList.toggle('visible'); };
-  const btnRerun = document.getElementById('btnRerunTutorial');
-  if(btnRerun){
-    btnRerun.onclick = async ()=>{
-      if(!confirm('Start the training tutorial from the beginning?')) return;
-      try{
-        await api('PUT','/api/pos/onboarding-progress',{step:'__reset__'});
-        window.location.reload();
-      } catch(e){ showError('Failed to reset tutorial'); }
-    };
-  }
+  document.getElementById('headerTutorial').onclick = async ()=>{
+    if(!confirm('Start the training tutorial?')) return;
+    try{
+      await initTrainingMode([]);
+      renderMain();
+      setTimeout(startTrainingTour, 1000);
+    } catch(e){ showError('Failed to start tutorial'); }
+  };
   $('#btnView').onclick = ()=>{ viewMode = viewMode==='kanban'?'list':'kanban'; renderBoard(); $('#btnView').textContent = viewMode==='kanban'?'📋 List':'📊 Kanban'; };
   $('#orderSearch').oninput = e=>{ searchFilter=e.target.value.toLowerCase(); renderBoard(); };
   $('#btnFeatured').onclick = openFeaturedDrinkModal;

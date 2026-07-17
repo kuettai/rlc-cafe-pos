@@ -2232,3 +2232,12 @@ header h1{
 .training-banner .training-progress-text{
   font-size:.75rem; opacity:.8; margin-top:4px;
 }
+
+/* Tutorial button in header */
+.header-tutorial{
+  background:none; border:1px solid rgba(255,255,255,.4);
+  color:#fff; padding:6px 12px; border-radius:8px;
+  font-size:.8rem; font-weight:500; cursor:pointer;
+  margin-right:8px;
+}
+.header-tutorial:hover{ background:rgba(255,255,255,.15); }
