@@ -1267,12 +1267,33 @@ export async function handlePos(event: APIGatewayProxyEvent, actor: string = '')
     const user = userScan.Items?.[0];
     if (!user) return res(404, { error: 'User not found' });
 
+    // Sentinel: reset progress so the user sees the tutorial again.
+    // Triggered by the "Rerun Tutorial" sidebar button in pos.js.
+    if (step === '__reset__') {
+      await docClient.send(new UpdateCommand({
+        TableName: USERS_TABLE,
+        Key: { PK: user.PK, SK: user.SK },
+        UpdateExpression: 'SET onboardingProgress = :p, onboardingComplete = :c',
+        ExpressionAttributeValues: { ':p': [], ':c': false },
+      }));
+      return res(200, { progress: [], onboardingComplete: false });
+    }
+
     const progress: string[] = Array.isArray(user.onboardingProgress) ? [...user.onboardingProgress] : [];
     if (!progress.includes(step)) progress.push(step);
 
     // Kept in sync with training-config.json step ids. If steps are added
     // or renamed there, update this list too so completion is detected.
-    const ALL_STEPS = ['approve', 'mark-ready', 'collect', 'walk-up', 'menu-toggle', 'stock-count', 'open-close'];
+    const ALL_STEPS = [
+      'welcome', 'overview-board',
+      'approve-explain', 'approve-done', 'undo-explain', 'undo-done',
+      'mark-ready', 'mark-ready-done', 'collect', 'collect-done',
+      'cancel-explain', 'cancel-done',
+      'walkup-explain', 'walkup-done',
+      'celebration-explain', 'celebration-done',
+      'menu-toggle', 'stock-count', 'handover-explain',
+      'close-cafe', 'open-cafe', 'complete',
+    ];
     const complete = ALL_STEPS.every(s => progress.includes(s));
 
     await docClient.send(new UpdateCommand({

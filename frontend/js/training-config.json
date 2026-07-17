@@ -1,60 +1,180 @@
 {
   "steps": [
     {
-      "id": "approve",
-      "title": "Approve an Order",
-      "content": "A customer has placed an order! Tap on this pending order card to see the details, then tap <strong>Approve</strong> to start preparing it.",
-      "target": "[data-id='training-001']",
+      "id": "welcome",
+      "title": "Welcome to RLC Café POS! ☕",
+      "content": "This tutorial will walk you through everything you need to know as a cashier. The café is open and ready — let's go!",
+      "target": "",
       "order": 1,
-      "mockTrigger": "approve"
+      "action": "none"
+    },
+    {
+      "id": "overview-board",
+      "title": "The Order Board",
+      "content": "This is your main workspace. Orders flow left to right: <strong>PENDING</strong> (new orders) → <strong>PREPARING</strong> (being made) → <strong>READY</strong> (waiting for collection). Orders with a 💰 badge means the customer has already paid via receipt.",
+      "target": "#orderBoard",
+      "order": 2,
+      "action": "none"
+    },
+    {
+      "id": "approve-explain",
+      "title": "Step 1: Approve an Order",
+      "content": "Sarah has placed an order and shown her payment receipt. When you see a PENDING order with a receipt badge, it means <strong>already paid</strong>. Tap Approve to confirm and start preparing her drink.",
+      "target": "[data-id='training-001']",
+      "order": 3,
+      "action": "click-approve-training-001"
+    },
+    {
+      "id": "approve-done",
+      "title": "Order Approved! ✓",
+      "content": "Great! Sarah's order moved to PREPARING. The barista will now make her drink. Notice it moved from the left column to the middle.",
+      "target": "[data-id='training-001']",
+      "order": 4,
+      "action": "none"
+    },
+    {
+      "id": "undo-explain",
+      "title": "Oops! Undo a Mistake",
+      "content": "Made a mistake? You can <strong>undo</strong> a PREPARING order back to PENDING. Let's try — we'll undo Sarah's order.",
+      "target": "[data-id='training-001']",
+      "order": 5,
+      "action": "click-undo-training-001"
+    },
+    {
+      "id": "undo-done",
+      "title": "Undo Complete! ↩️",
+      "content": "Sarah's order is back in PENDING. This is useful if you approved the wrong order or need to hold it. Let's approve it again to continue.",
+      "target": "[data-id='training-001']",
+      "order": 6,
+      "action": "click-approve-training-001"
     },
     {
       "id": "mark-ready",
-      "title": "Mark Ready",
-      "content": "Great! The drink is now being prepared. Once it's done, tap the order card and tap <strong>Ready</strong> to notify the customer.",
+      "title": "Step 2: Mark Ready",
+      "content": "The barista finished Sarah's Latte! Tap the order and mark it <strong>Ready</strong> to notify her that it's waiting for collection.",
       "target": "[data-id='training-001']",
-      "order": 2,
-      "mockTrigger": "mark-ready"
+      "order": 7,
+      "action": "click-ready-training-001"
+    },
+    {
+      "id": "mark-ready-done",
+      "title": "Order Ready! 🎉",
+      "content": "Sarah will receive a push notification on her phone. The order is now in the READY column. When she arrives to collect...",
+      "target": "[data-id='training-001']",
+      "order": 8,
+      "action": "none"
     },
     {
       "id": "collect",
-      "title": "Collect Order",
-      "content": "The customer is here to pick up! Tap the ready order and tap <strong>Collected</strong> to complete it.",
+      "title": "Step 3: Collect / Archive",
+      "content": "Sarah is here! Tap the ready order and tap <strong>Collected</strong> to complete the transaction.",
       "target": "[data-id='training-001']",
-      "order": 3,
-      "mockTrigger": "collect"
+      "order": 9,
+      "action": "click-archive-training-001"
     },
     {
-      "id": "walk-up",
-      "title": "Walk-up Order",
-      "content": "A customer at the counter wants to order. Tap the <strong>Walk-up</strong> button to create an order directly.",
+      "id": "collect-done",
+      "title": "Order Complete! ✅",
+      "content": "Done! The order disappears from the board. Sarah has her coffee. Let's learn about cancelling orders next.",
+      "target": "#orderBoard",
+      "order": 10,
+      "action": "none"
+    },
+    {
+      "id": "cancel-explain",
+      "title": "Step 4: Cancel an Order",
+      "content": "Sometimes you need to cancel — wrong order, customer changed mind, etc. Daniel's order is still pending. Let's cancel it with a reason.",
+      "target": "[data-id='training-002']",
+      "order": 11,
+      "action": "click-cancel-training-002"
+    },
+    {
+      "id": "cancel-done",
+      "title": "Order Cancelled ❌",
+      "content": "The order is removed. A reason is logged for admin review. Always provide a brief reason when cancelling.",
+      "target": "#orderBoard",
+      "order": 12,
+      "action": "none"
+    },
+    {
+      "id": "walkup-explain",
+      "title": "Step 5: Walk-up Orders",
+      "content": "A customer at the counter wants to order directly (no phone). Tap <strong>Walk-up</strong> to create their order. You'll pick drinks, set quantities, and enter their name.",
       "target": "#btnWalkup",
-      "order": 4,
-      "mockTrigger": "walk-up"
+      "order": 13,
+      "action": "open-walkup-demo"
+    },
+    {
+      "id": "walkup-done",
+      "title": "Walk-up Created! 📝",
+      "content": "Walk-up orders skip PENDING and go straight to PREPARING (since the cashier already confirmed it). The customer pays at the counter.",
+      "target": "#orderBoard",
+      "order": 14,
+      "action": "none"
+    },
+    {
+      "id": "celebration-explain",
+      "title": "Step 6: Celebration Mode 🎉",
+      "content": "On special days (birthdays, events), toggle <strong>Celebration Mode</strong>. All eligible drinks are discounted to a fixed price (e.g. RM 5). Customers see the discount automatically.",
+      "target": "#btnCelebration",
+      "order": 15,
+      "action": "toggle-celebration"
+    },
+    {
+      "id": "celebration-done",
+      "title": "Celebration Active! 🎊",
+      "content": "The banner shows at the top. All eligible drinks are now discounted. Toggle it again when the event ends. Let's turn it off.",
+      "target": "#btnCelebration",
+      "order": 16,
+      "action": "toggle-celebration"
     },
     {
       "id": "menu-toggle",
-      "title": "Toggle Menu Items",
-      "content": "Sold out of something? Tap <strong>Menu</strong> to enable or disable items for today.",
+      "title": "Step 7: Menu Toggle",
+      "content": "Sold out of something? Tap <strong>Menu</strong> to enable/disable items for today. Disabled items won't appear on the customer order screen.",
       "target": "#btnMenu",
-      "order": 5,
-      "mockTrigger": "menu-toggle"
+      "order": 17,
+      "action": "none"
     },
     {
       "id": "stock-count",
-      "title": "Stock Count",
-      "content": "Time to count stock! Tap <strong>Stock Count</strong> and submit your count.",
+      "title": "Step 8: Stock Count",
+      "content": "At the start/end of shift, do a stock count. Tap <strong>Stock Count</strong>, select a location (fridge or storeroom), and enter current quantities.",
       "target": "#btnStockCount",
-      "order": 6,
-      "mockTrigger": "stock-count"
+      "order": 18,
+      "action": "none"
     },
     {
-      "id": "open-close",
-      "title": "Close the Café",
-      "content": "Last step! At the end of service, tap <strong>Café Open</strong> to close. This ends ordering for the day.",
+      "id": "handover-explain",
+      "title": "Step 9: Handover",
+      "content": "Switching shifts mid-service? Tap <strong>Handover</strong> to hand over to the next cashier. This logs who was on duty and notes any issues.",
+      "target": "#btnHandover",
+      "order": 19,
+      "action": "none"
+    },
+    {
+      "id": "close-cafe",
+      "title": "Step 10: Close Café",
+      "content": "End of service! Tap <strong>Café Open ✓</strong> to close. This runs the closing checklist, expires pending orders, resets the featured drink, and sends the daily summary.",
       "target": "#btnCafeToggle",
-      "order": 7,
-      "mockTrigger": "open-close"
+      "order": 20,
+      "action": "none"
+    },
+    {
+      "id": "open-cafe",
+      "title": "Step 11: Open Café",
+      "content": "At the start of service, tap <strong>Open Café</strong>. This runs the opening checklist — confirm stock, set up station, enable the menu.",
+      "target": "#btnCafeToggle",
+      "order": 21,
+      "action": "none"
+    },
+    {
+      "id": "complete",
+      "title": "Training Complete! 🎓",
+      "content": "You're ready to serve! Remember: you can always tap <strong>📖 Rerun Tutorial</strong> in the sidebar if you need a refresher. Welcome to the team!",
+      "target": "",
+      "order": 22,
+      "action": "none"
     }
   ]
 }
