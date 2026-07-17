@@ -60,9 +60,6 @@ function renderLogin(){
       sessionStorage.setItem('pos_user', currentUser);
       localStorage.setItem('pos_last_user', $('#loginUser').value);
       if(data.forceUpdatePin){ showPinChangeModal(); return; }
-      if(!data.onboardingComplete && typeof initTrainingMode === 'function'){
-        await initTrainingMode(data.onboardingProgress);
-      }
       renderMain();
     } catch(e){ showError('Invalid PIN'); }
   };

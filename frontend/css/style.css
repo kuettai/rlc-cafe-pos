@@ -2039,22 +2039,22 @@ header h1{
 
 /* Café-open sidebar action — reassuring green state */
 .pos-action-cafe-open{
-  background:#D1FAE5;
-  color:#065F46;
-  border-color:#10B981;
-  box-shadow:inset 0 0 0 1px rgba(16,185,129,.4);
-}
-.pos-action-cafe-open:hover{background:#A7F3D0}
-
-/* Café-closed sidebar action — urgent red, matches the banner */
-.pos-action-cafe-closed{
   background:#DC2626;
   color:#fff;
   border-color:#B91C1C;
   box-shadow:0 2px 6px rgba(220,38,38,.35);
-  animation:closed-btn-pulse 1.6s ease-in-out infinite;
 }
-.pos-action-cafe-closed:hover{background:#B91C1C}
+.pos-action-cafe-open:hover{background:#B91C1C}
+
+/* Café-closed sidebar action — urgent red, matches the banner */
+.pos-action-cafe-closed{
+  background:#D1FAE5;
+  color:#065F46;
+  border-color:#10B981;
+  box-shadow:inset 0 0 0 1px rgba(16,185,129,.4);
+  animation:none;
+}
+.pos-action-cafe-closed:hover{background:#A7F3D0}
 @keyframes closed-btn-pulse{
   0%,100%{box-shadow:0 2px 6px rgba(220,38,38,.35)}
   50%{box-shadow:0 2px 12px rgba(220,38,38,.7)}
