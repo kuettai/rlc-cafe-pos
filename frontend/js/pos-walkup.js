@@ -34,6 +34,9 @@ async function openWalkup(){
   }
 
   function renderWalkup(){
+    // Preserve menu scroll position across re-renders
+    const prevMenuScroll = modal.querySelector('.pos-walkup-menu')?.scrollTop || 0;
+
     const filtered = filteredMenu();
     const cartHtml=cart.map((c,i)=>`<li>${c.qty}x ${c.name}${c.variant?' ('+c.variant+')':''} <span style="color:var(--text-light,#7A6355);font-size:.85rem">RM${(c.price*c.qty).toFixed(2)}</span> <button data-ri="${i}" class="pos-remove-item">✕</button></li>`).join('');
     const cartTotal = cart.reduce((s,c)=>s+c.price*c.qty,0);
@@ -89,6 +92,10 @@ async function openWalkup(){
 
     modal.querySelector('.pos-modal-close').onclick=()=>modal.remove();
     modal.onclick=e=>{ if(e.target===modal) modal.remove(); };
+
+    // Restore menu scroll position
+    const menuEl = modal.querySelector('.pos-walkup-menu');
+    if (menuEl && prevMenuScroll) menuEl.scrollTop = prevMenuScroll;
 
     modal.querySelector('#wkSearch').oninput=e=>{
       wkFilter=e.target.value.toLowerCase();
