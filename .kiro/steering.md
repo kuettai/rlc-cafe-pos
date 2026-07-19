@@ -6,7 +6,7 @@ A Progressive Web App (PWA) for a church café at Oasis of Care (RLC), Petaling 
 ## Architecture
 - **Frontend:** Vanilla HTML/CSS/JS PWA hosted on GitHub Pages
 - **Backend:** AWS Lambda (Node.js/TypeScript) + API Gateway (proxy integration)
-- **Database:** DynamoDB (5 tables: orders, menu, ingredients, users, settings)
+- **Database:** DynamoDB (7 tables: orders, menu, ingredients, users, settings, customers, vouchers)
 - **IaC:** AWS CDK (TypeScript)
 - **Region:** ap-southeast-5 (Malaysia)
 - **Repo:** https://github.com/kuettai/rlc-cafe-pos
@@ -32,15 +32,17 @@ cafepos/
 ├── backend/src/        # Lambda handlers (TypeScript)
 │   ├── index.ts        # Main router with auth middleware
 │   ├── expiry.ts       # Order expiry cron (EventBridge, every 5min)
-│   ├── lib/            # db.ts (DynamoDB client), auth.ts (JWT/PIN)
-│   ├── routes/         # auth, cafe, menu, orders, pos, admin, checklist, receipt, planogram
+│   ├── lib/            # db.ts (DynamoDB client), auth.ts (JWT/PIN), audit.ts (order logging), phone.ts (Malaysian phone normalizer), push.ts (web-push helper)
+│   ├── routes/         # auth, cafe, menu, orders, pos, admin, checklist, receipt, planogram, customers, vouchers, preorder, push, display, verses
 │   └── tests/          # Jest unit + integration tests
 ├── frontend/           # PWA (vanilla JS, served via GitHub Pages)
 │   ├── index.html      # Customer ordering
 │   ├── track.html      # Order tracking (polls every 7s) + receipt upload
 │   ├── pos.html        # Cashier POS
 │   ├── admin.html      # Admin dashboard
-│   ├── js/             # app.js, track.js, pos.js, admin.js, config.js
+│   ├── display.html    # TV Display screen (ready orders + promo slideshow)
+│   ├── reports.html    # Reports page
+│   ├── js/             # app.js, track.js, pos.js, admin.js, config.js, admin-vouchers.js, admin-preorder.js, admin-display.js, admin-verses.js, admin-checklist.js, admin-dashboard.js, admin-menu.js, admin-ingredients.js, pos-voucher.js, pos-training.js, pos-stock.js, pos-history.js, pos-checklist.js, pos-walkup.js, phone.js, display.js, variants.js, changelog.js
 │   ├── css/            # style.css, admin.css
 │   ├── img/            # QR payment image
 │   ├── manifest.json   # PWA manifest
@@ -75,7 +77,15 @@ cafepos/
 - API responses: `{ statusCode, headers: {}, body: JSON.stringify(...) }`
 - Path parameter extraction from `event.path` (not `event.pathParameters`) due to proxy integration
 
-## Current Status (as of 2026-06-05)
+## Versioning & Release Notes
+- **Update documents:** Create `update-YYYYMMDD.md` in project root for each work session. Include: analysis, findings, fixes applied, features implemented, and remaining items.
+- **Service worker version:** Bump `sw.js` cache version (currently v16) on every frontend deploy that changes cached assets.
+- **Changelog:** `frontend/changelog.json` tracks user-visible changes shown in the PWA changelog modal. Add entries for features/fixes visible to end users.
+- **Backend deploys:** No semantic versioning — deploy via `cdk deploy`. Breaking API changes should be documented in the update file.
+- **Frontend deploys:** Push to master triggers GitHub Actions. Always bump SW version if JS/CSS/HTML changed.
+- **Task tracking:** `tasks.md` in root tracks open bugs, features, and cosmetic items. Update after each session.
+
+## Current Status (as of 2026-07-19)
 ### Completed (Foundation)
 - ✅ All backend routes (auth, cafe, menu, orders, pos, admin)
 - ✅ Customer ordering PWA (menu, cart, order submission)
@@ -102,6 +112,23 @@ cafepos/
 - ✅ POS view toggle button styled to match café theme
 - ✅ Admin card badges center-aligned
 - ✅ Service worker cache bump (v16)
+
+### Completed (Post-June Sprint)
+- ✅ Customer CRM — phone-based registration, order linking, lookup, order history
+- ✅ Voucher system — campaigns, assign (individual + CSV bulk), redeem at POS, void
+- ✅ Pre-order codes — generate shareable links, validate, auto-remark orders
+- ✅ Push notifications — Web Push API, subscribe per order, VAPID keys
+- ✅ TV Display screen — ready orders board + promo slideshow (S3 presigned URLs)
+- ✅ Bible verses — admin CRUD, random verse on payment screen
+- ✅ Featured drink — POS set/unset, admin audit log
+- ✅ Stock history — cashier snapshots, admin date-picker view
+- ✅ Reports expansion — discounts report, session breakdown (S1/S2), monthly report, restock recommendations
+- ✅ POS improvements — shift summary, bulk stock update, onboarding flow, archive orders, cancel-completed
+- ✅ Admin improvements — bulk menu toggle, duplicate food, ingredient toggle-active, user reset-onboarding, pre-order templates
+- ✅ Display slides admin — upload to S3 via presigned URL, manage slideshow
+- ✅ Origin verification — CloudFront-ready X-Origin-Verify header check (feature-flagged off)
+- ✅ Audit logging — structured CloudWatch logs for all order mutations
+- ✅ Malaysian phone normalizer — consistent 0xxxxxxxxx format
 
 ### Completed (2026-06-03 Sprint)
 - ✅ UI Redesign — warm café theme (browns/cream/caramel) across all pages

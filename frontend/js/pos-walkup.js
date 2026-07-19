@@ -41,49 +41,51 @@ async function openWalkup(){
     modal.innerHTML=`<div class="pos-modal pos-modal-walkup">
       <button class="pos-modal-close">✕</button>
       <h3>Walk-up Order</h3>
-      <input id="wkName" class="pos-input" placeholder="Customer name" value="${cart._name||''}" style="margin-bottom:12px">
-      <input id="wkSearch" class="pos-input" placeholder="Search menu..." value="${wkFilter}" style="margin-bottom:8px">
-      <div class="pos-walkup-filters">
-        <button class="pos-btn pos-btn-sm ${wkCategory==='ALL'?'active':''}" data-wk-cat="ALL">All</button>
-        <button class="pos-btn pos-btn-sm ${wkCategory==='DRINK'?'active':''}" data-wk-cat="DRINK">Drinks</button>
-        <button class="pos-btn pos-btn-sm ${wkCategory==='FOOD'?'active':''}" data-wk-cat="FOOD">Food</button>
+      <div class="pos-walkup-grid">
+        <div class="pos-walkup-col-left">
+          <input id="wkName" class="pos-input" placeholder="Customer name" value="${cart._name||''}" style="margin-bottom:12px">
+          <input id="wkSearch" class="pos-input" placeholder="Search menu..." value="${wkFilter}" style="margin-bottom:8px">
+          <div class="pos-walkup-filters">
+            <button class="pos-btn pos-btn-sm ${wkCategory==='ALL'?'active':''}" data-wk-cat="ALL">All</button>
+            <button class="pos-btn pos-btn-sm ${wkCategory==='DRINK'?'active':''}" data-wk-cat="DRINK">Drinks</button>
+            <button class="pos-btn pos-btn-sm ${wkCategory==='FOOD'?'active':''}" data-wk-cat="FOOD">Food</button>
+          </div>
+          <div class="pos-walkup-menu">${filtered.length ? filtered.map(m=>{
+            const price = m.basePrice || m.price || 0;
+            const isFood     = m.category === 'FOOD';
+            const hasQty     = isFood && typeof m.foodQuantityToday === 'number';
+            const available  = hasQty ? Math.max(0, (m.foodQuantityToday||0) - (m.foodReserved||0)) : null;
+            const soldOut    = hasQty && available <= 0;
+            const stockLabel = !hasQty ? '' :
+              soldOut ? ' <span class="pos-walkup-stock pos-walkup-stock-out">(Sold Out)</span>'
+                      : ` <span class="pos-walkup-stock">(${available} left)</span>`;
+            let variantHtml = '';
+            if(m.variantGroups && m.variantGroups.length){
+              variantHtml = m.variantGroups.map(g=>g.options.map(o=>
+                `<button class="pos-variant-btn" data-mid="${m.menuItemId||m.id}" data-group="${g.group}" data-type="${g.type}" data-v="${o.name}" data-vp="${o.price||0}"${soldOut?' disabled':''}>${o.name}${o.price ? ' +'+o.price : ''}</button>`
+              ).join('')).join('');
+            } else if(m.variants && m.variants.length){
+              variantHtml = m.variants.map(v=>`<button class="pos-variant-btn" data-mid="${m.menuItemId||m.id}" data-v="${v.name||v.id}" data-vp="${v.priceModifier||0}"${soldOut?' disabled':''}>${v.name||v}${v.priceModifier ? ' +'+v.priceModifier : ''}</button>`).join('');
+            }
+            return `<div class="pos-walkup-item${soldOut?' pos-walkup-item-soldout':''}"><span>${m.name}${price ? ' - RM'+price.toFixed(2) : ''}${stockLabel}</span>${variantHtml}<button class="pos-add-btn" data-mid="${m.menuItemId||m.id}" data-mname="${m.name}" data-mp="${price}"${soldOut?' disabled aria-disabled="true"':''}>+</button></div>`;
+          }).join('') : '<div style="padding:16px;text-align:center;color:var(--text-light,#7A6355)">No items match</div>'}</div>
+        </div>
+        <div class="pos-walkup-col-right">
+          <div class="pos-walkup-cart"><h4>Cart${cart.length ? ' — RM'+cartTotal.toFixed(2) : ''}</h4><ul>${cartHtml||'<li>Empty</li>'}</ul></div>
+          <fieldset class="pos-chip-group" id="wkDiscountGroup" aria-label="Discount">
+            <legend class="pos-chip-legend">Discount</legend>
+            ${[
+              {value:'',         label:'No Discount'},
+              {value:'STAFF',    label:'Staff (RM5)'},
+              {value:'PASTOR',   label:'Pastor (Free)'},
+              {value:'NEWCOMER', label:'Newcomer (Free)'},
+            ].map(o=>`<label class="pos-chip"><input type="radio" name="wkDiscount" value="${o.value}" ${selectedDiscount===o.value?'checked':''}><span>${o.label}</span></label>`).join('')}
+          </fieldset>
+          <input id="wkNotes" class="pos-input" placeholder="Special requests (less sugar, extra hot)" style="margin-bottom:12px">
+          <button id="wkSubmit" class="pos-btn pos-btn-primary pos-btn-lg" ${cart.length?'':'disabled'}>Submit Order</button>
+        </div>
       </div>
-      <div class="pos-walkup-menu">${filtered.length ? filtered.map(m=>{
-        const price = m.basePrice || m.price || 0;
-        // Sold-out gate: FOOD items with foodQuantityToday - foodReserved
-        // <= 0 have nothing left to sell. Drinks and legacy items without
-        // a quantity field are never sold-out. Kept visible (greyed out)
-        // so the cashier sees the item exists rather than silently
-        // disappearing when a filter is applied.
-        const isFood     = m.category === 'FOOD';
-        const hasQty     = isFood && typeof m.foodQuantityToday === 'number';
-        const available  = hasQty ? Math.max(0, (m.foodQuantityToday||0) - (m.foodReserved||0)) : null;
-        const soldOut    = hasQty && available <= 0;
-        const stockLabel = !hasQty ? '' :
-          soldOut ? ' <span class="pos-walkup-stock pos-walkup-stock-out">(Sold Out)</span>'
-                  : ` <span class="pos-walkup-stock">(${available} left)</span>`;
-        let variantHtml = '';
-        if(m.variantGroups && m.variantGroups.length){
-          variantHtml = m.variantGroups.map(g=>g.options.map(o=>
-            `<button class="pos-variant-btn" data-mid="${m.menuItemId||m.id}" data-group="${g.group}" data-type="${g.type}" data-v="${o.name}" data-vp="${o.price||0}"${soldOut?' disabled':''}>${o.name}${o.price ? ' +'+o.price : ''}</button>`
-          ).join('')).join('');
-        } else if(m.variants && m.variants.length){
-          variantHtml = m.variants.map(v=>`<button class="pos-variant-btn" data-mid="${m.menuItemId||m.id}" data-v="${v.name||v.id}" data-vp="${v.priceModifier||0}"${soldOut?' disabled':''}>${v.name||v}${v.priceModifier ? ' +'+v.priceModifier : ''}</button>`).join('');
-        }
-        return `<div class="pos-walkup-item${soldOut?' pos-walkup-item-soldout':''}"><span>${m.name}${price ? ' - RM'+price.toFixed(2) : ''}${stockLabel}</span>${variantHtml}<button class="pos-add-btn" data-mid="${m.menuItemId||m.id}" data-mname="${m.name}" data-mp="${price}"${soldOut?' disabled aria-disabled="true"':''}>+</button></div>`;
-      }).join('') : '<div style="padding:16px;text-align:center;color:var(--text-light,#7A6355)">No items match</div>'}</div>
-      <div class="pos-walkup-cart"><h4>Cart${cart.length ? ' — RM'+cartTotal.toFixed(2) : ''}</h4><ul>${cartHtml||'<li>Empty</li>'}</ul></div>
-      <input id="wkNotes" class="pos-input" placeholder="Special requests (less sugar, extra hot)" style="margin-bottom:12px">
-      <fieldset class="pos-chip-group" id="wkDiscountGroup" aria-label="Discount">
-        <legend class="pos-chip-legend">Discount</legend>
-        ${[
-          {value:'',         label:'No Discount'},
-          {value:'STAFF',    label:'Staff (RM5)'},
-          {value:'PASTOR',   label:'Pastor (Free)'},
-          {value:'NEWCOMER', label:'Newcomer (Free)'},
-        ].map(o=>`<label class="pos-chip"><input type="radio" name="wkDiscount" value="${o.value}" ${selectedDiscount===o.value?'checked':''}><span>${o.label}</span></label>`).join('')}
-      </fieldset>
-      <button id="wkSubmit" class="pos-btn pos-btn-primary pos-btn-lg" ${cart.length?'':'disabled'}>Submit Order</button></div>`;
+    </div>`;
 
     modal.querySelector('.pos-modal-close').onclick=()=>modal.remove();
     modal.onclick=e=>{ if(e.target===modal) modal.remove(); };

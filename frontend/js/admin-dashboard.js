@@ -4,22 +4,39 @@
 // --- Dashboard ---
 // Today-only operational view. Historical/weekly/monthly analytics live on
 // reports.html (linked from the sidebar's "📈 Reports" button).
+
+// Track selected date globally for the dashboard
+let dashboardSelectedDate = new Date().toISOString().slice(0, 10);
+
+function computePastSundays() {
+  const sundays = [];
+  const today = new Date();
+  const d = new Date(today);
+  // Go back to find the most recent past Sunday
+  d.setDate(d.getDate() - ((d.getDay() === 0) ? 7 : d.getDay()));
+  for (let i = 0; i < 13; i++) {
+    sundays.push(d.toISOString().slice(0, 10));
+    d.setDate(d.getDate() - 7);
+  }
+  return sundays;
+}
+
 async function loadDashboard(container){
   container.innerHTML = '<div class="loading">Loading dashboard...</div>';
+  dashboardSelectedDate = new Date().toISOString().slice(0, 10);
   await fetchAndRenderDashboard(container);
 }
 
 async function fetchAndRenderDashboard(container){
   try {
-    const todayIso = new Date().toISOString().slice(0, 10);
+    const dateParam = dashboardSelectedDate;
+    const todayIso = dateParam;
+    const dateQuery = `date=${encodeURIComponent(dateParam)}`;
     const [daily, sessions, discounts, ingredients, checklistLogs, stockHistory, featuredAudit] = await Promise.all([
-      api('GET','/api/admin/reports/daily'),
-      api('GET','/api/admin/reports/sessions'),
-      api('GET','/api/admin/reports/discounts'),
+      api('GET',`/api/admin/reports/daily?${dateQuery}`),
+      api('GET',`/api/admin/reports/sessions?${dateQuery}`),
+      api('GET',`/api/admin/reports/discounts?${dateQuery}`),
       api('GET','/api/pos/ingredients'),
-      // Activity trail sources — /checklist/logs returns all logs, we
-      // filter to today client-side. /stock-history?date= returns snapshots
-      // for one date; missing endpoints return safe empty results.
       api('GET','/api/admin/checklist/logs').catch(() => ({ logs: [] })),
       api('GET', `/api/admin/stock-history?date=${encodeURIComponent(todayIso)}`).catch(() => ({ snapshots: [] })),
       api('GET','/api/admin/featured-drink/audit').catch(() => ({ entries: [] })),
@@ -52,6 +69,9 @@ function renderDashboard(container, data){
   const s2Rev = Number(s2.revenue || 0);
   const s1Highlight = s1Rev >= s2Rev && s1Rev > 0;
   const s2Highlight = s2Rev >  s1Rev;
+  // Feature 4: Use time ranges from API response
+  const s1TimeRange = s1.timeRange || '8:00 – 11:30 MYT';
+  const s2TimeRange = s2.timeRange || '11:31 – 14:00 MYT';
 
   // ─── (c) Today's discounts table ───────────────────────────────────
   // Types shown in a fixed order; labels match POS discount badges.
@@ -64,6 +84,7 @@ function renderDashboard(container, data){
     ['VOUCHER',           'Voucher'],
   ];
   const discountSummary = discounts?.summary || {};
+  const drinkBreakdown = discounts?.drinkBreakdown || {};
   const totalDiscOrders = Number(discounts?.totalDiscountedOrders || 0);
   const totalDiscOffset = Number(discounts?.totalOffset || 0);
 
@@ -98,11 +119,25 @@ function renderDashboard(container, data){
       return aActive - bActive;
     });
 
+  // ─── Date selector (Feature 6) ────────────────────────────────────
+  const realToday = new Date().toISOString().slice(0, 10);
+  const pastSundays = computePastSundays();
+  let dateOptionsHtml = `<option value="${realToday}"${dashboardSelectedDate === realToday ? ' selected' : ''}>Today (${realToday})</option>`;
+  for (const sun of pastSundays) {
+    if (sun === realToday) continue; // avoid duplicate
+    dateOptionsHtml += `<option value="${sun}"${dashboardSelectedDate === sun ? ' selected' : ''}>${sun} (Sun)</option>`;
+  }
+
   // ─── Compose HTML ──────────────────────────────────────────────────
   let html = `<div class="admin-section">
     <div class="admin-section-header" style="align-items:center">
       <h2>📊 Today's Dashboard</h2>
-      <button class="pos-btn pos-btn-sm" id="btnDashboardRefresh" style="display:flex;align-items:center;gap:6px">🔄 Refresh</button>
+      <div style="display:flex;align-items:center;gap:8px">
+        <select id="dashboardDateSelect" style="padding:6px 10px;border-radius:6px;border:1px solid var(--cream-dark,#E7DFD5);font-size:.9rem">
+          ${dateOptionsHtml}
+        </select>
+        <button class="pos-btn pos-btn-sm" id="btnDashboardRefresh" style="display:flex;align-items:center;gap:6px">🔄 Refresh</button>
+      </div>
     </div>
 
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:24px">
@@ -115,8 +150,8 @@ function renderDashboard(container, data){
 
     <h3 style="margin:8px 0 12px;color:var(--primary)">⏱ Session Comparison</h3>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin-bottom:24px">
-      ${sessionCardHtml('Session 1', '8:00 – 11:30 MYT', s1, s1Highlight)}
-      ${sessionCardHtml('Session 2', '11:31 – 14:00 MYT', s2, s2Highlight)}
+      ${sessionCardHtml('Session 1', s1TimeRange, s1, s1Highlight)}
+      ${sessionCardHtml('Session 2', s2TimeRange, s2, s2Highlight)}
     </div>
 
     <h3 style="margin:8px 0 12px;color:var(--primary)">💰 Today's Discounts</h3>
@@ -129,10 +164,18 @@ function renderDashboard(container, data){
         </tr>
         ${discountTypes.map(([key, label]) => {
           const row = discountSummary[key] || { count: 0, totalOffset: 0 };
-          return `<tr style="border-bottom:1px solid var(--cream-dark)">
-            <td style="padding:8px 0">${label}</td>
+          const drinks = drinkBreakdown[key] || {};
+          const drinkEntries = Object.entries(drinks);
+          const drinkText = drinkEntries.map(([name, qty]) => `${name} ×${qty}`).join(', ');
+          const hasBreakdown = drinkEntries.length > 0;
+          const accordionId = `discount-accordion-${key}`;
+          return `<tr style="border-bottom:1px solid var(--cream-dark);cursor:${hasBreakdown ? 'pointer' : 'default'}" class="discount-row" data-accordion="${accordionId}">
+            <td style="padding:8px 0">${label}${hasBreakdown ? ' ▸' : ''}</td>
             <td style="text-align:right">${row.count}</td>
             <td style="text-align:right">${Number(row.totalOffset||0).toFixed(2)}</td>
+          </tr>
+          <tr id="${accordionId}" class="discount-breakdown" style="display:none">
+            <td colspan="3" style="padding:4px 0 8px 20px;color:var(--text-light);font-size:.85rem">${drinkText || '—'}</td>
           </tr>`;
         }).join('')}
         <tr style="border-top:2px solid var(--cream-dark);font-weight:700">
@@ -173,6 +216,33 @@ function renderDashboard(container, data){
   </div>`;
 
   container.innerHTML = html;
+
+  // Feature 6: Date selector change handler
+  const dateSelect = container.querySelector('#dashboardDateSelect');
+  if (dateSelect) {
+    dateSelect.onchange = () => {
+      dashboardSelectedDate = dateSelect.value;
+      container.innerHTML = '<div class="loading">Loading...</div>';
+      fetchAndRenderDashboard(container);
+    };
+  }
+
+  // Feature 7: Accordion click handlers for discount rows
+  container.querySelectorAll('.discount-row').forEach(row => {
+    row.onclick = () => {
+      const accordionId = row.getAttribute('data-accordion');
+      const breakdown = container.querySelector(`#${accordionId}`);
+      if (breakdown) {
+        const isVisible = breakdown.style.display !== 'none';
+        breakdown.style.display = isVisible ? 'none' : 'table-row';
+        // Toggle arrow indicator
+        const td = row.querySelector('td');
+        if (td) {
+          td.innerHTML = td.innerHTML.replace(' ▸', '').replace(' ▾', '') + (isVisible ? ' ▸' : ' ▾');
+        }
+      }
+    };
+  });
 
   container.querySelector('#btnDashboardRefresh').onclick = () => {
     container.innerHTML = '<div class="loading">Refreshing...</div>';

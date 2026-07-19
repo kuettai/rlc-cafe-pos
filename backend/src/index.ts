@@ -144,6 +144,13 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
     return res;
   }
 
+  if (path === '/api/admin/customers') {
+    if (user.role !== 'ADMIN') return respond(403, { error: 'Forbidden' });
+    const res = await handleAdmin(event);
+    res.headers = { ...CORS_HEADERS, ...res.headers };
+    return res;
+  }
+
   if (path.startsWith('/api/admin')) {
     if (user.role !== 'ADMIN') return respond(403, { error: 'Forbidden' });
     const res = await handleAdmin(event);

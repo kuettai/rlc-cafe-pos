@@ -468,7 +468,7 @@ function renderStats(){
     <div class="pos-stat"><span class="pos-stat-num">${preparing}</span><span class="pos-stat-lbl">Making</span></div>
     <div class="pos-stat"><span class="pos-stat-num">${ready}</span><span class="pos-stat-lbl">Ready</span></div>
     <div class="pos-stat"><span class="pos-stat-num">${completed}</span><span class="pos-stat-lbl">Completed</span></div>
-    <div class="pos-stat"><span class="pos-stat-num">RM${revenue.toFixed(0)}</span><span class="pos-stat-lbl">Revenue</span></div>
+    <div class="pos-stat"><span class="pos-stat-num">RM${revenue.toFixed(2)}</span><span class="pos-stat-lbl">Revenue</span></div>
     <div class="pos-stat"><span class="pos-stat-num">${total}</span><span class="pos-stat-lbl">Queue</span></div>
     <div class="pos-stat"><span class="pos-stat-num">${drinkItems}</span><span class="pos-stat-lbl">Drinks</span></div>
     <div class="pos-stat pos-stat-btn" id="btnIngUsed" style="cursor:pointer"><span class="pos-stat-num">📦</span><span class="pos-stat-lbl">Usage</span></div>`;
@@ -874,6 +874,7 @@ function showCancelCompletedDialog(id, parentModal){
 // --- Menu Toggle ---
 async function openMenuToggle(){
   let menu=[];
+  let menuSearch = '';
   // /api/pos/menu returns every admin-active item (isActive=true) regardless
   // of today's toggle, so the cashier can see + re-enable items that have
   // been switched off for the day. The public /api/menu would hide them.
@@ -891,6 +892,11 @@ async function openMenuToggle(){
   const modal=document.createElement('div');
   modal.className='pos-modal-overlay';
 
+  function filterBySearch(items){
+    if(!menuSearch) return items;
+    return items.filter(m=>m.name.toLowerCase().includes(menuSearch));
+  }
+
   function renderModal(){
     const food = foodAll.slice().sort((a,b)=>{
       if(!!a.isPinned!==!!b.isPinned)return a.isPinned?-1:1;
@@ -899,13 +905,15 @@ async function openMenuToggle(){
       const strip=s=>s.replace(/^[\p{Emoji}\p{Emoji_Presentation}\s]+/u,'');
       return strip(a.name).localeCompare(strip(b.name));
     });
-    const allItems = [...drinks, ...food];
+    const filteredDrinks = filterBySearch(drinks);
+    const filteredFood = filterBySearch(food);
     modal.innerHTML=`<div class="pos-modal" style="max-width:600px">
       <button class="pos-modal-close">✕</button>
       <h3>Menu & Food Quantity</h3>
+      <input id="menuSearchInput" class="pos-input" placeholder="Search menu..." value="${menuSearch}" style="margin-top:12px;margin-bottom:8px">
       <div style="margin-top:16px">
         <h4 style="margin-bottom:10px;color:var(--primary,#6B4226)">🥤 Drinks</h4>
-        <div class="pos-menu-toggles">${drinks.map(m=>`<div class="pos-menu-toggle-row${m.isEnabledToday===false?' is-disabled':''}" data-row-id="${m.menuItemId||m.id}">
+        <div class="pos-menu-toggles pos-menu-grid">${filteredDrinks.map(m=>`<div class="pos-menu-toggle-row${m.isEnabledToday===false?' is-disabled':''}" data-row-id="${m.menuItemId||m.id}">
           <span>${m.name}</span>
           <div style="display:flex;align-items:center;gap:8px">
             <button class="pos-pin-btn ${m.isPinned?'pinned':''}" data-pin-id="${m.menuItemId||m.id}" title="${m.isPinned?'Unpin':'Pin to top'}">📌</button>
@@ -915,7 +923,7 @@ async function openMenuToggle(){
       </div>
       <div style="margin-top:24px">
         <h4 style="margin-bottom:10px;color:var(--primary,#6B4226)">🍔 Food — set today's quantity</h4>
-        <div class="pos-menu-toggles">${food.map(m=>{
+        <div class="pos-menu-toggles pos-menu-grid">${filteredFood.map(m=>{
           const qty = m.foodQuantityToday || 0;
           const reserved = m.foodReserved || 0;
           const enabled = m.isEnabledToday !== false;
@@ -936,6 +944,12 @@ async function openMenuToggle(){
 
     modal.querySelector('.pos-modal-close').onclick=()=>modal.remove();
     modal.onclick=e=>{ if(e.target===modal) modal.remove(); };
+
+    modal.querySelector('#menuSearchInput').oninput=e=>{
+      menuSearch=e.target.value.toLowerCase();
+      renderModal();
+      modal.querySelector('#menuSearchInput').focus();
+    };
 
     modal.querySelectorAll('.pos-pin-btn').forEach(btn=>btn.onclick=async()=>{
       const id=btn.dataset.pinId;

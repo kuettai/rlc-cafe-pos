@@ -6,7 +6,7 @@
  * the range). All aggregation is done client-side so different views
  * stay in sync without re-fetching.
  *
- * Auth follows the same pattern as admin.js — sessionStorage-keyed JWT,
+ * Auth follows the same pattern as admin.js — localStorage-keyed JWT,
  * shared `pos_token` so a user logged in via admin.html stays logged in
  * here.
  */
@@ -16,8 +16,8 @@
 const $ = sel => document.querySelector(sel);
 const app = $('#app');
 
-let token = sessionStorage.getItem('pos_token');
-let currentUser = sessionStorage.getItem('pos_user') || '';
+let token = localStorage.getItem('pos_token');
+let currentUser = localStorage.getItem('pos_user') || '';
 
 // View state
 let activeTab = 'summary';                                  // 'summary' | 'detail'
@@ -105,8 +105,8 @@ function localDateStr(iso) {
 function logout() {
   token = null;
   currentUser = '';
-  sessionStorage.removeItem('pos_token');
-  sessionStorage.removeItem('pos_user');
+  localStorage.removeItem('pos_token');
+  localStorage.removeItem('pos_user');
   renderLogin();
 }
 
@@ -137,8 +137,8 @@ function renderLogin() {
       if (data.role !== 'ADMIN') { showError('Admin access required'); return; }
       token = data.token;
       currentUser = data.name || 'Admin';
-      sessionStorage.setItem('pos_token', token);
-      sessionStorage.setItem('pos_user', currentUser);
+      localStorage.setItem('pos_token', token);
+      localStorage.setItem('pos_user', currentUser);
       renderApp();
     } catch (e) { showError('Invalid credentials'); }
   };
@@ -556,7 +556,7 @@ function renderDetailTable() {
   }
 
   const head = [
-    'Date / Time', 'Order ID', 'Items', 'Gross (RM)', 'Discount (RM)', 'Net (RM)', 'Status', 'Customer',
+    'Date / Time', 'Order ID', 'Items', 'Gross (RM)', 'Discount (RM)', 'Discount Type', 'Net (RM)', 'Status', 'Customer',
   ].map(h => `<th style="text-align:left;padding:8px 10px;border-bottom:2px solid var(--cream-dark,#E5DACB)">${h}</th>`).join('');
 
   const body = rows.map(o => {
@@ -582,6 +582,7 @@ function renderDetailTable() {
       <td style="padding:6px 10px">${escapeHtml(items)}</td>
       <td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums">${gross.toFixed(2)}</td>
       <td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums">${off.toFixed(2)}</td>
+      <td style="padding:6px 10px">${o.discountType && o.discountType !== 'NONE' ? o.discountType : '—'}</td>
       <td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums">${total.toFixed(2)}</td>
       <td style="padding:6px 10px">${status}</td>
       <td style="padding:6px 10px">${escapeHtml(o.customerName || '')}</td>
@@ -616,7 +617,7 @@ function stripLeadingEmoji(s) {
 
 function downloadDetailCsv() {
   const rows = visibleDetailOrders();
-  const headers = ['Date/Time', 'OrderId', 'Items', 'GrossRM', 'DiscountRM', 'NetRM', 'Status', 'CancelReason', 'Customer'];
+  const headers = ['Date/Time', 'OrderId', 'Items', 'GrossRM', 'DiscountRM', 'DiscountType', 'NetRM', 'Status', 'CancelReason', 'Customer'];
   const lines = [headers.map(csvEscape).join(',')];
   for (const o of rows) {
     const items = (o.items || []).map(i => stripLeadingEmoji(i.name) + (i.variant ? ` (${i.variant})` : '')).join(', ');
@@ -630,6 +631,7 @@ function downloadDetailCsv() {
       items,
       gross.toFixed(2),
       off.toFixed(2),
+      o.discountType && o.discountType !== 'NONE' ? o.discountType : '',
       total.toFixed(2),
       status,
       o.cancelReason || '',

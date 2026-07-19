@@ -55,7 +55,7 @@ export async function handleChecklist(event: APIGatewayProxyEvent): Promise<APIG
         : phase === 'close'
           ? allConfig.close
           : allConfig.handover;
-      const allChecked = (phaseItems || []).every((i: any) => items[i.id]?.checked);
+      const allChecked = (phaseItems || []).filter((i: any) => i.enabled !== false).every((i: any) => items[i.id]?.checked);
 
       await docClient.send(new PutCommand({
         TableName: SETTINGS_TABLE,

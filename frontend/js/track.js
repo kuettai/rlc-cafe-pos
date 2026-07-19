@@ -155,6 +155,11 @@ function renderOrder(order) {
     </div>`;
   }
 
+  // Inline bible verse — fetched and rendered below payment section
+  if (order.status === 'PENDING') {
+    html += `<div id="verseInlineSlot"></div>`;
+  }
+
   if (order.flaggedItems && order.flaggedItems.length) {
     html += `<div class="flagged-warning" role="alert"><strong>⚠️ Some items became unavailable:</strong><ul>`;
     order.flaggedItems.forEach(f => { html += `<li>${f}</li>`; });
@@ -191,6 +196,24 @@ function renderOrder(order) {
 
   // Kick off the past-orders fetch (silent no-op when there's no profile).
   renderPastOrders(document.getElementById('pastOrders'), order.orderId);
+
+  // Fetch and render inline bible verse when PENDING
+  if (order.status === 'PENDING') {
+    const verseSlot = document.getElementById('verseInlineSlot');
+    if (verseSlot) {
+      fetch(`${API_BASE}/api/verses/random`)
+        .then(r => r.json())
+        .then(data => {
+          if (data.verse) {
+            verseSlot.innerHTML = `<div class="verse-inline">
+              <p class="verse-inline-text">"${data.verse.text}"</p>
+              <p class="verse-inline-ref">— ${data.verse.reference}</p>
+            </div>`;
+          }
+        })
+        .catch(() => {});
+    }
+  }
 
   // Bind receipt upload
   document.getElementById('receiptInput')?.addEventListener('change', handleReceiptUpload);

@@ -7,7 +7,7 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import {
   docClient, ORDERS_TABLE, SETTINGS_TABLE,
-  QueryCommand, ScanCommand,
+  GetCommand, QueryCommand, ScanCommand,
 } from '../lib/db';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
@@ -91,7 +91,21 @@ export async function handleDisplay(event: APIGatewayProxyEvent): Promise<APIGat
         return { slideId: s.slideId, imageUrl, title: s.title || '' };
       }));
 
-      return res(200, { slides });
+      // Include display mode and YouTube video URL from settings so the
+      // display page knows which mode the admin chose (avoids an extra
+      // API call from the client).
+      let fallbackVideoUrl = '';
+      let displayMode = 'slides';
+      try {
+        const settingsResult = await docClient.send(new GetCommand({
+          TableName: SETTINGS_TABLE,
+          Key: { PK: 'SETTINGS', SK: 'CONFIG' },
+        }));
+        fallbackVideoUrl = settingsResult.Item?.displayFallbackVideoUrl || '';
+        displayMode = settingsResult.Item?.displayMode || 'slides';
+      } catch (_) { /* non-critical */ }
+
+      return res(200, { slides, fallbackVideoUrl, displayMode });
     }
 
     return res(404, { error: 'Not found' });

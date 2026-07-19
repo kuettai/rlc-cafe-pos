@@ -15,8 +15,11 @@
 async function loadDisplay(container){
   container.innerHTML = '<div class="loading">Loading slides...</div>';
   try {
-    const data = await api('GET', '/api/admin/display/slides');
-    renderDisplaySection(container, data.slides || []);
+    const [data, settings] = await Promise.all([
+      api('GET', '/api/admin/display/slides'),
+      api('GET', '/api/admin/settings'),
+    ]);
+    renderDisplaySection(container, data.slides || [], settings);
   } catch(e){
     container.innerHTML = '<div class="admin-empty"><p>Failed to load slides</p></div>';
   }
@@ -29,8 +32,9 @@ function slideStatus(slide, todayIso){
   return { label:'Active', cls:'badge-active' };
 }
 
-function renderDisplaySection(container, slides){
+function renderDisplaySection(container, slides, settings){
   const todayIso = new Date().toISOString().split('T')[0];
+  const fallbackUrl = settings.displayFallbackVideoUrl || '';
 
   let html = `<div class="admin-section">
     <div class="admin-section-header">
@@ -69,10 +73,48 @@ function renderDisplaySection(container, slides){
     });
   }
 
-  html += '</div>';
+  const displayMode = settings.displayMode || 'slides';
+  html += `</div>
+  <div class="admin-section" style="margin-top:24px">
+    <div class="admin-section-header"><h2>🎬 Display Mode</h2></div>
+    <p style="color:var(--text-light);font-size:.85rem;margin-bottom:12px">
+      Choose what the TV promo panel shows. You can switch between uploaded slides or a YouTube video.
+    </p>
+    <div class="admin-form">
+      <div class="admin-form-group">
+        <label>Mode</label>
+        <div style="display:flex;gap:12px;margin-bottom:12px">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="radio" name="displayMode" value="slides" ${displayMode === 'slides' ? 'checked' : ''}> Uploaded Slides
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="radio" name="displayMode" value="youtube" ${displayMode === 'youtube' ? 'checked' : ''}> YouTube Video
+          </label>
+        </div>
+      </div>
+      <div class="admin-form-group" id="youtubeUrlGroup">
+        <label>YouTube URL</label>
+        <input id="fallbackVideoUrl" class="pos-input" placeholder="https://www.youtube.com/watch?v=..." value="${escapeAttr(fallbackUrl)}">
+        <p style="font-size:.75rem;color:var(--text-light);margin-top:4px">Accepts watch URLs (youtube.com/watch?v=...) or short URLs (youtu.be/...). Plays muted on loop.</p>
+      </div>
+      <div class="admin-form-actions" style="margin-top:12px">
+        <button class="pos-btn pos-btn-primary" id="btnSaveDisplayMode">Save Display Settings</button>
+      </div>
+    </div>
+  </div>`;
+
   container.innerHTML = html;
 
   $('#btnAddSlide').onclick = () => openSlideUploadForm(container);
+
+  $('#btnSaveDisplayMode').onclick = async () => {
+    const mode = container.querySelector('input[name="displayMode"]:checked')?.value || 'slides';
+    const url = container.querySelector('#fallbackVideoUrl').value.trim();
+    try {
+      await api('PUT', '/api/admin/settings', { displayMode: mode, displayFallbackVideoUrl: url });
+      showSuccess('Display settings saved');
+    } catch(e) { showError('Failed to save display settings'); }
+  };
 
   container.querySelectorAll('[data-del-slide]').forEach(btn => {
     btn.onclick = async () => {

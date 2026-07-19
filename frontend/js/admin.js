@@ -81,6 +81,7 @@ function renderApp(){
     <button data-tab="vouchers">🎟️ Vouchers</button>
     <button data-tab="preorder">🔗 Pre-Order Links</button>
     <button data-tab="display">📺 Display</button>
+    <button data-tab="customers">👤 Customers</button>
     <button id="navReports" type="button">📈 Reports</button>
     <button data-tab="settings">⚙️ Settings</button>
     <button data-tab="verses">✝️ Verses</button>
@@ -137,6 +138,7 @@ function loadTab(){
     case 'vouchers': loadVouchers(c); break;
     case 'preorder': loadPreorderCodes(c); break;
     case 'display': loadDisplay(c); break;
+    case 'customers': loadCustomers(c); break;
     case 'settings': loadSettings(c); break;
     case 'verses': loadVerses(c); break;
     // Historical reports (weekly/monthly) live on reports.html — sidebar

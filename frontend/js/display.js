@@ -11,13 +11,15 @@ const TOKEN_KEY = 'display_token';
 // ─── DOM refs (populated in init after DOM parse) ──────────────────
 
 let loginGate, loginForm, loginUserEl, loginPinEl, loginErrorEl;
-let container, promoImg, promoFallback;
+let container, promoImg, promoFallback, youtubeFrame;
 let heroOrders, compactOrders, noOrders, alsoReadyDivider;
 
 // ─── State ─────────────────────────────────────────────────────────
 
 let slides = [];
 let currentSlide = 0;
+let fallbackVideoUrl = '';
+let displayMode = 'slides'; // 'slides' or 'youtube'
 // Poll timers — kept as ids so init() can be called again after login
 // without spinning up duplicate intervals.
 let ordersTimer = null;
@@ -131,10 +133,20 @@ async function fetchSlides() {
     if (!res.ok) return;
     const data = await res.json();
     const next = data.slides || [];
+    fallbackVideoUrl = data.fallbackVideoUrl || '';
+    displayMode = data.displayMode || 'slides';
 
-    // Only reset the slideshow position if the set of slide IDs actually
-    // changed. Otherwise a background refresh would jerk the display
-    // back to the first slide mid-rotation.
+    // Admin chose YouTube mode — always show YouTube regardless of slides
+    if (displayMode === 'youtube') {
+      slides = [];
+      promoImg.removeAttribute('src');
+      showYouTubeFallback();
+      return;
+    }
+
+    // Slides mode — show uploaded slides, fallback to branding if none
+    hideYouTubeFallback();
+
     const prevIds = slides.map(s => s.slideId).join(',');
     const nextIds = next.map(s => s.slideId).join(',');
     if (prevIds !== nextIds) {
@@ -143,7 +155,6 @@ async function fetchSlides() {
         currentSlide = 0;
         showSlide(0);
       } else {
-        // No slides — clear the image so the fallback branding shows.
         promoImg.removeAttribute('src');
       }
     }
@@ -152,6 +163,41 @@ async function fetchSlides() {
       console.error('Display slides fetch failed:', e);
     }
   }
+}
+
+// ─── YouTube Fallback ──────────────────────────────────────────────
+
+function extractYouTubeVideoId(url) {
+  if (!url) return null;
+  // Handle youtu.be/VIDEO_ID
+  let match = url.match(/youtu\.be\/([A-Za-z0-9_-]{11})/);
+  if (match) return match[1];
+  // Handle youtube.com/watch?v=VIDEO_ID
+  match = url.match(/[?&]v=([A-Za-z0-9_-]{11})/);
+  if (match) return match[1];
+  // Handle youtube.com/embed/VIDEO_ID
+  match = url.match(/\/embed\/([A-Za-z0-9_-]{11})/);
+  if (match) return match[1];
+  return null;
+}
+
+function showYouTubeFallback() {
+  const videoId = extractYouTubeVideoId(fallbackVideoUrl);
+  if (!videoId || !youtubeFrame) return;
+  const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}`;
+  // Only set src if it changed to avoid reloading the same video
+  if (youtubeFrame.src !== embedUrl) {
+    youtubeFrame.src = embedUrl;
+  }
+  youtubeFrame.style.display = '';
+  promoFallback.style.display = 'none';
+}
+
+function hideYouTubeFallback() {
+  if (!youtubeFrame) return;
+  youtubeFrame.style.display = 'none';
+  youtubeFrame.src = '';
+  promoFallback.style.display = '';
 }
 
 function showSlide(index) {
@@ -212,6 +258,7 @@ function init() {
   container      = document.getElementById('displayContainer');
   promoImg       = document.getElementById('promoImg');
   promoFallback  = document.getElementById('promoFallback');
+  youtubeFrame   = document.getElementById('youtubeFrame');
   heroOrders     = document.getElementById('heroOrders');
   compactOrders  = document.getElementById('compactOrders');
   noOrders       = document.getElementById('noOrders');

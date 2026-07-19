@@ -1,7 +1,7 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { v4 as uuid } from 'uuid';
 import {
-  docClient, ORDERS_TABLE, MENU_TABLE, SETTINGS_TABLE, INGREDIENTS_TABLE, USERS_TABLE,
+  docClient, ORDERS_TABLE, MENU_TABLE, SETTINGS_TABLE, INGREDIENTS_TABLE, USERS_TABLE, CUSTOMERS_TABLE,
   GetCommand, PutCommand, UpdateCommand, QueryCommand, ScanCommand, DeleteCommand
 } from '../lib/db';
 import { hashPin } from '../lib/auth';
@@ -384,12 +384,9 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
     }
 
     if (method === 'GET' && path.endsWith('/admin/reports/discounts')) {
-      // Scope to today's completed sales only, so the Discount & Offset
+      // Scope to the requested date's completed sales only, so the Discount & Offset
       // Summary reconciles with Today's Summary above it in the UI.
-      // Previously scanned the entire table across all months / statuses
-      // which led to numbers that couldn't be cross-checked with the
-      // daily card.
-      const today = new Date().toISOString().split('T')[0];
+      const today = event.queryStringParameters?.date || new Date().toISOString().split('T')[0];
       const result = await docClient.send(new ScanCommand({
         TableName: ORDERS_TABLE,
         FilterExpression: 'begins_with(createdAt, :today) AND #s IN (:s1, :s2)',
@@ -398,40 +395,77 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
       }));
       const orders = (result.Items || []).filter(o => o.discountType && o.discountType !== 'NONE');
       const summary: Record<string, { count: number; totalOffset: number }> = {};
+      const drinkBreakdown: Record<string, Record<string, number>> = {};
       for (const o of orders) {
         if (!summary[o.discountType]) summary[o.discountType] = { count: 0, totalOffset: 0 };
         summary[o.discountType].count++;
         summary[o.discountType].totalOffset += o.discountOffset || 0;
+        // Build drink breakdown per discount type
+        for (const item of (o.items || [])) {
+          if (item.category === 'DRINK') {
+            if (!drinkBreakdown[o.discountType]) drinkBreakdown[o.discountType] = {};
+            drinkBreakdown[o.discountType][item.name] = (drinkBreakdown[o.discountType][item.name] || 0) + (item.quantity || 1);
+          }
+        }
       }
       const totalDiscountedOrders = orders.length;
       const totalOffset = orders.reduce((s, o) => s + (o.discountOffset || 0), 0);
-      return res(200, { summary, totalDiscountedOrders, totalOffset });
+      return res(200, { summary, drinkBreakdown, totalDiscountedOrders, totalOffset });
     }
 
     if (method === 'GET' && path.endsWith('/admin/reports/sessions')) {
-      const today = new Date().toISOString().split('T')[0];
+      const today = event.queryStringParameters?.date || new Date().toISOString().split('T')[0];
       const result = await docClient.send(new ScanCommand({
         TableName: ORDERS_TABLE,
         FilterExpression: 'begins_with(createdAt, :today)',
         ExpressionAttributeValues: { ':today': today },
       }));
       const orders = result.Items || [];
+
+      // Feature 4: Determine split time from handover checklist completion
+      // Query the handover checklist log for the given date
+      let splitMinutes = 690; // default: 11:30 MYT
+      let splitTime = '11:30';
+      let splitSource = 'default';
+      try {
+        const handoverLog = await docClient.send(new GetCommand({
+          TableName: SETTINGS_TABLE,
+          Key: { PK: `CHECKLIST_LOG#${today}#handover`, SK: 'META' },
+        }));
+        if (handoverLog.Item && handoverLog.Item.allCompleted === true) {
+          // Find the last completed item's timestamp as the handover time
+          const items = handoverLog.Item.items || {};
+          const timestamps = Object.values(items)
+            .filter((i: any) => i && i.checked && i.completedAt)
+            .map((i: any) => i.completedAt as string)
+            .sort();
+          if (timestamps.length > 0) {
+            const lastTimestamp = timestamps[timestamps.length - 1];
+            const handoverDate = new Date(lastTimestamp);
+            if (!isNaN(handoverDate.getTime())) {
+              // Convert to MYT local minutes
+              const utcHour = handoverDate.getUTCHours();
+              const utcMin = handoverDate.getUTCMinutes();
+              const localHour = (utcHour + 8) % 24;
+              splitMinutes = localHour * 60 + utcMin;
+              splitTime = `${String(localHour).padStart(2, '0')}:${String(utcMin).padStart(2, '0')}`;
+              splitSource = 'handover';
+            }
+          }
+        }
+      } catch (_) {
+        // Fallback to default 690 minutes
+      }
+
       const s1: any[] = [];
       const s2: any[] = [];
       for (const order of orders) {
-        // createdAt is stored as UTC ISO. Café runs on MYT (UTC+8) with a
-        // hard split between the two Sunday services:
-        //   Session 1  = 08:00–11:30 MYT  (local minutes 480–690)
-        //   Session 2  = 11:31–14:00 MYT  (local minutes 691–840)
-        // Split threshold is 690 (11:30). Anything at/before that is S1;
-        // anything after is S2. Orders outside the operational window
-        // fall into the nearest session by the same rule.
         const [hStr, mStr] = order.createdAt.split('T')[1].split(':');
         const utcHour = parseInt(hStr, 10);
         const minutes = parseInt(mStr, 10);
         const localHour = (utcHour + 8) % 24;
         const localMinutes = localHour * 60 + minutes;
-        if (localMinutes <= 690) s1.push(order);
+        if (localMinutes <= splitMinutes) s1.push(order);
         else s2.push(order);
       }
       function computeSession(sessionOrders: any[]) {
@@ -450,7 +484,22 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
           .map(([name, count]) => ({ name, count }));
         return { orderCount, revenue, avgOrderValue, topItems };
       }
-      return res(200, { date: today, session1: computeSession(s1), session2: computeSession(s2) });
+      // Compute time labels for each session
+      const splitHour = Math.floor(splitMinutes / 60);
+      const splitMin = splitMinutes % 60;
+      const s1TimeRange = `8:00 – ${splitHour}:${String(splitMin).padStart(2, '0')} MYT`;
+      const s2StartMin = splitMinutes + 1;
+      const s2Hour = Math.floor(s2StartMin / 60);
+      const s2Min = s2StartMin % 60;
+      const s2TimeRange = `${s2Hour}:${String(s2Min).padStart(2, '0')} – 14:00 MYT`;
+      return res(200, {
+        date: today,
+        session1: { ...computeSession(s1), timeRange: s1TimeRange },
+        session2: { ...computeSession(s2), timeRange: s2TimeRange },
+        splitTime,
+        splitSource,
+        splitMinutes,
+      });
     }
 
     if (method === 'GET' && path.endsWith('/admin/reports/monthly')) {
@@ -505,7 +554,7 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
 
 
     if (method === 'GET' && path.endsWith('/admin/reports/daily')) {
-      const today = new Date().toISOString().split('T')[0];
+      const today = event.queryStringParameters?.date || new Date().toISOString().split('T')[0];
       // Union of (orders created today, any status) + (all currently active
       // orders regardless of date). The second bucket catches ministry
       // pre-orders that were created before today for today's service and
@@ -885,6 +934,27 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
       // signs a short-lived S3 GET URL per slide at read time — see
       // routes/display.ts. This keeps the bucket private.
       return res(200, { uploadUrl, imageUrl: `/${key}` });
+    }
+
+    // ─── Customers List ─────────────────────────────────────────────────
+    if (method === 'GET' && path.endsWith('/admin/customers')) {
+      const result = await docClient.send(new ScanCommand({
+        TableName: CUSTOMERS_TABLE,
+        FilterExpression: 'SK = :sk',
+        ExpressionAttributeValues: { ':sk': 'META' },
+      }));
+      const customers = (result.Items || [])
+        .map(c => ({
+          phone: c.phone,
+          name: c.name,
+          birthday: c.birthday || null,
+          orderCount: c.orderCount || 0,
+          totalSpent: c.totalSpent || 0,
+          lastOrderAt: c.lastOrderAt || null,
+          createdAt: c.createdAt || null,
+        }))
+        .sort((a, b) => b.totalSpent - a.totalSpent);
+      return res(200, { customers });
     }
 
     return res(404, { error: 'Not found', path, method });

@@ -142,7 +142,7 @@ async function createOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
   // sees it at a glance in the queue).
   const trimmedNotes = typeof notes === 'string' ? notes : '';
   const composedNotes = preorderRecord && collectionTime
-    ? `Collect: ${collectionTime} | ${trimmedNotes}`.trim().replace(/\|\s*$/, '').trim()
+    ? `[PRE-ORDER: ${preorderRecord.code}] Collect: ${collectionTime}${trimmedNotes ? ' | ' + trimmedNotes : ''}`
     : trimmedNotes;
 
   const orderItem: any = preorderRecord

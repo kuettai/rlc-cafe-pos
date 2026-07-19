@@ -1484,7 +1484,7 @@ header h1{
 .pos-reject-picker button{margin:4px}
 
 /* === Walk-up modal === */
-.pos-modal-walkup{max-width:580px}
+.pos-modal-walkup{max-width:950px}
 .pos-walkup-filters{
   display:flex;
   gap:6px;
@@ -2193,29 +2193,25 @@ body.training-active.training-target-sidebar .pos-sidebar::after{opacity:0}
 .push-prompt-btns{ display:flex; gap:8px; }
 @keyframes slideDown{ from{opacity:0;transform:translateY(-10px)} to{opacity:1;transform:translateY(0)} }
 
-/* --- Bible Verse Overlay --- */
-.verse-overlay{
-  position:fixed; inset:0; z-index:9999;
-  background:rgba(0,0,0,0.7); backdrop-filter:blur(4px);
-  display:flex; align-items:center; justify-content:center;
-  animation:fadeIn 0.5s ease;
+/* --- Bible Verse Inline --- */
+.verse-inline {
+  margin-top: 20px;
+  padding: 16px;
+  text-align: center;
+  color: #6b4f3b;
+  font-style: italic;
+  border-top: 1px solid #e8ddd4;
 }
-.verse-card{
-  background:#fff; border-radius:20px; padding:40px 32px;
-  max-width:400px; width:90%; text-align:center;
-  box-shadow:0 20px 60px rgba(0,0,0,0.3);
+.verse-inline-text {
+  font-size: 0.95rem;
+  line-height: 1.5;
+  margin-bottom: 6px;
 }
-.verse-icon{ font-size:2.5rem; margin-bottom:16px; }
-.verse-text{
-  font-size:1.15rem; line-height:1.6; color:#1f2937;
-  font-style:italic; margin-bottom:16px;
+.verse-inline-ref {
+  font-size: 0.8rem;
+  color: #8b7355;
+  font-style: normal;
 }
-.verse-ref{
-  font-size:0.9rem; color:#6B4226; font-weight:600;
-  margin-bottom:24px;
-}
-.verse-continue{ width:100%; }
-@keyframes fadeIn{ from{opacity:0} to{opacity:1} }
 
 /* --- Training Mode (TourGuide.js overrides) --- */
 .tg-dialog{
@@ -2259,3 +2255,53 @@ body.training-active.training-target-sidebar .pos-sidebar::after{opacity:0}
   margin-right:8px;
 }
 .header-tutorial:hover{ background:rgba(255,255,255,.15); }
+
+/* POS History — 2-column grid toggle */
+.pos-history-list.pos-history-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+@media (max-width: 768px) {
+  .pos-history-list.pos-history-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* === POS Menu — 2-column grid === */
+.pos-menu-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:8px;
+}
+
+/* === Walk-up — 2-column grid layout === */
+.pos-walkup-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:24px;
+  margin-top:12px;
+}
+.pos-walkup-col-left,
+.pos-walkup-col-right{
+  min-width:0;
+}
+.pos-walkup-col-right{
+  display:flex;
+  flex-direction:column;
+}
+.pos-walkup-col-right .pos-walkup-cart{
+  flex:1;
+  margin:0 0 12px 0;
+}
+
+/* Walk-up + Menu grid mobile fallback */
+@media (max-width:768px){
+  .pos-walkup-grid{
+    grid-template-columns:1fr;
+  }
+  .pos-modal-walkup{max-width:580px}
+  .pos-menu-grid{
+    grid-template-columns:1fr;
+  }
+}
