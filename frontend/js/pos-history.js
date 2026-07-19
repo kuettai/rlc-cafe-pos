@@ -64,7 +64,7 @@ async function openHistory(){
         ALL:           allOrders.length,
       };
       const list = filtered();
-      const gridToggleBtn = `<button class="pos-btn pos-btn-sm" id="pos-history-grid-toggle" title="Toggle 2-column layout" style="margin-left:auto;">${historyGrid ? '☰' : '▦'}</button>`;
+      const gridToggleBtn = `<button class="pos-btn pos-btn-sm" id="pos-history-grid-toggle" title="Toggle layout" style="margin-left:auto;">${historyGrid ? '1 Col' : '2 Col'}</button>`;
       const filterRow = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 14px;align-items:center">
         <button class="pos-btn pos-btn-sm ${historyFilter==='NON_CANCELLED'?'pos-btn-primary':''}" data-hf="NON_CANCELLED">Non-Cancelled (${counts.NON_CANCELLED})</button>
         <button class="pos-btn pos-btn-sm ${historyFilter==='CANCELLED'?'pos-btn-primary':''}" data-hf="CANCELLED">Cancelled (${counts.CANCELLED})</button>
