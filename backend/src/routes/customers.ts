@@ -8,7 +8,7 @@ const res = (statusCode: number, body: object): APIGatewayProxyResult => ({
 
 async function registerCustomer(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
   const body = JSON.parse(event.body || '{}');
-  const { phone, name, birthday } = body;
+  const { phone, name, birthday, orderId } = body;
 
   if (!phone || !name) return res(400, { error: 'phone and name required' });
 
@@ -30,6 +30,8 @@ async function registerCustomer(event: APIGatewayProxyEvent): Promise<APIGateway
       ExpressionAttributeNames: { '#n': 'name' },
       ExpressionAttributeValues: { ':name': name, ':birthday': birthday || null, ':now': new Date().toISOString() },
     }));
+    // Link order if provided (returning customer registering after placing order)
+    if (orderId) await linkOrderAfterRegistration(cleanPhone, orderId);
     return res(200, { message: 'Profile updated', phone: cleanPhone, name });
   }
 
@@ -49,6 +51,9 @@ async function registerCustomer(event: APIGatewayProxyEvent): Promise<APIGateway
       updatedAt: now,
     },
   }));
+
+  // Link the order that triggered registration (first-time customer)
+  if (orderId) await linkOrderAfterRegistration(cleanPhone, orderId);
 
   return res(201, { message: 'Profile created', phone: cleanPhone, name });
 }
@@ -91,6 +96,41 @@ async function linkOrderToCustomer(phone: string, orderId: string, totalAmount: 
     }));
   } catch (e: any) {
     if (e.name !== 'ConditionalCheckFailedException') throw e;
+  }
+}
+
+/**
+ * Link an existing order to a customer after registration.
+ * Called when a new customer registers AFTER placing their order.
+ * Sets customerId on the order and increments the customer's counters.
+ */
+async function linkOrderAfterRegistration(phone: string, orderId: string): Promise<void> {
+  try {
+    // Fetch the order to get totalAmount
+    const orderResult = await docClient.send(new GetCommand({
+      TableName: ORDERS_TABLE,
+      Key: { PK: `ORDER#${orderId}`, SK: 'META' },
+    }));
+    const order = orderResult.Item;
+    if (!order) return;
+
+    // Skip if order already linked to a customer
+    if (order.customerId) return;
+
+    // Set customerId on the order
+    await docClient.send(new UpdateCommand({
+      TableName: ORDERS_TABLE,
+      Key: { PK: `ORDER#${orderId}`, SK: 'META' },
+      UpdateExpression: 'SET customerId = :phone',
+      ExpressionAttributeValues: { ':phone': phone },
+    }));
+
+    // Increment customer counters (use gross = totalAmount + discountOffset for total spent)
+    const gross = Number(order.totalAmount || 0) + Number(order.discountOffset || 0);
+    await linkOrderToCustomer(phone, orderId, gross);
+  } catch (e) {
+    // Non-critical — log but don't fail registration
+    console.error('[CUSTOMER] linkOrderAfterRegistration failed:', orderId, e);
   }
 }
 

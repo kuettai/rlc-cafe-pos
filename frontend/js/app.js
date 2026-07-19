@@ -687,7 +687,7 @@ function showRegistrationPrompt(orderId) {
       const res = await fetch(`${API_BASE}/api/customers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, name, birthday: birthday || undefined })
+        body: JSON.stringify({ phone, name, birthday: birthday || undefined, orderId })
       });
       if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Failed'); }
       customerProfile = { phone, name, birthday, orderCount: 1, totalSpent: 0 };
