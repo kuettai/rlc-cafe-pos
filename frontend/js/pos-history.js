@@ -5,7 +5,7 @@
 async function openHistory(){
   const modal = document.createElement('div');
   modal.className = 'pos-modal-overlay';
-  modal.innerHTML = `<div class="pos-modal" style="max-width:600px"><button class="pos-modal-close">✕</button><h3>Order History (Today)</h3><div class="loading">Loading...</div></div>`;
+  modal.innerHTML = `<div class="pos-modal" style="max-width:900px"><button class="pos-modal-close">✕</button><h3>Order History (Today)</h3><div class="loading">Loading...</div></div>`;
   document.body.appendChild(modal);
   modal.querySelector('.pos-modal-close').onclick=()=>modal.remove();
   modal.onclick=e=>{ if(e.target===modal) modal.remove(); };

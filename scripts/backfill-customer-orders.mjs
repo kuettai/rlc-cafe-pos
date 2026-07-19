@@ -16,8 +16,16 @@
  * Requires AWS credentials with DynamoDB access in ap-southeast-5.
  */
 
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { createRequire } from 'module';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = dirname(__filename);
+const require    = createRequire(join(__dirname, '..', 'backend', 'package.json'));
+
+const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
+const { DynamoDBDocumentClient, ScanCommand, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
 
 const REGION = 'ap-southeast-5';
 const ORDERS_TABLE = 'rlc-cafe-orders';
