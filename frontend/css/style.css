@@ -1484,7 +1484,7 @@ header h1{
 .pos-reject-picker button{margin:4px}
 
 /* === Walk-up modal === */
-.pos-modal-walkup{max-width:950px}
+.pos-modal-walkup{max-width:1100px;width:95%}
 .pos-walkup-filters{
   display:flex;
   gap:6px;
