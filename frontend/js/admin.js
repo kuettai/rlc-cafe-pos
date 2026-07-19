@@ -82,7 +82,7 @@ function renderApp(){
     <button data-tab="preorder">🔗 Pre-Order Links</button>
     <button data-tab="display">📺 Display</button>
     <button data-tab="customers">👤 Customers</button>
-    <button id="navReports" type="button">📈 Reports</button>
+    <button data-tab="reports">📈 Reports</button>
     <button data-tab="settings">⚙️ Settings</button>
     <button data-tab="verses">✝️ Verses</button>
   </nav>
@@ -121,8 +121,6 @@ function renderApp(){
     };
   });
   app.querySelector('.nav-logout').onclick = logout;
-  const navReportsBtn = app.querySelector('#navReports');
-  if (navReportsBtn) navReportsBtn.onclick = () => { window.location.href = 'reports.html'; };
   loadTab();
 }
 
@@ -139,11 +137,17 @@ function loadTab(){
     case 'preorder': loadPreorderCodes(c); break;
     case 'display': loadDisplay(c); break;
     case 'customers': loadCustomers(c); break;
+    case 'reports': loadReportsTab(c); break;
     case 'settings': loadSettings(c); break;
     case 'verses': loadVerses(c); break;
-    // Historical reports (weekly/monthly) live on reports.html — sidebar
-    // link `navReports` handles that navigation directly.
   }
+}
+
+// --- Reports (embedded) ---
+function loadReportsTab(container) {
+  // Embed reports.html in an iframe. The reports page reads token from
+  // localStorage (shared with admin.js) so no re-login is needed.
+  container.innerHTML = `<iframe src="reports.html" style="width:100%;height:calc(100vh - 60px);border:none;border-radius:8px;background:#fff"></iframe>`;
 }
 
 // --- Users Management ---
