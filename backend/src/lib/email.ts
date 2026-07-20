@@ -1,13 +1,21 @@
 import * as nodemailer from 'nodemailer';
+import { getEmailConfig } from './ssm-config';
 
-const GMAIL_USER = process.env.GMAIL_USER || '';
-const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD || '';
-const NOTIFICATION_EMAIL = process.env.NOTIFICATION_EMAIL || '';
-
-const transporter = GMAIL_USER && GMAIL_APP_PASSWORD ? nodemailer.createTransport({
-  service: 'gmail',
-  auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
-}) : null;
+/**
+ * Create a transporter on demand using SSM-sourced credentials.
+ * Cached internally by getEmailConfig() (5-min TTL).
+ */
+async function getTransporter(): Promise<{ transporter: nodemailer.Transporter | null; user: string; recipient: string }> {
+  const config = await getEmailConfig();
+  if (!config.gmailUser || !config.gmailAppPassword) {
+    return { transporter: null, user: '', recipient: '' };
+  }
+  const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: { user: config.gmailUser, pass: config.gmailAppPassword },
+  });
+  return { transporter, user: config.gmailUser, recipient: config.notificationEmail };
+}
 
 function emailWrapper(content: string): string {
   return `<!DOCTYPE html>
@@ -33,15 +41,16 @@ function emailWrapper(content: string): string {
 }
 
 export async function sendEmail(subject: string, html: string): Promise<boolean> {
-  if (!transporter || !NOTIFICATION_EMAIL) {
+  const { transporter, user, recipient } = await getTransporter();
+  if (!transporter || !recipient) {
     console.log('[EMAIL] Not configured, skipping:', subject);
     return false;
   }
 
   try {
     await transporter.sendMail({
-      from: `"153 Café POS" <${GMAIL_USER}>`,
-      to: NOTIFICATION_EMAIL,
+      from: `"153 Café POS" <${user}>`,
+      to: recipient,
       subject,
       html,
     });

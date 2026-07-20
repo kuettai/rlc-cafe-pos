@@ -38,7 +38,7 @@ async function openWalkup(){
     const prevMenuScroll = modal.querySelector('.pos-walkup-menu')?.scrollTop || 0;
 
     const filtered = filteredMenu();
-    const cartHtml=cart.map((c,i)=>`<li>${c.qty}x ${c.name}${c.variant?' ('+c.variant+')':''} <span style="color:var(--text-light,#7A6355);font-size:.85rem">RM${(c.price*c.qty).toFixed(2)}</span> <button data-ri="${i}" class="pos-remove-item">✕</button></li>`).join('');
+    const cartHtml=cart.map((c,i)=>`<li><span class="pos-cart-item-name">${c.name}${c.variant?' ('+c.variant+')':''}</span><span class="pos-cart-item-controls"><button data-ri="${i}" class="pos-qty-btn pos-qty-minus" aria-label="Decrease quantity">−</button><span class="pos-qty-value">${c.qty}</span><button data-ri="${i}" class="pos-qty-btn pos-qty-plus" aria-label="Increase quantity">+</button><span class="pos-cart-item-price">RM${(c.price*c.qty).toFixed(2)}</span><button data-ri="${i}" class="pos-remove-item" aria-label="Remove item">✕</button></span></li>`).join('');
     const cartTotal = cart.reduce((s,c)=>s+c.price*c.qty,0);
 
     modal.innerHTML=`<div class="pos-modal pos-modal-walkup">
@@ -114,8 +114,7 @@ async function openWalkup(){
       const existing = cart.find(c=>c.menuItemId===b.dataset.mid && !c.variant);
       if(existing){ existing.qty++; }
       else { cart.push({name:b.dataset.mname, menuItemId:b.dataset.mid, price:+b.dataset.mp, qty:1, variant:null}); }
-      cart._name=modal.querySelector('#wkName')?.value||'';
-      renderWalkup();
+      updateCart();
     });
     modal.querySelectorAll('.pos-variant-btn').forEach(b=>b.onclick=()=>{
       const item=menu.find(m=>(m.menuItemId||m.id)===b.dataset.mid);
@@ -125,10 +124,11 @@ async function openWalkup(){
       const existing = cart.find(c=>c.menuItemId===b.dataset.mid && c.variant===b.dataset.v);
       if(existing){ existing.qty++; }
       else { cart.push({name:item.name, menuItemId:b.dataset.mid, price:variantPrice, qty:1, variant:b.dataset.v, selectedVariants:sv}); }
-      cart._name=modal.querySelector('#wkName')?.value||'';
-      renderWalkup();
+      updateCart();
     });
-    modal.querySelectorAll('.pos-remove-item').forEach(b=>b.onclick=()=>{ cart.splice(+b.dataset.ri,1); cart._name=modal.querySelector('#wkName')?.value||''; renderWalkup(); });
+    modal.querySelectorAll('.pos-remove-item').forEach(b=>b.onclick=()=>{ cart.splice(+b.dataset.ri,1); updateCart(); });
+    modal.querySelectorAll('.pos-qty-minus').forEach(b=>b.onclick=()=>{ const i=+b.dataset.ri; if(cart[i].qty>1) cart[i].qty--; else cart.splice(i,1); updateCart(); });
+    modal.querySelectorAll('.pos-qty-plus').forEach(b=>b.onclick=()=>{ const i=+b.dataset.ri; cart[i].qty++; updateCart(); });
 
     modal.querySelectorAll('input[name="wkDiscount"]').forEach(r=>{
       r.onchange=()=>{ if(r.checked) selectedDiscount = r.value; };
@@ -149,6 +149,21 @@ async function openWalkup(){
       } catch(e){ showError('Failed to submit order'); }
     };
   }
+  function updateCart(){
+    const cartEl = modal.querySelector('.pos-walkup-cart');
+    if(!cartEl) return;
+    const cartTotal = cart.reduce((s,c)=>s+c.price*c.qty,0);
+    const cartHtml=cart.map((c,i)=>`<li><span class="pos-cart-item-name">${c.name}${c.variant?' ('+c.variant+')':''}</span><span class="pos-cart-item-controls"><button data-ri="${i}" class="pos-qty-btn pos-qty-minus" aria-label="Decrease quantity">−</button><span class="pos-qty-value">${c.qty}</span><button data-ri="${i}" class="pos-qty-btn pos-qty-plus" aria-label="Increase quantity">+</button><span class="pos-cart-item-price">RM${(c.price*c.qty).toFixed(2)}</span><button data-ri="${i}" class="pos-remove-item" aria-label="Remove item">✕</button></span></li>`).join('');
+    cartEl.innerHTML=`<h4>Cart${cart.length ? ' — RM'+cartTotal.toFixed(2) : ''}</h4><ul>${cartHtml||'<li>Empty</li>'}</ul>`;
+    // Rebind cart buttons
+    cartEl.querySelectorAll('.pos-remove-item').forEach(b=>b.onclick=()=>{ cart.splice(+b.dataset.ri,1); updateCart(); });
+    cartEl.querySelectorAll('.pos-qty-minus').forEach(b=>b.onclick=()=>{ const i=+b.dataset.ri; if(cart[i].qty>1) cart[i].qty--; else cart.splice(i,1); updateCart(); });
+    cartEl.querySelectorAll('.pos-qty-plus').forEach(b=>b.onclick=()=>{ const i=+b.dataset.ri; cart[i].qty++; updateCart(); });
+    // Update submit button state
+    const submitBtn=modal.querySelector('#wkSubmit');
+    if(submitBtn) submitBtn.disabled = !cart.length;
+  }
+
   renderWalkup();
   document.body.appendChild(modal);
 }

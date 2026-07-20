@@ -186,9 +186,6 @@ export class InfraStack extends cdk.Stack {
         // happens; until then, only the display-slides/ prefix is used.
         FRONTEND_BUCKET: displaySlidesBucket.bucketName,
         JWT_SECRET: 'CHANGE_ME_BEFORE_DEPLOY',
-        GMAIL_USER: process.env.GMAIL_USER || '',
-        GMAIL_APP_PASSWORD: process.env.GMAIL_APP_PASSWORD || '',
-        NOTIFICATION_EMAIL: process.env.NOTIFICATION_EMAIL || '',
         // Origin verification for CloudFront front-door (see docs/cloudfront-migration.md).
         // Kept OFF until CloudFront is wired up to inject the header. When ENFORCE_ORIGIN_HEADER
         // is 'true', requests missing/mismatching X-Origin-Verify are rejected with 403.
@@ -254,9 +251,6 @@ export class InfraStack extends cdk.Stack {
         MENU_TABLE: menuTable.tableName,
         INGREDIENTS_TABLE: ingredientsTable.tableName,
         SETTINGS_TABLE: settingsTable.tableName,
-        GMAIL_USER: process.env.GMAIL_USER || '',
-        GMAIL_APP_PASSWORD: process.env.GMAIL_APP_PASSWORD || '',
-        NOTIFICATION_EMAIL: process.env.NOTIFICATION_EMAIL || '',
       },
     });
 
@@ -264,6 +258,15 @@ export class InfraStack extends cdk.Stack {
     menuTable.grantReadWriteData(expiryHandler);
     ingredientsTable.grantReadData(expiryHandler);
     settingsTable.grantReadWriteData(expiryHandler);
+
+    // Grant both handlers SSM read access for email/notification config
+    const ssmPolicy = new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['ssm:GetParametersByPath', 'ssm:GetParameter'],
+      resources: [`arn:aws:ssm:${this.region}:${this.account}:parameter/rlc-cafe/*`],
+    });
+    apiHandler.addToRolePolicy(ssmPolicy);
+    expiryHandler.addToRolePolicy(ssmPolicy);
 
     new events.Rule(this, 'OrderExpiryCron', {
       ruleName: 'rlc-cafe-order-expiry',

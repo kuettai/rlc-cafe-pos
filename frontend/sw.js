@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rlc-cafe-v1.60.0';
+const CACHE_NAME = 'rlc-cafe-v1.61.0';
 const SHELL = [
   './', './index.html', './track.html', './pos.html', './admin.html', './display.html',
   './css/style.css', './css/admin.css', './css/display.css',

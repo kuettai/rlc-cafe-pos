@@ -4,6 +4,8 @@ import { sendLowStockAlert } from './lib/email';
 import { logOrder } from './lib/audit';
 
 export async function handler(_event: ScheduledEvent): Promise<void> {
+  console.log('[expiry] handler invoked at %s, source: %s', new Date().toISOString(), _event.source || 'unknown');
+
   // Expire PENDING orders older than 1 hour
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
 
@@ -55,6 +57,8 @@ export async function handler(_event: ScheduledEvent): Promise<void> {
 
   // Check low stock and send alert (max once per hour)
   await checkLowStock();
+
+  console.log('[expiry] handler completed');
 }
 
 /**
@@ -169,7 +173,12 @@ async function checkLowStock() {
   const nowMYT = new Date(Date.now() + 8 * 60 * 60 * 1000); // UTC+8
   const day = nowMYT.getUTCDay(); // 0=Sun, 3=Wed
   const hour = nowMYT.getUTCHours();
-  if (day === 0 && hour < 14) return; // Sunday: skip until after 2:30pm
+  console.log('[checkLowStock] day=%d hour=%d nowMYT=%s', day, hour, nowMYT.toISOString());
+
+  if (day === 0 && hour < 14) {
+    console.log('[checkLowStock] skipped — Sunday before 2:30pm MYT');
+    return;
+  }
 
   const today = new Date().toISOString().split('T')[0];
   const alertKey = `LOW_STOCK_ALERT#${today}`;
@@ -180,7 +189,10 @@ async function checkLowStock() {
   }));
 
   // Only send once per day
-  if (lastAlert.Item?.lastSent) return;
+  if (lastAlert.Item?.lastSent) {
+    console.log('[checkLowStock] skipped — alert already sent today (%s)', lastAlert.Item.lastSent);
+    return;
+  }
 
   const ingredientResult = await docClient.send(new ScanCommand({
     TableName: INGREDIENTS_TABLE,
@@ -188,9 +200,15 @@ async function checkLowStock() {
     ExpressionAttributeValues: { ':prefix': 'INGREDIENT#', ':sk': 'META' },
   }));
 
-  const lowItems = (ingredientResult.Items || []).filter(
+  const allIngredients = ingredientResult.Items || [];
+  const lowItems = allIngredients.filter(
     (i: any) => i.currentStock <= (i.lowStockThreshold || 0) && i.lowStockThreshold > 0
   );
+
+  console.log('[checkLowStock] scanned %d ingredients, %d below threshold', allIngredients.length, lowItems.length);
+  if (lowItems.length > 0) {
+    console.log('[checkLowStock] low items: %s', JSON.stringify(lowItems.map((i: any) => ({ name: i.name, stock: i.currentStock, threshold: i.lowStockThreshold }))));
+  }
 
   if (lowItems.length === 0) return;
 
@@ -201,10 +219,13 @@ async function checkLowStock() {
     threshold: i.lowStockThreshold,
   })));
 
+  console.log('[checkLowStock] sendLowStockAlert returned: %s', sent);
+
   if (sent) {
     await docClient.send(new PutCommand({
       TableName: SETTINGS_TABLE,
       Item: { PK: alertKey, SK: 'META', lastSent: new Date().toISOString(), itemCount: lowItems.length },
     }));
+    console.log('[checkLowStock] alert recorded for %s (%d items)', alertKey, lowItems.length);
   }
 }
