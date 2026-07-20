@@ -155,7 +155,7 @@
     {
       "id": "close-cafe",
       "title": "Step 10: Close Café",
-      "content": "End of service! Tap <strong>Café Open ✓</strong> to close. This runs the closing checklist, expires pending orders, resets the featured drink, and sends the daily summary.",
+      "content": "End of service! Tap <strong>Close Café</strong> to close. This runs the closing checklist, expires pending orders, resets the featured drink, and sends the daily summary.",
       "target": "#btnCafeToggle",
       "order": 20,
       "action": "none"

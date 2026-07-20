@@ -100,7 +100,7 @@ function renderMain(){
     <button id="btnWalkup" class="pos-action-btn pos-action-primary">➕ Walk-up</button>
     <button id="btnVoucher" class="pos-action-btn pos-action-primary">🎟️ Voucher</button>
     <button id="btnCelebration" class="pos-action-btn pos-action-toggle ${celebrationMode?'active':''}" aria-pressed="${celebrationMode?'true':'false'}">${celebrationMode?'🎉 Celebration: ON':'🎉 Celebration: OFF'}</button>
-    <button id="btnCafeToggle" class="pos-action-btn ${cafeOpen?'pos-action-cafe-open':'pos-action-cafe-closed'}">${cafeOpen?'☕ Café Open ✓':'☕ Open Café'}</button>
+    <button id="btnCafeToggle" class="pos-action-btn ${cafeOpen?'pos-action-cafe-open':'pos-action-cafe-closed'}">${cafeOpen?'☕ Close Café':'☕ Open Café'}</button>
     <button id="btnHandover" class="pos-action-btn" style="${cafeOpen ? '' : 'display:none'}">🔄 Handover</button>
   </div>
   <div class="pos-sidebar-section-label">Navigation</div>
@@ -206,7 +206,7 @@ async function fetchCafeStatus(){
     const toggle = $('#btnCafeToggle');
     const celeb = $('#btnCelebration');
     if(toggle){
-      toggle.textContent = cafeOpen ? '☕ Café Open ✓' : '☕ Open Café';
+      toggle.textContent = cafeOpen ? '☕ Close Café' : '☕ Open Café';
       toggle.classList.toggle('pos-action-cafe-open', cafeOpen);
       toggle.classList.toggle('pos-action-cafe-closed', !cafeOpen);
       // Clean up any legacy variant class that a previous render may have left
