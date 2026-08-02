@@ -1,17 +1,70 @@
 const API_BASE = 'https://hcydppml1a.execute-api.ap-southeast-5.amazonaws.com/prod';
 
+// Credentials are never committed. Set them in the environment before running:
+//   TEST_ADMIN_USER, TEST_ADMIN_PIN, TEST_CASHIER_USER, TEST_CASHIER_PIN
+// Auth cases that need them are skipped when unset so the rest of the suite
+// still runs.
+const ADMIN_USER = process.env.TEST_ADMIN_USER;
+const ADMIN_PIN = process.env.TEST_ADMIN_PIN;
+const CASHIER_USER = process.env.TEST_CASHIER_USER;
+const CASHIER_PIN = process.env.TEST_CASHIER_PIN;
+
+const hasAdminCreds = !!(ADMIN_USER && ADMIN_PIN);
+const hasCashierCreds = !!(CASHIER_USER && CASHIER_PIN);
+
+// Groups that need a token are skipped rather than failed when creds are absent,
+// so a checkout without secrets still exercises the public endpoints.
+const describeAuthed = hasAdminCreds ? describe : describe.skip;
+
+/**
+ * Second, independent gate for tests that MUTATE production.
+ *
+ * The Order Flow group opens the café, creates a real order, approves it
+ * (deducting ingredient stock), then closes the café — which fires an
+ * end-of-day summary EMAIL to the admin. On 2026-08-02 seven such orders
+ * entered the Sunday figures and sent two spurious reports before anyone
+ * realised `npm test` was writing to the live café.
+ *
+ * Credentials alone must not be sufficient to trigger that, so this requires
+ * RUN_LIVE_WRITE_TESTS=1 as well:
+ *
+ *   $env:TEST_ADMIN_USER="..."; $env:TEST_ADMIN_PIN="..."
+ *   $env:RUN_LIVE_WRITE_TESTS="1"; npx jest tests/integration.test.ts
+ *
+ * Only do that against a non-production stack, or knowingly accept a real
+ * order plus an email. `scripts/cleanup-test-orders.mjs` removes the orders.
+ */
+const liveWritesEnabled = hasAdminCreds && process.env.RUN_LIVE_WRITE_TESTS === '1';
+const describeLiveWrites = liveWritesEnabled ? describe : describe.skip;
+
+if (hasAdminCreds && !liveWritesEnabled) {
+  console.warn(
+    '[integration] Credentials present but RUN_LIVE_WRITE_TESTS is not "1" — '
+    + 'skipping Order Flow. It creates a real order and emails an end-of-day summary.',
+  );
+}
+
+if (!hasAdminCreds) {
+  console.warn('[integration] TEST_ADMIN_USER / TEST_ADMIN_PIN not set — admin cases skipped.');
+}
+
 async function apiFetch(path: string, options: RequestInit = {}): Promise<{ status: number; body: any }> {
   const res = await fetch(`${API_BASE}${path}`, options);
   const body = await res.json();
   return { status: res.status, body };
 }
 
-async function getAdminToken(): Promise<string> {
-  const { body } = await apiFetch('/api/auth/login', {
+async function login(userId?: string, pin?: string) {
+  return apiFetch('/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ userId: 'admin-001', pin: '123456' }),
+    body: JSON.stringify({ userId, pin }),
   });
+}
+
+async function getAdminToken(): Promise<string> {
+  if (!hasAdminCreds) return '';
+  const { body } = await login(ADMIN_USER, ADMIN_PIN);
   return body.token;
 }
 
@@ -52,12 +105,11 @@ describe('Integration Tests (Live API)', () => {
   });
 
   describe('Auth', () => {
-    it('POST /api/auth/login should return token for valid admin', async () => {
-      const { status, body } = await apiFetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: 'admin-001', pin: '123456' }),
-      });
+    const itAdmin = hasAdminCreds ? it : it.skip;
+    const itCashier = hasCashierCreds ? it : it.skip;
+
+    itAdmin('POST /api/auth/login should return token for valid admin', async () => {
+      const { status, body } = await login(ADMIN_USER, ADMIN_PIN);
       expect(status).toBe(200);
       expect(body.token).toBeDefined();
       expect(body.role).toBe('ADMIN');
@@ -65,37 +117,26 @@ describe('Integration Tests (Live API)', () => {
     });
 
     // This test requires backend redeployment (login-by-name feature)
-    it('POST /api/auth/login should allow login by userId', async () => {
-      const { status, body } = await apiFetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: '7cf1994a-4e5d-4603-af7e-475e5043fcde', pin: '1234' }),
-      });
+    itCashier('POST /api/auth/login should allow login by userId', async () => {
+      const { status, body } = await login(CASHIER_USER, CASHIER_PIN);
       expect(status).toBe(200);
       expect(body.token).toBeDefined();
       expect(body.role).toBe('CASHIER');
     });
 
-    it('POST /api/auth/login should reject wrong PIN', async () => {
-      const { status } = await apiFetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: 'admin-001', pin: '000000' }),
-      });
+    itAdmin('POST /api/auth/login should reject wrong PIN', async () => {
+      // Deliberately invalid PIN — never a real one.
+      const { status } = await login(ADMIN_USER, '000000');
       expect(status).toBe(401);
     });
 
-    it('POST /api/auth/login should reject missing fields', async () => {
-      const { status } = await apiFetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: 'admin-001' }),
-      });
+    itAdmin('POST /api/auth/login should reject missing fields', async () => {
+      const { status } = await login(ADMIN_USER, undefined);
       expect(status).toBe(400);
     });
   });
 
-  describe('POS Endpoints (Authenticated)', () => {
+  describeAuthed('POS Endpoints (Authenticated)', () => {
     it('GET /api/pos/orders should return orders array', async () => {
       const { status, body } = await apiFetch('/api/pos/orders', {
         headers: { Authorization: `Bearer ${adminToken}` },
@@ -131,7 +172,7 @@ describe('Integration Tests (Live API)', () => {
     });
   });
 
-  describe('Admin Endpoints', () => {
+  describeAuthed('Admin Endpoints', () => {
     it('GET /api/admin/settings should return settings', async () => {
       const { status, body } = await apiFetch('/api/admin/settings', {
         headers: { Authorization: `Bearer ${adminToken}` },
@@ -159,12 +200,8 @@ describe('Integration Tests (Live API)', () => {
       expect(Array.isArray(body.lowStock)).toBe(true);
     });
 
-    it('should reject cashier accessing admin routes', async () => {
-      const { body: loginBody } = await apiFetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: '7cf1994a-4e5d-4603-af7e-475e5043fcde', pin: '1234' }),
-      });
+    (hasCashierCreds ? it : it.skip)('should reject cashier accessing admin routes', async () => {
+      const { body: loginBody } = await login(CASHIER_USER, CASHIER_PIN);
       const { status } = await apiFetch('/api/admin/settings', {
         headers: { Authorization: `Bearer ${loginBody.token}` },
       });
@@ -172,7 +209,9 @@ describe('Integration Tests (Live API)', () => {
     });
   });
 
-  describe('Order Flow', () => {
+  // MUTATES PRODUCTION: opens the café, creates a real order, deducts
+  // ingredient stock, and closes the café (which sends an email).
+  describeLiveWrites('Order Flow', () => {
     let orderId: string;
     let wasClosed = false;
 

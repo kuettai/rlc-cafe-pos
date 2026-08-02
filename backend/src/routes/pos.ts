@@ -4,6 +4,16 @@ import { docClient, ORDERS_TABLE, MENU_TABLE, SETTINGS_TABLE, INGREDIENTS_TABLE,
 import { sendEndOfDaySummary } from '../lib/email';
 import { logOrder, summarizeItems } from '../lib/audit';
 import { sendOrderPush } from '../lib/push';
+import {
+  priceLine,
+  summarizeOrderDiscount,
+  repriceStoredItems,
+  resolveQuantity,
+  toOrderItem,
+  parseCustomerClass,
+  isNewcomerOrder,
+  PricedLine,
+} from '../lib/pricing';
 
 const res = (statusCode: number, body: object): APIGatewayProxyResult => ({
   statusCode, headers: {}, body: JSON.stringify(body),
@@ -155,7 +165,7 @@ async function getShiftSummary(): Promise<APIGatewayProxyResult> {
   const totalRevenue = paidCompleted.reduce((s, o) => s + Number(o.totalAmount || 0), 0);
 
   const totalOrders = allOrders.length; // includes pre-orders + PENDING/CANCELLED etc.
-  const newcomersServed = allOrders.filter(o => o.discountType === 'NEWCOMER').length;
+  const newcomersServed = allOrders.filter(o => isNewcomerOrder(o)).length;
 
   const itemCount: Record<string, number> = {};
   for (const o of allOrders) {
@@ -239,41 +249,28 @@ async function approveOrder(event: APIGatewayProxyEvent, actor: string = ''): Pr
   if (!r.Item) return res(404, { error: 'Order not found' });
 
   const order = r.Item;
-  let totalAmount = order.totalAmount;
-  let discountType = body.discountType || 'NONE';
-  let discountOffset = 0;
 
-  // Celebration takes precedence: if the order was already priced under
-  // celebration at create-time (discountType=CELEBRATION carried by
-  // createOrder), a cashier-side STAFF/PASTOR/NEWCOMER discount is a no-op.
-  // Preserve the CELEBRATION discountType + existing offset so reports keep
-  // attributing the reduction correctly.
-  const alreadyCelebrated = order.discountType === 'CELEBRATION';
-  if (alreadyCelebrated) {
-    discountType = 'CELEBRATION';
-    discountOffset = Number(order.discountOffset || 0);
-    // totalAmount already reflects the celebration price — leave it.
-  } else if (body.discountType && body.discountType !== 'NONE') {
-    let newTotal = 0;
-    for (const item of order.items) {
-      if (item.category === 'DRINK') {
-        const discountedPrice = body.discountType === 'STAFF' ? 5 : 0;
-        newTotal += discountedPrice * item.quantity;
-      } else {
-        newTotal += item.unitPrice * item.quantity;
-      }
-    }
-    discountOffset = totalAmount - newTotal;
-    totalAmount = newTotal;
-  }
+  // Re-apply pricing with the cashier's customer class. The stored unitPrice
+  // already encodes any celebration discount, so repriceStoredItems treats it
+  // as the incumbent candidate and charges the cheaper of the two — a
+  // newcomer stays free on a celebration day instead of being charged RM5.
+  const customerClass = parseCustomerClass(body.discountType);
+  const { items: repricedItems, summary } = repriceStoredItems(order.items, customerClass);
+  const totalAmount = summary.totalAmount;
+  const discountType = summary.discountType;
+  const discountOffset = summary.discountOffset;
 
   try {
     await docClient.send(new UpdateCommand({
       TableName: ORDERS_TABLE,
       Key: { PK: `ORDER#${id}`, SK: 'META' },
-      UpdateExpression: 'SET #s = :s, approvedBy = :a, discountType = :dt, discountOffset = :do, totalAmount = :t, updatedAt = :u REMOVE expiresAt',
+      UpdateExpression: 'SET #s = :s, approvedBy = :a, discountType = :dt, discountOffset = :do, totalAmount = :t, items = :items, grossAmount = :ga, customerClass = :cc, updatedAt = :u REMOVE expiresAt',
       ExpressionAttributeNames: { '#s': 'status' },
-      ExpressionAttributeValues: { ':s': 'PREPARING', ':a': body.approvedBy, ':dt': discountType, ':do': discountOffset, ':t': totalAmount, ':u': new Date().toISOString(), ':pending': 'PENDING' },
+      ExpressionAttributeValues: {
+        ':s': 'PREPARING', ':a': body.approvedBy, ':dt': discountType, ':do': discountOffset,
+        ':t': totalAmount, ':items': repricedItems, ':ga': summary.grossAmount,
+        ':cc': summary.customerClass, ':u': new Date().toISOString(), ':pending': 'PENDING',
+      },
       ConditionExpression: '#s = :pending',
     }));
   } catch (e: any) {
@@ -616,72 +613,34 @@ async function createWalkUp(event: APIGatewayProxyEvent): Promise<APIGatewayProx
 
   const settings = await getSettings();
   const orderItems: any[] = [];
-  let totalAmount = 0;
+  const pricedLines: PricedLine[] = [];
 
-  let celebrationOffset = 0;
+  // The cashier's pill selection identifies the customer, not the price.
+  // priceLine decides the cheapest applicable price per line and never
+  // stacks discounts, so celebration mode can no longer cancel a
+  // newcomer's free drink.
+  const customerClass = parseCustomerClass(discountType);
 
   for (const item of items) {
     const menu = await getMenuItem(item.menuItemId);
     if (!menu || !menu.isActive || !menu.isEnabledToday) return res(400, { error: `Item ${item.menuItemId} unavailable` });
 
+    const qty = resolveQuantity(item);
+
     if (menu.category === 'FOOD') {
       const available = (menu.foodQuantityToday || 0) - (menu.foodReserved || 0);
-      if (available < (item.quantity || item.qty || 1)) return res(400, { error: `Insufficient stock for ${menu.name}` });
+      if (available < qty) return res(400, { error: `Insufficient stock for ${menu.name}` });
     }
 
-    let unitPrice = menu.basePrice;
-    let variantLabel = null;
-    if (item.selectedVariants?.length) {
-      for (const sv of item.selectedVariants) unitPrice += (sv.price || 0);
-      variantLabel = item.selectedVariants.map((sv: any) => sv.option).join(', ');
-    } else if (item.variant) {
-      const variant = menu.variants?.find((v: any) => v.name === item.variant || v.id === item.variant);
-      if (variant) unitPrice = menu.basePrice + (variant.priceModifier || 0);
-      variantLabel = item.variant;
-    }
-    const qty = item.quantity || item.qty || 1;
-    // Celebration only applies to eligible drinks — matches createOrder /
-    // frontend logic. Track the offset so we can tag the walk-up order as
-    // discountType=CELEBRATION downstream.
-    //
-    // Bug 5 fix: paid variant modifiers stay on top of celebrationPrice.
-    const grossUnit = unitPrice;
-    if (
-      settings?.celebrationMode &&
-      menu.category === 'DRINK' &&
-      menu.celebrationEligible === true
-    ) {
-      const variantModifiers = unitPrice - menu.basePrice;
-      unitPrice = (Number(settings.celebrationPrice) || 5) + variantModifiers;
-      const perUnitDiscount = grossUnit - unitPrice;
-      if (perUnitDiscount > 0) celebrationOffset += perUnitDiscount * qty;
-    }
-
-    orderItems.push({ menuItemId: item.menuItemId, name: menu.name, variant: variantLabel, quantity: qty, unitPrice, category: menu.category });
-    totalAmount += unitPrice * qty;
+    const line = priceLine(menu, item, settings, customerClass);
+    pricedLines.push(line);
+    orderItems.push(toOrderItem(line));
   }
 
-  // Apply cashier-selected discount, but only if celebration didn't already
-  // reduce the price. STAFF/PASTOR/NEWCOMER on top of celebration is a no-op —
-  // celebration is the final price (spec: fix-celebration-spec).
-  let discountOffset = celebrationOffset;
-  let effectiveDiscountType = discountType || 'NONE';
-  if (celebrationOffset > 0) {
-    effectiveDiscountType = 'CELEBRATION';
-    // totalAmount already at celebration price; no further reduction.
-  } else if (discountType && discountType !== 'NONE') {
-    const originalTotal = totalAmount;
-    totalAmount = 0;
-    for (const oi of orderItems) {
-      if (oi.category === 'DRINK') {
-        const dp = discountType === 'STAFF' ? 5 : 0;
-        totalAmount += dp * oi.quantity;
-      } else {
-        totalAmount += oi.unitPrice * oi.quantity;
-      }
-    }
-    discountOffset = originalTotal - totalAmount;
-  }
+  const pricing = summarizeOrderDiscount(pricedLines, customerClass);
+  const totalAmount = pricing.totalAmount;
+  const discountOffset = pricing.discountOffset;
+  const effectiveDiscountType = pricing.discountType;
 
   // Reserve food
   for (const oi of orderItems) {
@@ -709,6 +668,10 @@ async function createWalkUp(event: APIGatewayProxyEvent): Promise<APIGatewayProx
       PK: `ORDER#${orderId}`, SK: 'META', orderId, customerName,
       items: orderItems, totalAmount, status: 'PREPARING',
       discountType: effectiveDiscountType, discountOffset,
+      grossAmount: pricing.grossAmount,
+      // Recorded independently of pricing: a newcomer who orders food only
+      // gets no discount but must still be counted in the shift summary.
+      customerClass: pricing.customerClass,
       notes: notes || '',
       createdAt: now, updatedAt: now,
       isWalkUp: true, flaggedItems: [],
@@ -740,8 +703,11 @@ async function closeCafe(): Promise<APIGatewayProxyResult> {
   await docClient.send(new UpdateCommand({
     TableName: SETTINGS_TABLE,
     Key: { PK: 'SETTINGS', SK: 'CONFIG' },
-    UpdateExpression: 'SET cafeStatus = :s, featuredDrinkId = :n',
-    ExpressionAttributeValues: { ':s': 'CLOSED', ':n': null },
+    // Celebration mode is a per-service decision (birthday, church event), so
+    // it resets on close alongside the featured drink. Without this it stays on
+    // into the next Sunday and silently reprices every eligible drink.
+    UpdateExpression: 'SET cafeStatus = :s, featuredDrinkId = :n, celebrationMode = :c',
+    ExpressionAttributeValues: { ':s': 'CLOSED', ':n': null, ':c': false },
   }));
 
   // Audit the featured-drink reset if one was active
@@ -862,7 +828,7 @@ async function sendDailySummaryEmail() {
   const totalRevenue = allOrders.reduce((s, o) => s + (o.totalAmount || 0), 0);
   const totalOffsets = allOrders.reduce((s, o) => s + (o.discountOffset || 0), 0);
   const netExpected = totalRevenue - totalOffsets;
-  const newcomersServed = allOrders.filter(o => o.discountType === 'NEWCOMER').length;
+  const newcomersServed = allOrders.filter(o => isNewcomerOrder(o)).length;
 
   const itemCounts: Record<string, number> = {};
   for (const o of allOrders) {

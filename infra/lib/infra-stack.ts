@@ -10,6 +10,26 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as path from 'path';
 
+/**
+ * Read a required secret from the deploy environment, failing synth if it is
+ * absent, obviously a placeholder, or too short. Keeps secrets out of the
+ * repository and makes an insecure deploy impossible rather than merely
+ * discouraged.
+ */
+function requireSecret(name: string, minLength = 32): string {
+  const value = process.env[name];
+  const placeholders = ['CHANGE_ME_BEFORE_DEPLOY', 'CHANGE_ME', 'changeme', 'default-secret', 'secret'];
+  if (!value || placeholders.includes(value) || value.length < minLength) {
+    throw new Error(
+      `${name} must be set in the deploy environment (min ${minLength} chars, not a placeholder).\n`
+      + '  Generate one:  node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'base64url\'))"\n'
+      + `  Then:          $env:${name} = "<value>"  (PowerShell)  and re-run cdk deploy.\n`
+      + `  NOTE: changing ${name} invalidates every outstanding login token.`,
+    );
+  }
+  return value;
+}
+
 export class InfraStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
@@ -185,7 +205,14 @@ export class InfraStack extends cdk.Stack {
         // static frontend assets when the migration off GitHub Pages
         // happens; until then, only the display-slides/ prefix is used.
         FRONTEND_BUCKET: displaySlidesBucket.bucketName,
-        JWT_SECRET: 'CHANGE_ME_BEFORE_DEPLOY',
+        // Must be supplied at deploy time — synth fails otherwise. The former
+        // hardcoded 'CHANGE_ME_BEFORE_DEPLOY' literal was the value actually
+        // running in production, and it is committed in a public repository,
+        // which made every ADMIN token forgeable. Never inline a secret here.
+        //   $env:JWT_SECRET = node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
+        //   npx cdk deploy
+        // Rotating this value invalidates all outstanding tokens.
+        JWT_SECRET: requireSecret('JWT_SECRET'),
         // Origin verification for CloudFront front-door (see docs/cloudfront-migration.md).
         // Kept OFF until CloudFront is wired up to inject the header. When ENFORCE_ORIGIN_HEADER
         // is 'true', requests missing/mismatching X-Origin-Verify are rejected with 403.

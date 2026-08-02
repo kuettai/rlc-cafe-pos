@@ -5,6 +5,13 @@ import { linkOrderToCustomer } from './customers';
 import { normalizePhone } from '../lib/phone';
 import { validatePreorderCode } from './preorder';
 import { logOrder, summarizeItems } from '../lib/audit';
+import {
+  priceLine,
+  summarizeOrderDiscount,
+  resolveQuantity,
+  toOrderItem,
+  PricedLine,
+} from '../lib/pricing';
 
 const res = (statusCode: number, body: object): APIGatewayProxyResult => ({
   statusCode, headers: {}, body: JSON.stringify(body),
@@ -59,12 +66,7 @@ async function createOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
   }
 
   const orderItems: any[] = [];
-  let totalAmount = 0;
-  // Celebration discount is applied per-eligible-drink at create time.
-  // We track the offset so the order record carries `discountType=CELEBRATION`
-  // + `discountOffset=<sum of grossUnit - celebrationPrice, per qty>` in the
-  // same shape as other discount paths (STAFF/PASTOR/NEWCOMER via approveOrder).
-  let celebrationOffset = 0;
+  const pricedLines: PricedLine[] = [];
 
   for (const item of items) {
     const menu = await getMenuItem(item.menuItemId);
@@ -82,46 +84,23 @@ async function createOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
       }
     }
 
+    const quantity = resolveQuantity(item);
+
     if (menu.category === 'FOOD') {
       const available = (menu.foodQuantityToday || 0) - (menu.foodReserved || 0);
-      if (available < item.quantity) return res(400, { error: `Insufficient stock for ${menu.name}` });
+      if (available < quantity) return res(400, { error: `Insufficient stock for ${menu.name}` });
     }
 
-    let unitPrice = menu.basePrice;
-    let variantLabel = null;
-    if (item.selectedVariants?.length) {
-      for (const sv of item.selectedVariants) unitPrice += (sv.price || 0);
-      variantLabel = item.selectedVariants.map((sv: any) => sv.option).join(', ');
-    } else if (item.variant) {
-      const variant = menu.variants?.find((v: any) => v.id === item.variant || v.name === item.variant);
-      if (variant) unitPrice += (variant.priceModifier || 0);
-      variantLabel = item.variant;
-    }
-    // Apply celebration price ONLY to celebration-eligible drinks (matches
-    // the frontend's price-display logic). Previously this discounted
-    // every DRINK category item, silently dropping non-eligible drinks
-    // to the celebration price.
-    //
-    // Bug 5 fix: keep paid variant modifiers on top of the celebration
-    // base. celebrationPrice replaces the base only — variant surcharges
-    // (e.g. large size, add-ons) still apply.
-    const grossUnit = unitPrice;
-    if (
-      settings?.celebrationMode &&
-      menu.category === 'DRINK' &&
-      menu.celebrationEligible === true
-    ) {
-      const variantModifiers = unitPrice - menu.basePrice;
-      unitPrice = (Number(settings.celebrationPrice) || 5) + variantModifiers;
-      const perUnitDiscount = grossUnit - unitPrice;
-      if (perUnitDiscount > 0) {
-        celebrationOffset += perUnitDiscount * item.quantity;
-      }
-    }
-
-    orderItems.push({ menuItemId: item.menuItemId, name: menu.name, variant: variantLabel, quantity: item.quantity, unitPrice, category: menu.category });
-    totalAmount += unitPrice * item.quantity;
+    // Customers cannot self-select a discount class, so celebration is the
+    // only rule in play here. A cashier-selected STAFF/PASTOR/NEWCOMER is
+    // applied later in approveOrder.
+    const line = priceLine(menu, item, settings, null);
+    pricedLines.push(line);
+    orderItems.push(toOrderItem(line));
   }
+
+  const pricing = summarizeOrderDiscount(pricedLines, null);
+  const totalAmount = pricing.totalAmount;
 
   // Reserve food (pre-orders are drinks-only so this loop is a no-op there)
   for (const oi of orderItems) {
@@ -179,8 +158,9 @@ async function createOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
         PK: `ORDER#${orderId}`, SK: 'META', orderId, customerName,
         items: orderItems, totalAmount, status: 'PENDING',
         notes: composedNotes,
-        discountType: celebrationOffset > 0 ? 'CELEBRATION' : 'NONE',
-        discountOffset: celebrationOffset,
+        discountType: pricing.discountType,
+        discountOffset: pricing.discountOffset,
+        grossAmount: pricing.grossAmount,
         createdAt: now, updatedAt: now,
         expiresAt: Math.floor(Date.now() / 1000) + ((settings?.orderExpiryMinutes || 30) * 60),
         isWalkUp: false, flaggedItems: [],
@@ -274,8 +254,7 @@ async function modifyOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
     // Validate new items + compute new total. No DB writes yet.
     const settings = await getSettings();
     const newItems: any[] = [];
-    let totalAmount = 0;
-    let celebrationOffset = 0;
+    const pricedLines: PricedLine[] = [];
 
     for (const item of body.items) {
       const menu = await getMenuItem(item.menuItemId);
@@ -283,38 +262,22 @@ async function modifyOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
       if (!menu.isActive) return res(400, { error: `${menu.name} is not available` });
       if (!menu.isEnabledToday) return res(400, { error: `${menu.name} is not available today` });
 
+      const quantity = resolveQuantity(item);
+
       if (menu.category === 'FOOD') {
         const available = (menu.foodQuantityToday || 0) - (menu.foodReserved || 0);
-        if (available < item.quantity) return res(400, { error: `Insufficient stock for ${menu.name}` });
+        if (available < quantity) return res(400, { error: `Insufficient stock for ${menu.name}` });
       }
 
-      let unitPrice = menu.basePrice;
-      let variantLabel = null;
-      if (item.selectedVariants?.length) {
-        for (const sv of item.selectedVariants) unitPrice += (sv.price || 0);
-        variantLabel = item.selectedVariants.map((sv: any) => sv.option).join(', ');
-      } else if (item.variant) {
-        const variant = menu.variants?.find((v: any) => v.name === item.variant);
-        if (variant) unitPrice += (variant.priceModifier || 0);
-        variantLabel = item.variant;
-      }
-      const grossUnit = unitPrice;
-      if (
-        settings?.celebrationMode &&
-        menu.category === 'DRINK' &&
-        menu.celebrationEligible === true
-      ) {
-        const variantModifiers = unitPrice - menu.basePrice;
-        unitPrice = (Number(settings.celebrationPrice) || 5) + variantModifiers;
-        const perUnitDiscount = grossUnit - unitPrice;
-        if (perUnitDiscount > 0) {
-          celebrationOffset += perUnitDiscount * item.quantity;
-        }
-      }
-
-      newItems.push({ menuItemId: item.menuItemId, name: menu.name, variant: variantLabel, quantity: item.quantity, unitPrice, category: menu.category });
-      totalAmount += unitPrice * item.quantity;
+      // Customer-driven edit, so no cashier discount class applies yet —
+      // approveOrder re-applies it against the revised items.
+      const line = priceLine(menu, item, settings, null);
+      pricedLines.push(line);
+      newItems.push(toOrderItem(line));
     }
+
+    const pricing = summarizeOrderDiscount(pricedLines, order.customerClass || null);
+    const totalAmount = pricing.totalAmount;
 
     // Build the conditional update. modifiedAt is stamped so the cashier UI
     // can show a "modified moments ago" indicator + approve guard. Include
@@ -325,10 +288,11 @@ async function modifyOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
       ':t': totalAmount,
       ':u': now,
       ':pending': 'PENDING',
-      ':dt': celebrationOffset > 0 ? 'CELEBRATION' : 'NONE',
-      ':do': celebrationOffset,
+      ':dt': pricing.discountType,
+      ':do': pricing.discountOffset,
+      ':ga': pricing.grossAmount,
     };
-    let updateExpr = 'SET items = :items, totalAmount = :t, updatedAt = :u, modifiedAt = :u, discountType = :dt, discountOffset = :do';
+    let updateExpr = 'SET items = :items, totalAmount = :t, updatedAt = :u, modifiedAt = :u, discountType = :dt, discountOffset = :do, grossAmount = :ga';
     if (body.notes !== undefined) {
       updateExpr += ', notes = :n';
       exprValues[':n'] = body.notes;
@@ -370,8 +334,8 @@ async function modifyOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
       customer: order.customerName,
       items: summarizeItems(newItems),
       total: totalAmount,
-      discount: celebrationOffset > 0 ? 'CELEBRATION' : 'NONE',
-      offset: celebrationOffset,
+      discount: pricing.discountType,
+      offset: pricing.discountOffset,
     });
     return res(200, { orderId: id, totalAmount, status: 'PENDING', modifiedAt: now });
   }

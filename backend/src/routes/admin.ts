@@ -5,6 +5,8 @@ import {
   GetCommand, PutCommand, UpdateCommand, QueryCommand, ScanCommand, DeleteCommand
 } from '../lib/db';
 import { hashPin } from '../lib/auth';
+import { isBlockedIdentifier } from './auth';
+import { isNewcomerOrder } from '../lib/pricing';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
@@ -232,6 +234,12 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
       if (!pin || String(pin).length < 6) {
         return res(400, { error: 'pin required (min 6 digits)' });
       }
+      // A volunteer named "Admin…" could never log in (see
+      // BLOCKED_LOGIN_PATTERNS in routes/auth.ts), so refuse at creation time
+      // rather than silently producing an unusable account.
+      if (isBlockedIdentifier(body.name)) {
+        return res(400, { error: 'That name is reserved and cannot be used' });
+      }
       const userId = uuid();
       const item = {
         PK: `USER#${userId}`, SK: 'META', userId,
@@ -246,6 +254,9 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
     if (method === 'PUT' && /\/admin\/users\/[^/]+$/.test(path)) {
       const id = extractId(path, 'users');
       const updates = { ...body };
+      if (isBlockedIdentifier(updates.name)) {
+        return res(400, { error: 'That name is reserved and cannot be used' });
+      }
       if (updates.pin) {
         if (String(updates.pin).length < 6) {
           return res(400, { error: 'pin must be at least 6 digits' });
@@ -519,7 +530,7 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
       const totalRevenue = orders.reduce((s, o) => s + (o.totalAmount || 0), 0);
       const totalOffsets = orders.reduce((s, o) => s + (o.discountOffset || 0), 0);
       const netCollection = totalRevenue - totalOffsets;
-      const newcomersServed = orders.filter(o => o.discountType === 'NEWCOMER').length;
+      const newcomersServed = orders.filter(o => isNewcomerOrder(o)).length;
       const dateSet = new Set(orders.map(o => (o.createdAt as string).split('T')[0]));
       const serviceDays = dateSet.size;
       const avgOrdersPerServiceDay = serviceDays ? Math.round(totalOrders / serviceDays) : 0;

@@ -31,3 +31,27 @@ export function summarizeItems(items: any): string {
     return `${qty}×${name}${v}`;
   }).join(',');
 }
+
+/**
+ * Audit logging for authentication events, prefixed `[AUTH]` so it greps
+ * separately from order activity.
+ *
+ * Added after an unattributable ADMIN login on 2026-08-02: the API Lambda
+ * emitted only START/END/REPORT, so there was no way to establish who logged
+ * in or from where. Every login attempt — success, failure, or blocked — is
+ * now recorded with source IP and user agent.
+ *
+ * NEVER pass a PIN, PIN hash, or token to this function.
+ *
+ * Convention: `[AUTH] <OUTCOME> id=<identifier> ip=<sourceIp> ...`
+ */
+export function logAuth(outcome: string, extra: Record<string, unknown> = {}): void {
+  const parts: string[] = ['[AUTH]', outcome];
+  for (const [k, v] of Object.entries(extra)) {
+    if (v === undefined || v === null || v === '') continue;
+    const s = typeof v === 'object' ? JSON.stringify(v) : String(v);
+    parts.push(`${k}=${s}`);
+  }
+  // eslint-disable-next-line no-console
+  console.log(parts.join(' '));
+}
