@@ -1645,6 +1645,10 @@ header h1{
 .pos-cart-item-name{flex:1;font-weight:500}
 .pos-cart-item-controls{display:flex;align-items:center;gap:4px}
 .pos-cart-item-price{color:var(--text-light,#7A6355);font-size:.85rem;min-width:60px;text-align:right}
+/* Walk-up cart shows the discounted net beside a struck-out gross so the
+   cashier can see what the discount did before submitting. */
+.pos-cart-item-gross{color:var(--text-light,#7A6355);opacity:.65;margin-right:4px}
+.pos-cart-savings{margin-top:6px;padding:4px 8px;border-radius:6px;background:#FEF3C7;color:#92400E;font-size:.78rem;font-weight:600;text-align:right}
 .pos-qty-btn{
   border:none;
   background:var(--cream,#F5EDE3);

@@ -1,14 +1,14 @@
-const CACHE_NAME = 'rlc-cafe-v1.61.0';
+const CACHE_NAME = 'rlc-cafe-v1.62.0';
 const SHELL = [
-  './', './index.html', './track.html', './pos.html', './admin.html', './display.html',
+  './', './index.html', './track.html', './pos.html', './admin.html', './display.html', './reports.html',
   './css/style.css', './css/admin.css', './css/display.css',
-  './js/config.js', './js/phone.js', './js/variants.js', './js/app.js', './js/track.js',
+  './js/config.js', './js/phone.js', './js/variants.js', './js/pricing.js', './js/app.js', './js/track.js',
   './js/pos.js', './js/pos-walkup.js', './js/pos-voucher.js', './js/pos-stock.js', './js/pos-checklist.js', './js/pos-history.js',
   './js/pos-training.js', './js/training-config.json',
   './js/admin.js', './js/admin-dashboard.js', './js/admin-menu.js', './js/admin-ingredients.js',
   './js/admin-checklist.js', './js/admin-vouchers.js', './js/admin-preorder.js', './js/admin-verses.js', './js/admin-display.js',
   './js/admin-customers.js',
-  './js/display.js',
+  './js/display.js', './js/reports.js',
   './changelog.json', './js/changelog.js'
 ];
 

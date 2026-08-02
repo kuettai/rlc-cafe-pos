@@ -17,6 +17,7 @@ let pollTimer = null;
 let viewMode = 'kanban';
 let cafeOpen = false;
 let celebrationMode = false;
+let celebrationPrice = 5;   // flat price for celebration-eligible drinks
 let featuredDrink = null;  // { menuItemId, name, basePrice, imageUrl } or null
 let searchFilter = '';
 let prevUrgentIds = [];
@@ -203,6 +204,7 @@ async function fetchCafeStatus(){
     const s = await api('GET','/api/cafe/status');
     cafeOpen = s.cafeStatus === 'OPEN';
     celebrationMode = s.celebrationMode || false;
+    celebrationPrice = Number(s.celebrationPrice) || 5;
     const toggle = $('#btnCafeToggle');
     const celeb = $('#btnCelebration');
     if(toggle){
