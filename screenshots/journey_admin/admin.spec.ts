@@ -1,7 +1,14 @@
 import { test, expect } from '@playwright/test';
 
+// Credentials are never committed — set them in the environment:
+//   TEST_ADMIN_USER=... TEST_ADMIN_PIN=... npx playwright test
+const ADMIN_USER = process.env.TEST_ADMIN_USER || '';
+const ADMIN_PIN = process.env.TEST_ADMIN_PIN || '';
+
 test.describe('Admin Journey', () => {
   test.describe.configure({ mode: 'serial' });
+
+  test.skip(!ADMIN_USER || !ADMIN_PIN, 'TEST_ADMIN_USER / TEST_ADMIN_PIN not set');
 
   let page: any;
 
@@ -20,8 +27,8 @@ test.describe('Admin Journey', () => {
   });
 
   test('02 - Menu tab (default after login)', async () => {
-    await page.fill('#loginUser', 'admin-001');
-    await page.fill('#loginPin', '123456');
+    await page.fill('#loginUser', ADMIN_USER);
+    await page.fill('#loginPin', ADMIN_PIN);
     await page.click('#loginForm button[type="submit"]');
     await page.waitForSelector('[data-tab="menu"]');
     await page.waitForTimeout(1500);

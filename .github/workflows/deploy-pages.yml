@@ -23,6 +23,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      # Fails the deploy if the six version markers disagree, or if a shipped
+      # JS/CSS file is missing from the service worker SHELL array. A footer
+      # advertising a version the cache isn't serving is worse than no deploy.
+      - name: Verify version markers and precache coverage
+        run: node scripts/check-version-sync.mjs
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

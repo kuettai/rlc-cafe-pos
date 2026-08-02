@@ -3,8 +3,15 @@ import { test, expect, Page } from '@playwright/test';
 const BASE_URL = 'https://153.oasisofcare.org/pos.html';
 const DIR = 'screenshots/journey_cashier';
 
+// Credentials are never committed — set them in the environment:
+//   TEST_CASHIER_USER=... TEST_CASHIER_PIN=... npx playwright test
+const CASHIER_USER = process.env.TEST_CASHIER_USER || '';
+const CASHIER_PIN = process.env.TEST_CASHIER_PIN || '';
+
 test.describe('Cashier Journey', () => {
   test.describe.configure({ mode: 'serial' });
+
+  test.skip(!CASHIER_USER || !CASHIER_PIN, 'TEST_CASHIER_USER / TEST_CASHIER_PIN not set');
 
   let page: Page;
 
@@ -24,8 +31,8 @@ test.describe('Cashier Journey', () => {
   });
 
   test('02 - Dashboard after login', async () => {
-    await page.fill('#loginUser', 'Sarah');
-    await page.fill('#loginPin', '1234');
+    await page.fill('#loginUser', CASHIER_USER);
+    await page.fill('#loginPin', CASHIER_PIN);
     await page.click('#loginForm button[type="submit"]');
     await page.waitForSelector('.pos-topbar');
     await page.waitForTimeout(1500);

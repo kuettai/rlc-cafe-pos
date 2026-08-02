@@ -34,6 +34,7 @@ Screenshots are saved to:
 
 - Tests run against the live site (https://153.oasisofcare.org)
 - Café must be OPEN for customer journey to capture the menu
-- Test credentials: Admin (admin-001 / 123456), Cashier Sarah (Sarah / 1234)
+- Test credentials come from the environment: `TEST_ADMIN_USER`/`TEST_ADMIN_PIN`
+  and `TEST_CASHIER_USER`/`TEST_CASHIER_PIN`. Specs fail fast if unset.
 - Screenshots use `fullPage: true` for complete page captures
 - Run with `--headed` to watch: `npx playwright test --headed`

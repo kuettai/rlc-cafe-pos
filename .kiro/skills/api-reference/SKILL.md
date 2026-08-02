@@ -1,3 +1,8 @@
+---
+name: api-reference
+description: Complete HTTP endpoint reference for the RLC Café POS API — public, display, POS (CASHIER/ADMIN) and ADMIN routes, with paths and auth requirements. Use when adding, calling, or debugging an API route.
+---
+
 # API Reference
 
 Base URL: `https://hcydppml1a.execute-api.ap-southeast-5.amazonaws.com/prod`

@@ -422,5 +422,6 @@ Attributes:
 | CloudFormation Stack | RlcCafeStack |
 
 ### Credentials
-- Admin: name=`admin-001` or `Admin`, PIN=`123456`
-- Cashier: name=`Sarah`, PIN=`1234`
+Not stored in this repo. Supplied via environment variables —
+`TEST_ADMIN_USER` / `TEST_ADMIN_PIN` and `TEST_CASHIER_USER` /
+`TEST_CASHIER_PIN`. Login accepts either the userId or the volunteer's name.

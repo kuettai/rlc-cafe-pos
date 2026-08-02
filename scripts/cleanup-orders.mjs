@@ -1,10 +1,20 @@
 const API = 'https://hcydppml1a.execute-api.ap-southeast-5.amazonaws.com/prod';
 
+// Credentials come from the environment — never commit them.
+//   TEST_ADMIN_USER=... TEST_ADMIN_PIN=... node scripts/cleanup-orders.mjs
+const ADMIN_USER = process.env.TEST_ADMIN_USER;
+const ADMIN_PIN = process.env.TEST_ADMIN_PIN;
+
+if (!ADMIN_USER || !ADMIN_PIN) {
+  console.error('Set TEST_ADMIN_USER and TEST_ADMIN_PIN in the environment first.');
+  process.exit(1);
+}
+
 async function run() {
   const login = await fetch(API + '/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ userId: 'admin-001', pin: '123456' }),
+    body: JSON.stringify({ userId: ADMIN_USER, pin: ADMIN_PIN }),
   });
   const { token } = await login.json();
 

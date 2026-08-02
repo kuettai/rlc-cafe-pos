@@ -1,0 +1,76 @@
+# RLC Café POS — Project
+
+PWA for a church café at Oasis of Care (RLC), Petaling Jaya, Malaysia. Replaced
+Loyverse POS. Customer self-ordering, real-time order management, inventory.
+
+## Stack
+- **Frontend:** vanilla HTML/CSS/JS PWA, no framework, GitHub Pages
+- **Backend:** single AWS Lambda (Node/TypeScript) behind API Gateway proxy
+  integration, with an internal router in `backend/src/index.ts`
+- **Database:** DynamoDB, 7 tables (orders, menu, ingredients, users, settings,
+  customers, vouchers)
+- **IaC:** AWS CDK (TypeScript), `infra/`
+- **Region:** ap-southeast-5, account 956288449190 (hardcoded in `infra/bin/infra.ts`)
+- **Repo:** https://github.com/kuettai/rlc-cafe-pos
+
+## Surfaces
+| Page | Purpose |
+|---|---|
+| `index.html` | Customer ordering |
+| `track.html` | Order tracking (7s polling) + receipt upload |
+| `pos.html` | Cashier POS |
+| `admin.html` | Admin dashboard |
+| `reports.html` | Reports |
+| `display.html` | TV display board + promo slideshow |
+
+Live at https://153.oasisofcare.org/ (CNAME), API at
+`https://hcydppml1a.execute-api.ap-southeast-5.amazonaws.com/prod/`.
+
+## Layout
+```
+backend/src/     index.ts (router), expiry.ts (EventBridge cron, 5min)
+  lib/           db, auth (JWT/PIN), audit, phone, push, email, pricing
+  routes/        auth, cafe, menu, orders, pos, admin, checklist, receipt,
+                 planogram, customers, vouchers, preorder, push, display, verses
+frontend/js/     app, track, pos*, admin*, display, variants, pricing, changelog
+infra/lib/       infra-stack.ts — DynamoDB, Lambda, API GW, S3, Bedrock perms
+scripts/         one-off data migrations + release tooling
+docs/            requirements, architecture, deployment, update-YYYYMMDD.md
+```
+
+## Operating context
+- Sundays only: 10:15–11:30 (S1) and 12:45–13:30 (S2)
+- 2–3 volunteers per shift (1 cashier, 1–2 baristas)
+- Payment: Maybank QR (DuitNow), verified by cashier; receipts parsed by Bedrock
+- Menu: ~10 drinks with variant groups (Temperature / Milk / Flavor) + food
+- Pricing rules (celebration, staff, pastor, newcomer) live in ONE place:
+  `backend/src/lib/pricing.ts`, mirrored for display only in
+  `frontend/js/pricing.js`. Never reimplement them inline — see
+  `backend/tests/pricing.test.ts` for the specification.
+
+## Local development
+```bash
+npx http-server frontend -p 3001   # frontend against the LIVE API
+cd backend && npm test             # jest
+cd backend && npx tsc              # typecheck
+```
+
+## Test credentials
+**Not stored in this repo.** Integration tests, Playwright journeys and the
+maintenance scripts read them from the environment:
+
+| Variable | Purpose |
+|---|---|
+| `TEST_ADMIN_USER` / `TEST_ADMIN_PIN` | ADMIN login |
+| `TEST_CASHIER_USER` / `TEST_CASHIER_PIN` | CASHIER login |
+
+Suites that need them skip cleanly when the variables are unset. Ask an admin
+for values, or create a throwaway volunteer in Admin → Volunteers. Never commit
+them.
+
+## Reference material
+Loaded on demand as skills, not always in context:
+- `.kiro/skills/db-schemas/SKILL.md` — DynamoDB table schemas
+- `.kiro/skills/api-reference/SKILL.md` — API endpoint reference
+
+Feature history by sprint: `docs/feature-history.md`.

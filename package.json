@@ -10,6 +10,9 @@
     "dev": "npx serve frontend -p 3000",
     "build:backend": "cd backend && npm run build",
     "deploy:backend": "cd infra && npx cdk deploy --require-approval never",
+    "version:check": "node scripts/check-version-sync.mjs",
+    "version:bump": "node scripts/bump-version.mjs",
+    "predeploy:frontend": "node scripts/check-version-sync.mjs",
     "deploy:frontend": "git add frontend && git commit -m \"Update frontend\" && git push",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
