@@ -1,5 +1,12 @@
 const API_BASE = 'https://hcydppml1a.execute-api.ap-southeast-5.amazonaws.com/prod';
 
+// Every record this suite writes to production is stamped with the shared test
+// prefix so `scripts/cleanup-test-data.mjs` can find it. Never hardcode the
+// marker strings here — cleanup reads the same module, and duplicated literals
+// are how the Playwright journey's orders became uncleanable.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { MARKERS } = require('../../scripts/test-markers.cjs');
+
 // Credentials are never committed. Set them in the environment before running:
 //   TEST_ADMIN_USER, TEST_ADMIN_PIN, TEST_CASHIER_USER, TEST_CASHIER_PIN
 // Auth cases that need them are skipped when unset so the rest of the suite
@@ -246,7 +253,7 @@ describe('Integration Tests (Live API)', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          customerName: 'Test Customer',
+          customerName: MARKERS.customerName,
           items: [{ menuItemId: drink.menuItemId, variant: drink.variants?.[0]?.id || null, quantity: 1 }],
         }),
       });
@@ -259,7 +266,7 @@ describe('Integration Tests (Live API)', () => {
       if (!orderId) return;
       const { status, body } = await apiFetch(`/api/orders/${orderId}`);
       expect(status).toBe(200);
-      expect(body.customerName).toBe('Test Customer');
+      expect(body.customerName).toBe(MARKERS.customerName);
       expect(body.status).toBe('PENDING');
     });
 
@@ -268,7 +275,7 @@ describe('Integration Tests (Live API)', () => {
       const { status, body } = await apiFetch(`/api/pos/orders/${orderId}/approve`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
-        body: JSON.stringify({ approvedBy: 'Test Admin' }),
+        body: JSON.stringify({ approvedBy: MARKERS.approvedBy }),
       });
       expect(status).toBe(200);
     });

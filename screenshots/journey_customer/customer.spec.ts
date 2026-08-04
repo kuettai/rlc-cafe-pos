@@ -3,6 +3,13 @@ import { test, expect, Page, Browser } from '@playwright/test';
 const BASE_URL = 'https://153.oasisofcare.org/';
 const SCREENSHOT_DIR = 'screenshots/journey_customer/';
 
+// This journey submits a REAL order to production. It is stamped with the
+// shared test prefix so `scripts/cleanup-test-data.mjs` can find it. It used to
+// use the name "Demo Customer", which cleanup did not match — those orders were
+// invisible and stayed in the Sunday figures.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { MARKERS } = require('../../scripts/test-markers.cjs');
+
 test.describe('Customer Journey', () => {
   test.describe.configure({ mode: 'serial' });
 
@@ -63,7 +70,7 @@ test.describe('Customer Journey', () => {
   });
 
   test('06 - Fill name and ready to submit', async () => {
-    await page.locator('#nameInput').fill('Demo Customer');
+    await page.locator('#nameInput').fill(MARKERS.customerName);
     await page.screenshot({ path: `${SCREENSHOT_DIR}06-cart-submit.png`, fullPage: true });
   });
 
