@@ -16,6 +16,9 @@ cdk.out/
 .vscode/
 .idea/
 
+# Agent config — share agents/skills, keep local permissions out
+.claude/settings.local.json
+
 # OS
 .DS_Store
 Thumbs.db
