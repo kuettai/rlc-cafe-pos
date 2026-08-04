@@ -185,6 +185,46 @@ async function initTrainingMode(progress) {
 
 function waitMs(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+/**
+ * Re-point step `index` at a LIVE element before TourGuide shows it.
+ *
+ * TourGuide resolves `step.target` from a selector string to an element the
+ * first time it displays that step, then keeps the element
+ * (`tourSteps[i].target = document.querySelector(...)`). Its re-resolve only
+ * happens while the value is still a string.
+ *
+ * Every training action re-renders the order board, which rewrites
+ * `#orderBoard.innerHTML` and throws away the card nodes — so any cached card
+ * element is detached by the time its step is shown. A detached target means
+ * no highlight and a dialog stranded at the top-left corner. Writing the
+ * selector string back makes TourGuide look the element up again.
+ *
+ * If the selector no longer matches anything (e.g. the order was archived and
+ * its card is gone), the target is dropped so TourGuide centres the dialog on
+ * `document.body` instead of pointing at nothing.
+ */
+async function resolveStepTarget(index) {
+  if (!tourGuide || !Array.isArray(tourGuide.tourSteps)) return;
+  const tgStep = tourGuide.tourSteps[index];
+  const configStep = trainingConfig?.steps?.[index];
+  if (!tgStep || !configStep) return;
+
+  const selector = configStep.target;
+  if (!selector) { delete tgStep.target; return; }
+
+  // Cards are re-rendered asynchronously; give the DOM a brief chance to
+  // settle so a freshly-created card is found rather than skipped.
+  let el = null;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    try { el = document.querySelector(selector); } catch (e) { el = null; break; }
+    if (el) break;
+    await waitMs(50);
+  }
+
+  if (el) tgStep.target = selector;   // string → TourGuide re-resolves it
+  else delete tgStep.target;          // nothing to point at → centred dialog
+}
+
 function refreshTrainingBoard() {
   // Alias orders → mockOrders so renderBoard reads the current mock state.
   if (typeof orders !== 'undefined') {
@@ -295,6 +335,18 @@ function startTrainingTour() {
   // will highlight (Menu, Stock Count, Handover, Café toggle, etc.).
   document.getElementById('posSidebar')?.classList.add('open');
 
+  // Stop the 7s order poll for the duration of the tour.
+  //
+  // renderMain() starts polling, and each poll runs renderBoard(), which
+  // rewrites `#orderBoard.innerHTML` and destroys the card the tour is
+  // highlighting — including its `.tg-active-element` class. A trainee who
+  // spent more than ~7s reading a step watched the highlight vanish while the
+  // dialog kept pointing at a node that was no longer in the document.
+  //
+  // Training runs entirely on mock data, so the poll has nothing real to
+  // fetch. completeOnboarding() calls fetchOrders() and restarts it.
+  if (typeof stopPolling === 'function') stopPolling();
+
   // v2 always starts from the beginning. Resumability was dropped
   // because per-step actions mutate state; resuming mid-way would
   // leave orders in inconsistent states.
@@ -319,13 +371,16 @@ function startTrainingTour() {
   };
 
   const launch = () => {
-    // Build TourGuide steps from config; drop targets that don't exist
-    // so TourGuide centers the dialog instead of erroring. Empty targets
-    // must be omitted entirely — passing an empty string makes TourGuide
-    // call `document.querySelector('')` which throws SyntaxError.
+    // Build TourGuide steps from config. Empty targets must be omitted
+    // entirely — passing an empty string makes TourGuide call
+    // `document.querySelector('')`, which throws SyntaxError.
+    //
+    // Targets are kept even when they don't resolve YET: order cards are
+    // rendered asynchronously, and `resolveStepTarget` below re-resolves
+    // each step's selector immediately before the step is shown.
     const tgSteps = steps.map(s => {
       const step = { title: s.title, content: s.content, order: s.order };
-      if (s.target && document.querySelector(s.target)) step.target = s.target;
+      if (s.target) step.target = s.target;
       return step;
     });
 
@@ -339,8 +394,13 @@ function startTrainingTour() {
         exitOnClickOutside: false,
         exitOnEscape: false,
         completeOnFinish: false,
+        // ONE progress indicator only. TourGuide has three, and
+        // `showStepDots` / `showStepProgress` both default to true — enabling
+        // the bar as well rendered a bar under the title, a row of dots AND an
+        // "n/22" counter. The bar reads best on the POS tablet.
         progressBar: '#6B4226',
-        showStepDots: true,
+        showStepDots: false,
+        showStepProgress: false,
         showButtons: true,
         hidePrev: true,           // System-driven flow — no going back
         keyboardControls: false,  // Prevent arrow keys skipping actions
@@ -365,6 +425,13 @@ function startTrainingTour() {
           catch (e) { console.error('Training action failed:', configStep.action, e); }
         }
       }
+      // The action above almost always re-rendered the order board, which
+      // replaces `#orderBoard.innerHTML` and therefore DESTROYS the card
+      // nodes. TourGuide resolves `target` to an element once and caches it,
+      // so without this the upcoming step would highlight a detached node:
+      // no highlight, and the dialog parked in the top-left corner. Restore
+      // the selector STRING so TourGuide re-resolves against the live DOM.
+      await resolveStepTarget(newIndex);
       // Sync the sidebar-dim state to the UPCOMING step's target.
       // See CSS `.training-active .pos-sidebar::after` — this class
       // controls whether the sidebar is dimmed or lit.
@@ -388,6 +455,10 @@ function startTrainingTour() {
       if (lastStep) await markTrainingStepComplete(lastStep.id);
       completeOnboarding();
     });
+
+    // Step 0 is shown by start() itself, before onBeforeStepChange can fire,
+    // so resolve its target up front.
+    resolveStepTarget(0);
 
     try { tourGuide.start(); }
     catch (e) { console.error('TourGuide start failed:', e); completeOnboarding(); }
@@ -439,9 +510,11 @@ function completeOnboarding() {
   if (typeof showSuccessToast === 'function') {
     showSuccessToast('🎉 Training complete! Welcome to RLC Café POS');
   }
-  // Reload with real data
+  // Reload with real data and resume the live queue poll that
+  // startTrainingTour() stopped for the duration of the tour.
   if (typeof fetchCafeStatus === 'function') fetchCafeStatus();
   if (typeof fetchOrders === 'function') fetchOrders();
+  if (typeof startPolling === 'function') startPolling();
 }
 
 // Called from pos.js after login if onboardingComplete is false
