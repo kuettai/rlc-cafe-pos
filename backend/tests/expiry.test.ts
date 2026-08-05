@@ -45,6 +45,22 @@ afterAll(() => {
 beforeEach(() => {
   mockDbSend.mockReset();
   mockSendLowStockAlert.mockReset();
+
+  // Default for any call a test does not explicitly stage.
+  //
+  // The staging helpers below queue a fixed number of `mockResolvedValueOnce`
+  // responses, but handler() makes more calls than that: after the archive
+  // logic it runs expirePreOrders(), which queries PREPARING and READY. Once
+  // the queue was exhausted `send()` resolved to `undefined` and
+  // `expirePreOrders` threw `Cannot read properties of undefined (reading
+  // 'Items')` — failing every test in this file for reasons unrelated to what
+  // each was asserting.
+  //
+  // `{}` is the safe empty shape: `r.Items || []` yields no rows and
+  // `result.Item?.x` yields undefined, so unstaged branches simply find
+  // nothing to do. Once-values are consumed first, so explicit staging still
+  // takes precedence.
+  mockDbSend.mockResolvedValue({});
 });
 
 const event = {} as ScheduledEvent;
@@ -63,11 +79,13 @@ function isoMinutesAgo(min: number): string {
  *   6. Get — last alert record (lowStock alert dedup)
  *   7. Scan — ingredients
  *
- * Tests typically only set the first 4 and let the low-stock branch fall
- * through with empty data.
+ * Tests typically only set the first 4 and let the remaining calls —
+ * expirePreOrders' two queries and the low-stock branch — fall through to the
+ * `{}` default installed in beforeEach.
  */
 function stagePendingThenSettings(settings: any, readyItems: any[]) {
   mockDbSend.mockReset();
+  mockDbSend.mockResolvedValue({});   // re-arm the default that mockReset cleared
   mockDbSend
     .mockResolvedValueOnce({ Items: [] })          // 1. PENDING expiry query — none
     .mockResolvedValueOnce({ Item: settings })     // 2. Get settings (autoArchiveReadyOrders)
