@@ -92,12 +92,35 @@ function mockTrainingApi(method, path, body) {
     if (order) { order.status = 'PREPARING'; order.approvedAt = new Date().toISOString(); }
     return Promise.resolve({ orderId: id, status: 'PREPARING' });
   }
+  // Undo-ready (READY → PREPARING). MUST be tested before `/ready`, which
+  // `/undo-ready` also contains as a substring.
+  if (method === 'PUT' && path.includes('/undo-ready')) {
+    const id = path.match(/orders\/([^/]+)/)?.[1];
+    const order = mockOrders.find(o => o.orderId === id);
+    if (order) { order.status = 'PREPARING'; delete order.readyAt; }
+    return Promise.resolve({ orderId: id, status: 'PREPARING' });
+  }
+  // Undo (PREPARING → PENDING)
+  if (method === 'PUT' && path.includes('/undo')) {
+    const id = path.match(/orders\/([^/]+)/)?.[1];
+    const order = mockOrders.find(o => o.orderId === id);
+    if (order) { order.status = 'PENDING'; delete order.approvedAt; }
+    return Promise.resolve({ orderId: id, status: 'PENDING' });
+  }
   // Mark ready
   if (method === 'PUT' && path.includes('/ready')) {
     const id = path.match(/orders\/([^/]+)/)?.[1];
     const order = mockOrders.find(o => o.orderId === id);
     if (order) { order.status = 'READY'; order.readyAt = new Date().toISOString(); }
     return Promise.resolve({ orderId: id, status: 'READY' });
+  }
+  // Reject a PENDING order — removes it from the board, as the real
+  // CANCELLED transition does (cancelled orders drop out of the POS queue).
+  if (method === 'PUT' && path.includes('/reject')) {
+    const id = path.match(/orders\/([^/]+)/)?.[1];
+    const idx = mockOrders.findIndex(o => o.orderId === id);
+    if (idx >= 0) mockOrders.splice(idx, 1);
+    return Promise.resolve({ orderId: id, status: 'CANCELLED' });
   }
   // Archive/collect
   if (method === 'PUT' && path.includes('/archive')) {
@@ -235,11 +258,71 @@ function refreshTrainingBoard() {
   if (typeof renderBoard === 'function') renderBoard();
 }
 
+// How long the order-detail modal stays on screen before the tour clicks the
+// action button for the trainee. Long enough to read the buttons; short enough
+// that the walkthrough doesn't drag.
+const MODAL_DWELL_MS = 1400;
+const POST_CLICK_MS = 450;
+
+/**
+ * Open the REAL order-detail modal for a training order and hand it back.
+ *
+ * Order actions in this POS live inside that modal — "✓ Payment Confirmed",
+ * "↩ Undo", "✓ Ready", "✓ Collected", "✗ Reject". The tour previously mutated
+ * `mockOrders` directly, so the card silently changed column and the trainee
+ * was never shown the dialog they will actually be tapping on a Sunday. Every
+ * API call is mocked during training, so driving the genuine UI is safe.
+ *
+ * Returns null if the modal could not be opened, so callers can fall back to a
+ * direct state change rather than stalling the tour.
+ */
+async function openTrainingDetail(orderId) {
+  if (typeof openDetail !== 'function') return null;
+  // `openDetail` reads from the global `orders`; make sure it points at the
+  // current mock state before it looks the order up.
+  refreshTrainingBoard();
+  await waitMs(150);
+
+  try { openDetail(orderId); } catch (e) {
+    console.error('Training: could not open detail modal for', orderId, e);
+    return null;
+  }
+
+  const modal = document.querySelector('.pos-modal-overlay');
+  if (!modal) return null;
+  await waitMs(MODAL_DWELL_MS);   // let the trainee actually see it
+  return modal;
+}
+
+/**
+ * Click a button inside the detail modal the way the trainee would.
+ *
+ * The handlers are async (mocked `api()` call, then `modal.remove()` and
+ * `fetchOrders()`), so wait for the state change to land before the tour moves
+ * on. Returns false if the button wasn't there.
+ */
+async function clickModalAction(modal, selector) {
+  const btn = modal?.querySelector(selector);
+  if (!btn) return false;
+  btn.click();
+  await waitMs(POST_CLICK_MS);
+  // Belt and braces: if a handler bailed before removing the overlay, don't
+  // leave it covering the next tour step.
+  if (modal.isConnected) modal.remove();
+  refreshTrainingBoard();
+  return true;
+}
+
 async function executeTrainingAction(actionId) {
   switch (actionId) {
     case 'none':
       return;
     case 'click-approve-training-001': {
+      // Show the PENDING modal, then confirm payment — the real approve path.
+      const modal = await openTrainingDetail('training-001');
+      if (await clickModalAction(modal, '#btnApprove')) return;
+      // Fallback: modal unavailable, change state directly so the tour
+      // narration still matches the board.
       const order = mockOrders.find(o => o.orderId === 'training-001');
       if (order) { order.status = 'PREPARING'; order.approvedAt = new Date().toISOString(); }
       refreshTrainingBoard();
@@ -247,6 +330,8 @@ async function executeTrainingAction(actionId) {
       return;
     }
     case 'click-undo-training-001': {
+      const modal = await openTrainingDetail('training-001');
+      if (await clickModalAction(modal, '#btnUndo')) return;
       const order = mockOrders.find(o => o.orderId === 'training-001');
       if (order) { order.status = 'PENDING'; delete order.approvedAt; }
       refreshTrainingBoard();
@@ -254,6 +339,8 @@ async function executeTrainingAction(actionId) {
       return;
     }
     case 'click-ready-training-001': {
+      const modal = await openTrainingDetail('training-001');
+      if (await clickModalAction(modal, '#btnReady')) return;
       const order = mockOrders.find(o => o.orderId === 'training-001');
       if (order) { order.status = 'READY'; order.readyAt = new Date().toISOString(); }
       refreshTrainingBoard();
@@ -261,6 +348,8 @@ async function executeTrainingAction(actionId) {
       return;
     }
     case 'click-archive-training-001': {
+      const modal = await openTrainingDetail('training-001');
+      if (await clickModalAction(modal, '#btnCollected')) return;
       const idx = mockOrders.findIndex(o => o.orderId === 'training-001');
       if (idx >= 0) mockOrders.splice(idx, 1);
       refreshTrainingBoard();
@@ -268,6 +357,24 @@ async function executeTrainingAction(actionId) {
       return;
     }
     case 'click-cancel-training-002': {
+      // Cancelling a PENDING order is "Reject", which opens a second dialog
+      // asking for a reason. Show both — the step narration promises a reason
+      // is logged for admin review.
+      const modal = await openTrainingDetail('training-002');
+      const rejectBtn = modal?.querySelector('#btnReject');
+      if (rejectBtn) {
+        rejectBtn.click();                 // reveals the reason picker
+        await waitMs(MODAL_DWELL_MS);      // let the trainee read the reasons
+        const reason = modal.querySelector('.pos-reject-picker button');
+        if (reason) {
+          reason.click();
+          await waitMs(POST_CLICK_MS);
+          if (modal.isConnected) modal.remove();
+          refreshTrainingBoard();
+          return;
+        }
+        if (modal.isConnected) modal.remove();
+      }
       const idx = mockOrders.findIndex(o => o.orderId === 'training-002');
       if (idx >= 0) mockOrders.splice(idx, 1);
       refreshTrainingBoard();
