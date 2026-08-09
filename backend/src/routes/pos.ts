@@ -264,8 +264,12 @@ async function approveOrder(event: APIGatewayProxyEvent, actor: string = ''): Pr
     await docClient.send(new UpdateCommand({
       TableName: ORDERS_TABLE,
       Key: { PK: `ORDER#${id}`, SK: 'META' },
-      UpdateExpression: 'SET #s = :s, approvedBy = :a, discountType = :dt, discountOffset = :do, totalAmount = :t, items = :items, grossAmount = :ga, customerClass = :cc, updatedAt = :u REMOVE expiresAt',
-      ExpressionAttributeNames: { '#s': 'status' },
+      // `items` is a DynamoDB RESERVED KEYWORD and must be aliased — an
+      // unaliased `items = :items` fails the whole request with
+      // ValidationException, which surfaced as a 502 and made it impossible to
+      // approve any order. Same for `status` (#s).
+      UpdateExpression: 'SET #s = :s, approvedBy = :a, discountType = :dt, discountOffset = :do, totalAmount = :t, #items = :items, grossAmount = :ga, customerClass = :cc, updatedAt = :u REMOVE expiresAt',
+      ExpressionAttributeNames: { '#s': 'status', '#items': 'items' },
       ExpressionAttributeValues: {
         ':s': 'PREPARING', ':a': body.approvedBy, ':dt': discountType, ':do': discountOffset,
         ':t': totalAmount, ':items': repricedItems, ':ga': summary.grossAmount,

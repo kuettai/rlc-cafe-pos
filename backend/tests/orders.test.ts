@@ -408,3 +408,89 @@ describe('approveOrder — race', () => {
     expect(recipeQueries).toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Reserved keywords in UpdateExpressions
+// ---------------------------------------------------------------------------
+
+/**
+ * `items` is a DynamoDB reserved keyword. Writing it unaliased makes the entire
+ * UpdateCommand fail with
+ *
+ *   ValidationException: Invalid UpdateExpression: Attribute name is a
+ *   reserved keyword; reserved keyword: items
+ *
+ * which surfaced to cashiers as a 502 and made it impossible to approve any
+ * order mid-service on 2026-08-09. The mocked docClient accepts anything, so no
+ * existing test noticed — these assert the expression's SHAPE instead.
+ *
+ * Only the keywords this codebase actually writes are listed; the full DynamoDB
+ * reserved list is ~570 words and most are irrelevant here.
+ */
+const RESERVED_ATTRS = ['items', 'status', 'name', 'text', 'reference', 'value', 'type', 'timestamp', 'source', 'user', 'date', 'total', 'count', 'order'];
+
+function assertReservedWordsAliased(updateExpression: string, names: Record<string, string> = {}) {
+  for (const word of RESERVED_ATTRS) {
+    // A bare occurrence is the attribute name used as an assignment target or
+    // operand — i.e. not prefixed with '#' and not part of a longer identifier.
+    const bare = new RegExp(`(^|[\\s,(])${word}\\s*=`, 'i');
+    expect(updateExpression).not.toMatch(bare);
+  }
+  // Every '#alias' referenced must be declared, or DynamoDB rejects the call.
+  for (const alias of updateExpression.match(/#[A-Za-z0-9_]+/g) || []) {
+    expect(Object.keys(names)).toContain(alias);
+  }
+}
+
+describe('UpdateExpressions alias DynamoDB reserved keywords', () => {
+  it('approveOrder aliases `items` and declares every alias it uses', async () => {
+    const existingOrder = {
+      PK: 'ORDER#order-123', SK: 'META', orderId: 'order-123',
+      status: 'PENDING', items: [drinkItem], totalAmount: 8,
+    };
+    mockDbSend
+      .mockResolvedValueOnce({ Item: existingOrder })  // Get(order)
+      .mockResolvedValue({});                          // Update + everything after
+
+    const result = await handlePos(makeEvent({
+      httpMethod: 'PUT',
+      path: '/api/pos/orders/order-123/approve',
+      body: JSON.stringify({ approvedBy: 'cashier-name' }),
+    }));
+    expect(result.statusCode).toBe(200);
+
+    const update = mockDbSend.mock.calls
+      .map((c) => c[0])
+      .find((c) => c.__cmd === 'Update' && c.TableName === 'test-orders');
+    expect(update).toBeDefined();
+    expect(update.UpdateExpression).toContain('#items = :items');
+    assertReservedWordsAliased(update.UpdateExpression, update.ExpressionAttributeNames);
+  });
+
+  it('modifyOrder aliases `items` and declares every alias it uses', async () => {
+    const existingOrder = {
+      PK: 'ORDER#order-456', SK: 'META', orderId: 'order-456',
+      status: 'PENDING', items: [drinkItem], totalAmount: 8,
+    };
+    mockDbSend.mockReset();
+    mockDbSend
+      .mockResolvedValueOnce({ Item: existingOrder })   // Get(order)
+      .mockResolvedValue({ Item: { ...drinkItem, basePrice: 8, category: 'DRINK', isActive: true } });
+
+    await handleOrders(makeEvent({
+      httpMethod: 'PUT',
+      path: '/api/orders/order-456',
+      body: JSON.stringify({ items: [{ menuItemId: drinkItem.menuItemId, quantity: 1 }] }),
+    }));
+
+    const update = mockDbSend.mock.calls
+      .map((c) => c[0])
+      .find((c) => c.__cmd === 'Update' && c.TableName === 'test-orders');
+    // If the modify path bailed before updating, there is nothing to assert —
+    // but when it does update, the expression must be alias-clean.
+    if (update) {
+      expect(update.UpdateExpression).toContain('#items = :items');
+      assertReservedWordsAliased(update.UpdateExpression, update.ExpressionAttributeNames);
+    }
+  });
+});

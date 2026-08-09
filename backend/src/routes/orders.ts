@@ -292,7 +292,9 @@ async function modifyOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
       ':do': pricing.discountOffset,
       ':ga': pricing.grossAmount,
     };
-    let updateExpr = 'SET items = :items, totalAmount = :t, updatedAt = :u, modifiedAt = :u, discountType = :dt, discountOffset = :do, grossAmount = :ga';
+    // `items` is a DynamoDB RESERVED KEYWORD, so it must be aliased (#items).
+    // Unaliased, the whole UpdateCommand fails with ValidationException.
+    let updateExpr = 'SET #items = :items, totalAmount = :t, updatedAt = :u, modifiedAt = :u, discountType = :dt, discountOffset = :do, grossAmount = :ga';
     if (body.notes !== undefined) {
       updateExpr += ', notes = :n';
       exprValues[':n'] = body.notes;
@@ -303,7 +305,7 @@ async function modifyOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
         TableName: ORDERS_TABLE,
         Key: { PK: `ORDER#${id}`, SK: 'META' },
         UpdateExpression: updateExpr,
-        ExpressionAttributeNames: { '#s': 'status' },
+        ExpressionAttributeNames: { '#s': 'status', '#items': 'items' },
         ExpressionAttributeValues: exprValues,
         ConditionExpression: '#s = :pending',
       }));
