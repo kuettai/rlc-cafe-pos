@@ -1164,6 +1164,16 @@ header h1{
   background:var(--cream);
   border-bottom:1px solid var(--cream-dark);
 }
+/* Match the button height in the controls bar. `.pos-input` is a form control
+   elsewhere, where 48px and a bottom margin are right — but in this row it made
+   the search box 50px against the buttons' 41px, and the leftover margin pushed
+   its centre 7px above theirs. Scoped so other forms are unaffected. */
+.pos-controls .pos-input{
+  min-height:40px;
+  padding:8px 14px;
+  font-size:.9rem;
+  margin-bottom:0;
+}
 .pos-search{flex:1;max-width:320px}
 /* Walk-up sits in the controls bar above the board as the primary action —
    solid fill so it reads as the one button a cashier reaches for mid-service,
