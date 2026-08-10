@@ -143,11 +143,17 @@ function loadTab(){
   }
 }
 
-// --- Reports (embedded) ---
+// --- Reports ---
+// reports.html is a STANDALONE page: it ships its own header, admin sidebar and
+// footer so it can be opened directly. Embedding it in an iframe therefore
+// rendered a second header and a second sidebar inside admin's own chrome.
+//
+// Navigate to it instead of nesting it. The token lives in storage shared with
+// admin.js, so there is no re-login, and reports.html's sidebar already marks
+// "📈 Reports" active with every other entry linking back here.
 function loadReportsTab(container) {
-  // Embed reports.html in an iframe. The reports page reads token from
-  // localStorage (shared with admin.js) so no re-login is needed.
-  container.innerHTML = `<iframe src="reports.html" style="width:100%;height:calc(100vh - 60px);border:none;border-radius:8px;background:#fff"></iframe>`;
+  container.innerHTML = '<div class="loading">Opening Reports…</div>';
+  window.location.href = 'reports.html';
 }
 
 // --- Users Management ---
