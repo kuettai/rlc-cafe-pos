@@ -78,6 +78,36 @@ async function openWalkup(){
    */
   const MAX_GRID_COMBOS = 24;
 
+  /**
+   * Colour family for a menu item, so blocks of the same drink read as a group
+   * at a glance — every Latte light brown, black coffee dark, matcha green.
+   *
+   * Matched on the item NAME, since nothing on the record identifies a drink
+   * family. Order matters: the first hit wins, so "Matcha Latte" must be tested
+   * before the generic "latte", and "Hot Chocolate" before "chocolate" would
+   * catch Mocha. Anything unmatched falls back to a neutral tile rather than
+   * being forced into a family.
+   */
+  const COLOUR_FAMILIES = [
+    { family: 'matcha',    test: /matcha|green tea/i },
+    { family: 'tea',       test: /\btea\b|chamomile|camomile|earl grey|peppermint/i },
+    { family: 'chocolate', test: /chocolate|mocha/i },
+    { family: 'black',     test: /long black|espresso|americano|citrus black|\bblack\b/i },
+    { family: 'latte',     test: /latte|cappuccino|flat white|milk coffee/i },
+    { family: 'soda',      test: /soda|sparkling|tonic/i },
+    { family: 'water',     test: /water/i },
+    { family: 'food',      test: null },   // set by category, not name
+  ];
+
+  function colourFamily(item) {
+    if (item.category === 'FOOD') return 'food';
+    const name = String(item.name || '');
+    for (const f of COLOUR_FAMILIES) {
+      if (f.test && f.test.test(name)) return f.family;
+    }
+    return 'default';
+  }
+
   function subsetsOf(options) {
     let out = [[]];
     for (const o of options) out = out.concat(out.map(s => s.concat([o])));
@@ -252,12 +282,13 @@ async function openWalkup(){
               const combos = expandCombinations(m);
               if (combos) {
                 gridCombos[mid] = combos;
+                const fam = colourFamily(m);
                 return combos.map((c, ci) => {
                   const unit = price + c.priceDelta;
                   const sub = c.label
                     ? `<span class="pos-combo-variant">${c.label}</span>`
                     : (groupsOf(m).length ? '<span class="pos-combo-variant">Plain</span>' : '');
-                  return `<button class="pos-walkup-combo${soldOut ? ' pos-walkup-item-soldout' : ''}"`
+                  return `<button class="pos-walkup-combo pos-fam-${fam}${soldOut ? ' pos-walkup-item-soldout' : ''}"`
                     + ` data-combo="${mid}:${ci}"${soldOut ? ' disabled aria-disabled="true"' : ''}>`
                     + `<span class="pos-combo-name">${m.name}</span>`
                     + sub

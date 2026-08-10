@@ -2421,7 +2421,9 @@ body.training-active.training-target-sidebar .pos-sidebar::after{opacity:0}
        prefer big buttons over a dense list. --- */
 .pos-walkup-menu-grid{
   display:grid;
-  grid-template-columns:repeat(auto-fill,minmax(210px,1fr));
+  /* 240px minimum so a name like "Hot Chocolate" plus "Iced + Oat Milk" fits on
+     two comfortable lines at the larger type size. */
+  grid-template-columns:repeat(auto-fill,minmax(240px,1fr));
   gap:10px;
   align-content:start;
 }
@@ -2484,8 +2486,10 @@ body.training-active.training-target-sidebar .pos-sidebar::after{opacity:0}
   align-items:flex-start;
   justify-content:space-between;
   gap:4px;
-  min-height:104px;
-  padding:12px;
+  /* Taller than the text strictly needs: these are tapped on a counter tablet,
+     often in a hurry, and the larger type needs room not to clip. */
+  min-height:132px;
+  padding:14px 16px;
   border:2px solid var(--cream-dark,#E5DACB);
   border-radius:var(--radius,10px);
   background:var(--white,#fff);
@@ -2503,30 +2507,79 @@ body.training-active.training-target-sidebar .pos-sidebar::after{opacity:0}
    press needs to feel like it registered. */
 .pos-walkup-combo:active{transform:scale(.97)}
 .pos-combo-name{
-  font-size:1.02rem;
-  font-weight:700;
-  line-height:1.25;
+  font-size:1.3rem;
+  font-weight:800;
+  line-height:1.2;
 }
 .pos-combo-variant{
-  font-size:.85rem;
+  font-size:1.05rem;
+  font-weight:600;
   color:var(--text-light,#7A6355);
   line-height:1.2;
 }
 .pos-combo-price{
-  font-size:1rem;
-  font-weight:700;
+  font-size:1.25rem;
+  font-weight:800;
   color:var(--brown,#6B4226);
   margin-top:auto;
 }
-.pos-walkup-combo.pos-walkup-item-soldout{
+/* Sold-out styling lives with the colour families below, where it has to win
+   against the family tints. */
+
+/* --- Drink colour families ---------------------------------------------
+   Blocks of the same drink share a tint and a thick left bar, so a cashier
+   spots the Latte group without reading every tile. Tints stay pale and the
+   accent lives on the border: filling a whole block with a saturated colour
+   would fight the price text for attention and hurt contrast.
+
+   Family is assigned in pos-walkup.js (colourFamily) by matching the item
+   name, since nothing on the menu record identifies a drink family. */
+.pos-walkup-combo[class*="pos-fam-"]{border-left-width:8px}
+
+.pos-fam-latte     {background:#FBF3E9;border-color:#C89F73;border-left-color:#B07E4E}
+.pos-fam-black     {background:#EFEBE7;border-color:#6B5A4C;border-left-color:#3B2E24}
+/* Distinctly redder and deeper than the latte tan — side by side in the grid
+   the two were hard to tell apart, which defeats the grouping. */
+.pos-fam-chocolate {background:#F3E0D5;border-color:#8C4A2F;border-left-color:#5C2E18}
+.pos-fam-matcha    {background:#EDF6EA;border-color:#7FAE72;border-left-color:#4E8B45}
+.pos-fam-tea       {background:#FAF2E4;border-color:#C9A961;border-left-color:#A5842F}
+.pos-fam-soda      {background:#EAF3F8;border-color:#6FA8C9;border-left-color:#3E7FA5}
+.pos-fam-water     {background:#EEF6F9;border-color:#8FB8CC;border-left-color:#5E93AD}
+.pos-fam-food      {background:#FCF0EC;border-color:#D08C79;border-left-color:#B05F45}
+
+/* Hover: deepen the tint slightly rather than switching to the generic cream,
+   so the family stays identifiable while the block is being pressed. */
+.pos-fam-latte:hover     {background:#F6E8D6;border-color:#B07E4E}
+.pos-fam-black:hover     {background:#E3DDD7;border-color:#3B2E24}
+.pos-fam-chocolate:hover {background:#EBD1C2;border-color:#5C2E18}
+.pos-fam-matcha:hover    {background:#DEEEDA;border-color:#4E8B45}
+.pos-fam-tea:hover       {background:#F3E6CB;border-color:#A5842F}
+.pos-fam-soda:hover      {background:#D9E9F2;border-color:#3E7FA5}
+.pos-fam-water:hover     {background:#DFEDF3;border-color:#5E93AD}
+.pos-fam-food:hover      {background:#F7E0D8;border-color:#B05F45}
+
+/* Price inherits the family accent so it reads as part of the same group. */
+.pos-fam-latte     .pos-combo-price{color:#8A5A2B}
+.pos-fam-black     .pos-combo-price{color:#2E241C}
+.pos-fam-chocolate .pos-combo-price{color:#5C2E18}
+.pos-fam-matcha    .pos-combo-price{color:#3D6F36}
+.pos-fam-tea       .pos-combo-price{color:#8A6D20}
+.pos-fam-soda      .pos-combo-price{color:#2F6C88}
+.pos-fam-water     .pos-combo-price{color:#4A7C93}
+.pos-fam-food      .pos-combo-price{color:#964A32}
+
+/* Sold-out must win over the family tints above, including their :hover rules.
+   Declared last and with !important because the family selectors have equal
+   specificity, so source order alone would not settle the :hover case. */
+.pos-walkup-combo.pos-walkup-item-soldout,
+.pos-walkup-combo.pos-walkup-item-soldout:hover{
   cursor:not-allowed;
-  background:var(--cream-dark,#E5DACB);
+  background:var(--cream-dark,#E5DACB) !important;
+  border-color:#CFC3B4 !important;
+  border-left-color:#B9AB9A !important;
   color:var(--text-light,#7A6355);
 }
-.pos-walkup-combo.pos-walkup-item-soldout:hover{
-  border-color:var(--cream-dark,#E5DACB);
-  background:var(--cream-dark,#E5DACB);
-}
+.pos-walkup-combo.pos-walkup-item-soldout .pos-combo-price{color:var(--text-light,#7A6355) !important}
 
 /* Walk-up + Menu grid mobile fallback.
    Single column on a phone: the 70/30 split has no room, and stacking means the
