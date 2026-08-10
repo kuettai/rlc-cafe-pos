@@ -1493,8 +1493,12 @@ header h1{
 }
 .pos-walkup-menu{
   flex:1;
+  /* min-height:0 is required for this to scroll inside a flex column — without
+     it the box grows to fit its content and the scroll escapes to the page,
+     which is what made both walk-up columns share one scrollbar. */
+  min-height:0;
   overflow-y:auto;
-  margin:14px 0;
+  margin:14px 0 0;
   border:1px solid var(--cream-dark);
   border-radius:var(--radius);
   padding:10px;
@@ -2307,33 +2311,143 @@ body.training-active.training-target-sidebar .pos-sidebar::after{opacity:0}
   gap:8px;
 }
 
-/* === Walk-up — 2-column grid layout === */
+/* === Walk-up — 2-column layout, 70% menu / 30% cart ===
+   Each column scrolls independently: `min-height:0` on the columns is what
+   lets an inner overflow:auto child actually scroll inside a grid row instead
+   of stretching the row and handing the scroll to the page. */
 .pos-walkup-grid{
   display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:24px;
+  grid-template-columns:70% 30%;
+  gap:20px;
   margin-top:12px;
+  min-height:0;
 }
 .pos-walkup-col-left,
 .pos-walkup-col-right{
   min-width:0;
+  min-height:0;
   display:flex;
   flex-direction:column;
-}
-.pos-walkup-col-right{
-  display:flex;
-  flex-direction:column;
-}
-.pos-walkup-col-right .pos-walkup-cart{
-  flex:1;
-  margin:0 0 12px 0;
 }
 
-/* Walk-up + Menu grid mobile fallback */
+/* Right column: cart scrolls, actions stay pinned to the bottom. */
+.pos-walkup-cart-scroll{
+  flex:1;
+  min-height:0;
+  overflow-y:auto;
+  padding-right:4px;
+}
+.pos-walkup-col-right .pos-walkup-cart{
+  margin:0 0 12px 0;
+}
+/* Discount chips + Submit — always visible, never scrolled away. */
+.pos-walkup-actions{
+  flex:0 0 auto;
+  padding-top:12px;
+  margin-top:4px;
+  border-top:2px solid var(--cream-dark,#E5DACB);
+  background:var(--white,#fff);
+}
+.pos-walkup-actions #wkSubmit{width:100%}
+
+/* Layout toggle sits with the category filters. */
+.pos-walkup-layout-toggle{
+  display:inline-flex;
+  gap:4px;
+  margin-left:auto;
+}
+
+/* Variant groups: one labelled row per group (Temperature, Milk, …) so it is
+   visible that the choices COMBINE into a single drink rather than each adding
+   its own cart line. */
+.pos-variant-group{
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  flex-wrap:wrap;
+  margin-right:10px;
+}
+.pos-variant-group-label{
+  font-size:.7rem;
+  font-weight:600;
+  text-transform:uppercase;
+  letter-spacing:.4px;
+  color:var(--text-light,#7A6355);
+  margin-right:2px;
+}
+.pos-variant-btn.active{
+  background:var(--brown,#6B4226);
+  border-color:var(--brown,#6B4226);
+  color:#fff;
+}
+
+/* --- Block/grid menu layout: larger type and tap targets for cashiers who
+       prefer big buttons over a dense list. --- */
+.pos-walkup-menu-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(210px,1fr));
+  gap:10px;
+  align-content:start;
+}
+.pos-walkup-menu-grid .pos-walkup-item{
+  flex-direction:column;
+  align-items:stretch;
+  border:2px solid var(--cream-dark,#E5DACB);
+  border-radius:var(--radius,10px);
+  background:var(--white,#fff);
+  padding:12px;
+  gap:8px;
+  /* Cards in a row share the tallest height. Without this, an item with fewer
+     variant groups stretched its buttons to fill the gap; now the slack goes
+     above the "+" instead, so every card's add button lines up. */
+  justify-content:flex-start;
+}
+.pos-walkup-menu-grid .pos-variant-group{flex:0 0 auto}
+.pos-walkup-menu-grid .pos-add-btn{margin-top:auto}
+.pos-walkup-menu-grid .pos-walkup-item:last-child{border:2px solid var(--cream-dark,#E5DACB)}
+.pos-walkup-menu-grid .pos-walkup-item-name{
+  font-size:1.05rem;
+  font-weight:700;
+  flex:0 0 auto;
+}
+/* Label on its own line, options in a row beneath it. Keeping the label inline
+   wrapped badly in a narrow card: it held on to the first option and orphaned
+   the rest onto separate lines. `flex-basis:100%` on the label forces the break;
+   the options then share the row and stretch to fill it. */
+.pos-walkup-menu-grid .pos-variant-group{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:stretch;
+  gap:6px;
+  margin:0;
+  width:100%;
+}
+.pos-walkup-menu-grid .pos-variant-group-label{
+  flex:1 0 100%;
+  margin:0;
+}
+.pos-walkup-menu-grid .pos-variant-btn{
+  font-size:.9rem;
+  padding:8px 10px;
+  min-height:44px;
+  flex:1 1 auto;
+}
+.pos-walkup-menu-grid .pos-add-btn{
+  width:100%;
+  min-height:52px;
+  font-size:1.5rem;
+}
+
+/* Walk-up + Menu grid mobile fallback.
+   Single column on a phone: the 70/30 split has no room, and stacking means the
+   page scrolls as one document rather than two independent panes. */
 @media (max-width:768px){
   .pos-walkup-grid{
     grid-template-columns:1fr;
   }
+  /* Stacked, so let both panes size to content and scroll with the modal. */
+  .pos-walkup-cart-scroll{overflow:visible}
+  .pos-walkup-menu{max-height:50vh}
   .pos-menu-grid{
     grid-template-columns:1fr;
   }
