@@ -9,12 +9,24 @@ const app = $('#app');
 let token = localStorage.getItem('pos_token');
 let currentUser = localStorage.getItem('pos_user') || '';
 
-function showFormModal(form){
+/**
+ * Show an admin form in a modal.
+ *
+ * @param {HTMLElement} form
+ * @param {Object} [opts]
+ * @param {String} [opts.maxWidth='600px'] Override for forms that need more
+ *   room. The Menu form's option-group editor puts a group name, a selection
+ *   type and a row of priced options side by side, which is cramped at 600px.
+ *   Kept opt-in so the other seven callers are untouched.
+ */
+function showFormModal(form, opts){
   const overlay = document.createElement('div');
   overlay.className = 'pos-modal-overlay';
   const modal = document.createElement('div');
   modal.className = 'pos-modal';
-  modal.style.maxWidth = '600px';
+  // min() so a wide form still fits a narrow screen without overflowing.
+  modal.style.maxWidth = `min(${(opts && opts.maxWidth) || '600px'}, calc(100vw - 32px))`;
+  modal.style.width = '100%';
   modal.style.maxHeight = '85vh';
   modal.style.overflowY = 'auto';
   modal.appendChild(form);
