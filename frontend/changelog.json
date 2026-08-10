@@ -1,4 +1,5 @@
-[{"version":"v1.64.1","date":"2026-08-10","changes":["Admin Menu: wider Edit Menu Item dialog so option groups are easier to read and edit"]},
+[{"version":"v1.65.0","date":"2026-08-10","changes":["Walk-up block layout: each drink combination now has its own block (Latte Hot, Latte Hot + Oat Milk, Latte Iced, Latte Iced + Oat Milk) — one tap orders it, no toggling"]},
+{"version":"v1.64.1","date":"2026-08-10","changes":["Admin Menu: wider Edit Menu Item dialog so option groups are easier to read and edit"]},
 {"version":"v1.64.0","date":"2026-08-10","changes":["Admin Menu: option groups (Hot/Iced, Oat Milk, tea types) are now editable in the Edit form — previously they could only be changed by running a script, and the old Add Variant box wrote to a field nothing used"]},
 {"version":"v1.63.3","date":"2026-08-10","changes":["Admin: Reports now opens as a tab inside Admin like every other section, instead of jumping to a separate page"]},
 {"version":"v1.63.2","date":"2026-08-10","changes":["POS: search box now lines up with the buttons beside it above the order board"]},

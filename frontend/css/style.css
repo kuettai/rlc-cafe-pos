@@ -2474,6 +2474,60 @@ body.training-active.training-target-sidebar .pos-sidebar::after{opacity:0}
   font-size:1.5rem;
 }
 
+/* --- Combination tiles: one block per orderable drink, e.g. Latte (Iced +
+       Oat Milk). The whole block is the button, so ordering is a single tap
+       with no toggling — the point of this layout for cashiers who want big
+       targets. --- */
+.pos-walkup-combo{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:4px;
+  min-height:104px;
+  padding:12px;
+  border:2px solid var(--cream-dark,#E5DACB);
+  border-radius:var(--radius,10px);
+  background:var(--white,#fff);
+  cursor:pointer;
+  text-align:left;
+  font:inherit;
+  color:var(--text,#3E2C1C);
+  transition:transform .08s ease, border-color .15s ease, background .15s ease;
+}
+.pos-walkup-combo:hover{
+  border-color:var(--brown,#6B4226);
+  background:var(--cream,#f9f5f0);
+}
+/* Tap feedback matters here: the tile adds to the cart immediately, so the
+   press needs to feel like it registered. */
+.pos-walkup-combo:active{transform:scale(.97)}
+.pos-combo-name{
+  font-size:1.02rem;
+  font-weight:700;
+  line-height:1.25;
+}
+.pos-combo-variant{
+  font-size:.85rem;
+  color:var(--text-light,#7A6355);
+  line-height:1.2;
+}
+.pos-combo-price{
+  font-size:1rem;
+  font-weight:700;
+  color:var(--brown,#6B4226);
+  margin-top:auto;
+}
+.pos-walkup-combo.pos-walkup-item-soldout{
+  cursor:not-allowed;
+  background:var(--cream-dark,#E5DACB);
+  color:var(--text-light,#7A6355);
+}
+.pos-walkup-combo.pos-walkup-item-soldout:hover{
+  border-color:var(--cream-dark,#E5DACB);
+  background:var(--cream-dark,#E5DACB);
+}
+
 /* Walk-up + Menu grid mobile fallback.
    Single column on a phone: the 70/30 split has no room, and stacking means the
    page scrolls as one document rather than two independent panes. */

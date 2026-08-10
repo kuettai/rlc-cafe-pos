@@ -61,6 +61,58 @@ async function openWalkup(){
     return pendingVariants[id];
   }
 
+  /**
+   * Every orderable combination of an item's option groups, one per block in
+   * the grid layout — so a Latte becomes four tiles: Hot, Hot + Oat Milk, Iced,
+   * Iced + Oat Milk. One tap orders the exact drink, with no per-tile toggling.
+   *
+   * How each group contributes a branch:
+   *   single    — one branch per option (a choice is mandatory)
+   *   optional  — a "skip" branch plus one per option
+   *   multi     — every subset, since any number may be chosen
+   *
+   * Returns null when the product exceeds MAX_GRID_COMBOS. The caller then
+   * falls back to the interactive tile (toggles + "+") so a heavily-optioned
+   * item stays orderable instead of flooding the screen — Tea alone is 6 types
+   * × 2 temperatures = 12, and a third group would multiply from there.
+   */
+  const MAX_GRID_COMBOS = 24;
+
+  function subsetsOf(options) {
+    let out = [[]];
+    for (const o of options) out = out.concat(out.map(s => s.concat([o])));
+    return out;
+  }
+
+  function expandCombinations(item) {
+    const groups = groupsOf(item);
+    if (!groups.length) return [{ selectedVariants: [], priceDelta: 0, label: null }];
+
+    let combos = [[]];
+    for (const g of groups) {
+      const opt = o => ({ group: g.group, option: o.name, price: Number(o.price || 0) });
+      let branches;
+      if (g.type === 'multi') branches = subsetsOf(g.options).map(s => s.map(opt));
+      else if (g.type === 'optional') branches = [[]].concat(g.options.map(o => [opt(o)]));
+      else branches = g.options.map(o => [opt(o)]);
+
+      const next = [];
+      for (const c of combos) for (const b of branches) next.push(c.concat(b));
+      combos = next;
+      if (combos.length > MAX_GRID_COMBOS) return null;
+    }
+
+    return combos.map(sv => ({
+      selectedVariants: sv,
+      priceDelta: sv.reduce((s, v) => s + v.price, 0),
+      label: sv.length ? sv.map(v => v.option).join(' + ') : null,
+    }));
+  }
+
+  // Combinations for the current grid render, keyed by menuItemId. Rebuilt on
+  // every render so a tile click can look up exactly what it represents.
+  let gridCombos = {};
+
   /** Resolve a selection into the shape the cart and the API expect. */
   function resolveSelection(item){
     const sel = selectionFor(item);
@@ -158,6 +210,10 @@ async function openWalkup(){
     // Preserve menu scroll position across re-renders
     const prevMenuScroll = modal.querySelector('.pos-walkup-menu')?.scrollTop || 0;
 
+    // Rebuilt below by the grid renderer; cleared so a stale index from a
+    // previous filter or layout can't be clicked.
+    gridCombos = {};
+
     const filtered = filteredMenu();
 
     modal.innerHTML=`<div class="pos-modal pos-modal-walkup">
@@ -186,6 +242,31 @@ async function openWalkup(){
             const stockLabel = !hasQty ? '' :
               soldOut ? ' <span class="pos-walkup-stock pos-walkup-stock-out">(Sold Out)</span>'
                       : ` <span class="pos-walkup-stock">(${available} left)</span>`;
+
+            // Block layout: one tile per orderable COMBINATION, so a Latte
+            // shows Hot, Hot + Oat Milk, Iced and Iced + Oat Milk as four
+            // separate one-tap blocks. Falls back to the interactive tile when
+            // an item has too many combinations to lay out (see
+            // expandCombinations).
+            if (wkLayout === 'grid') {
+              const combos = expandCombinations(m);
+              if (combos) {
+                gridCombos[mid] = combos;
+                return combos.map((c, ci) => {
+                  const unit = price + c.priceDelta;
+                  const sub = c.label
+                    ? `<span class="pos-combo-variant">${c.label}</span>`
+                    : (groupsOf(m).length ? '<span class="pos-combo-variant">Plain</span>' : '');
+                  return `<button class="pos-walkup-combo${soldOut ? ' pos-walkup-item-soldout' : ''}"`
+                    + ` data-combo="${mid}:${ci}"${soldOut ? ' disabled aria-disabled="true"' : ''}>`
+                    + `<span class="pos-combo-name">${m.name}</span>`
+                    + sub
+                    + `<span class="pos-combo-price">${price ? 'RM' + unit.toFixed(2) : ''}${stockLabel}</span>`
+                    + `</button>`;
+                }).join('');
+              }
+              // Too many combinations — fall through to the toggle tile below.
+            }
 
             // One toggle row per variant GROUP, so a Temperature choice and a
             // Milk choice combine into a single drink instead of two lines.
@@ -262,6 +343,30 @@ async function openWalkup(){
       localStorage.setItem('walkup_layout', wkLayout);
       preserveInputs();
       renderWalkup();
+    });
+
+    // Block layout: one tap on a combination tile orders exactly that drink.
+    modal.querySelectorAll('[data-combo]').forEach(b=>b.onclick=()=>{
+      const [mid, ci] = b.dataset.combo.split(':');
+      const item = menu.find(m=>(m.menuItemId||m.id)===mid);
+      const combo = gridCombos[mid] && gridCombos[mid][+ci];
+      if (!item || !combo) return;
+      const basePrice = item.basePrice || item.price || 0;
+
+      const existing = cart.find(c=>c.menuItemId===mid && (c.variant||null)===combo.label);
+      if (existing) { existing.qty++; }
+      else {
+        cart.push({
+          name: item.name, menuItemId: mid,
+          price: basePrice + combo.priceDelta, qty: 1,
+          variant: combo.label,
+          selectedVariants: combo.selectedVariants,
+          category: item.category || 'DRINK',
+          celebrationEligible: item.celebrationEligible === true,
+          basePrice,
+        });
+      }
+      updateCart();
     });
 
     // "+" commits ONE line combining every group's current selection.
