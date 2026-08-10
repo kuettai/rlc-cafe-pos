@@ -143,17 +143,23 @@ function loadTab(){
   }
 }
 
-// --- Reports ---
-// reports.html is a STANDALONE page: it ships its own header, admin sidebar and
-// footer so it can be opened directly. Embedding it in an iframe therefore
-// rendered a second header and a second sidebar inside admin's own chrome.
+// --- Reports (mounted in-page, like every other tab) ---
+// Two earlier approaches were wrong: an iframe of reports.html duplicated its
+// header and sidebar inside admin's chrome, and navigating away broke the
+// single-page pattern the other tabs follow.
 //
-// Navigate to it instead of nesting it. The token lives in storage shared with
-// admin.js, so there is no re-login, and reports.html's sidebar already marks
-// "📈 Reports" active with every other entry linking back here.
+// reports.js now exposes RLCReports.mount(host), so the same code renders both
+// the standalone page and this tab. reports.html remains reachable directly.
 function loadReportsTab(container) {
-  container.innerHTML = '<div class="loading">Opening Reports…</div>';
-  window.location.href = 'reports.html';
+  if (!window.RLCReports || typeof window.RLCReports.mount !== 'function') {
+    // Script missing (cache miss, or not in the sw.js SHELL yet) — offer the
+    // standalone page rather than showing an empty tab.
+    container.innerHTML = '<div class="admin-empty"><p>Reports module failed to load. '
+      + '<a href="reports.html">Open Reports directly</a></p></div>';
+    return;
+  }
+  container.innerHTML = '';
+  window.RLCReports.mount(container);
 }
 
 // --- Users Management ---

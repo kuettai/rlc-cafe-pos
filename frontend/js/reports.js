@@ -13,8 +13,13 @@
 (function () {
 'use strict';
 
-const $ = sel => document.querySelector(sel);
-const app = $('#app');
+// Host element. On reports.html this is the page's own #app. When admin.html
+// mounts the reports view inside its Reports tab it calls
+// `RLCReports.mount(el)`, which re-points this at the tab's container — so the
+// same code drives the standalone page and the embedded tab without an iframe.
+let app = document.querySelector('#app');
+
+const $ = sel => (app && app.querySelector(sel)) || document.querySelector(sel);
 
 let token = localStorage.getItem('pos_token');
 let currentUser = localStorage.getItem('pos_user') || '';
@@ -113,6 +118,16 @@ function logout() {
 // ─── Auth ─────────────────────────────────────────────────────────────
 
 function renderLogin() {
+  // Embedded in admin.html, reaching this means the shared token vanished (or
+  // expired) after admin had already authenticated. Showing a second login form
+  // inside a tab is confusing, so say what happened and let admin's own login
+  // handle it.
+  if (!document.body.classList.contains('reports-standalone')) {
+    app.innerHTML = `<div class="admin-empty"><p>Session expired — please log in again.</p>
+      <p style="margin-top:10px"><button class="pos-btn pos-btn-sm" onclick="location.reload()">Reload</button></p></div>`;
+    return;
+  }
+
   app.innerHTML = `<div class="admin-login">
     <h2>Reports Login</h2>
     <p>Admin access required</p>
@@ -147,18 +162,25 @@ function renderLogin() {
 // ─── App shell ────────────────────────────────────────────────────────
 
 function renderApp() {
-  app.innerHTML = `<main class="admin-main" style="display:block">
+  // Embedded in admin.html's Reports tab, the surrounding page already provides
+  // the <main>, the "logged in as" label and a Logout button — so drop the
+  // duplicates and render just the reports content.
+  const standalone = document.body.classList.contains('reports-standalone');
+  const openTag  = standalone ? '<main class="admin-main" style="display:block">' : '<div>';
+  const closeTag = standalone ? '</main>' : '</div>';
+
+  app.innerHTML = `${openTag}
     <div class="admin-section" style="margin-bottom:16px">
       <div class="admin-section-header" style="flex-wrap:wrap;gap:12px">
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
           <h2 style="margin:0">📊 Sales Reports</h2>
-          <span style="color:var(--text-light,#7A6355);font-size:.9rem">Logged in as ${escapeHtml(currentUser)}</span>
+          ${standalone ? `<span style="color:var(--text-light,#7A6355);font-size:.9rem">Logged in as ${escapeHtml(currentUser)}</span>` : ''}
         </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <label style="font-size:.85rem;color:var(--text-light,#7A6355)">Month
             <input type="month" id="rptMonth" value="${selectedMonth}" class="pos-input" style="margin-left:6px;width:auto">
           </label>
-          <button class="pos-btn pos-btn-sm" id="rptLogout">Logout</button>
+          ${standalone ? '<button class="pos-btn pos-btn-sm" id="rptLogout">Logout</button>' : ''}
         </div>
       </div>
 
@@ -169,14 +191,16 @@ function renderApp() {
 
       <div id="rptContent" style="margin-top:16px"></div>
     </div>
-  </main>`;
+  ${closeTag}`;
 
   $('#rptMonth').onchange = (e) => {
     selectedMonth = e.target.value || currentMonthStr();
     cachedOrders = null; // force re-fetch
     loadActiveTab();
   };
-  $('#rptLogout').onclick = logout;
+  // Absent when embedded — admin.html supplies its own Logout.
+  const logoutBtn = $('#rptLogout');
+  if (logoutBtn) logoutBtn.onclick = logout;
   $('#tabSummary').onclick = () => switchTab('summary');
   $('#tabDetail').onclick  = () => switchTab('detail');
 
@@ -191,8 +215,11 @@ function switchTab(tab) {
 }
 
 function highlightTab() {
+  // Scoped to `app`, NOT the document: admin.html's sidebar has its own
+  // [data-tab] buttons (including one called "reports"), and a document-wide
+  // query would style those instead once this view is mounted inside it.
   ['summary', 'detail'].forEach(t => {
-    const b = document.querySelector(`[data-tab="${t}"]`);
+    const b = $(`[data-tab="${t}"]`);
     if (!b) return;
     if (t === activeTab) b.classList.add('pos-btn-primary');
     else b.classList.remove('pos-btn-primary');
@@ -648,8 +675,39 @@ function downloadDetailCsv() {
   setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 100);
 }
 
+// ─── Public API ───────────────────────────────────────────────────────
+
+/**
+ * Render the reports view into `host`.
+ *
+ * Used by admin.js to show Reports as a tab instead of navigating away. The
+ * Reports tab used to be an iframe of this whole page, which rendered a second
+ * header and sidebar inside admin's chrome; then it navigated away entirely,
+ * which broke the "everything under one page" pattern the other tabs follow.
+ *
+ * Re-reads the token from storage on each mount so a login performed in
+ * admin.html is picked up without a reload.
+ */
+function mount(host) {
+  if (!host) return;
+  app = host;
+  token = localStorage.getItem('pos_token');
+  currentUser = localStorage.getItem('pos_user') || '';
+  // Fresh mount: drop any cached month so a stale range isn't shown.
+  cachedOrders = null;
+  cachedRange = null;
+  token ? renderApp() : renderLogin();
+}
+
+window.RLCReports = { mount };
+
 // ─── Init ─────────────────────────────────────────────────────────────
 
-token ? renderApp() : renderLogin();
+// Self-boot only on the standalone page. When admin.html loads this script the
+// host container belongs to a tab that may not be open yet, so it waits for
+// RLCReports.mount(). `body.reports-standalone` marks the dedicated page.
+if (document.body.classList.contains('reports-standalone')) {
+  token ? renderApp() : renderLogin();
+}
 
 })();

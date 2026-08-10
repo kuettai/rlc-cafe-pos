@@ -21,7 +21,7 @@
 <div class="admin-app" id="app"></div>
 
 <footer class="app-footer" id="appFooter">
-  <span class="app-version">v1.63.2</span>
+  <span class="app-version">v1.63.3</span>
   <button id="checkUpdateBtn" class="check-update-btn">Check for update</button>
 </footer>
 
@@ -36,6 +36,10 @@
 <script src="js/admin-display.js"></script>
 <script src="js/admin-customers.js"></script>
 <script src="js/admin-verses.js"></script>
+<!-- Reports tab. Safe to load here: reports.js is IIFE-wrapped and only
+     self-boots on body.reports-standalone, so it waits for
+     RLCReports.mount(container) instead of taking over this page. -->
+<script src="js/reports.js"></script>
 <script src="js/changelog.js"></script>
 <script>token ? renderApp() : renderLogin();</script>
 <script>

@@ -11,7 +11,10 @@
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/admin.css">
 </head>
-<body>
+<!-- `reports-standalone` tells reports.js to boot itself. Without it the script
+     waits for RLCReports.mount(), which is how admin.html embeds this view in
+     its Reports tab. -->
+<body class="reports-standalone">
 <header class="pos-header" style="background:linear-gradient(135deg,#4A2C17 0%,#6B4226 50%,#8B5E3C 100%)">
   <button class="header-hamburger" id="adminHeaderToggle" aria-label="Toggle menu">☰</button>
   <h1>☕ RLC Café — Sales Reports</h1>
@@ -54,7 +57,7 @@
 </main>
 
 <footer class="app-footer" id="appFooter">
-  <span class="app-version">v1.63.2</span>
+  <span class="app-version">v1.63.3</span>
   <button id="checkUpdateBtn" class="check-update-btn">Check for update</button>
 </footer>
 
