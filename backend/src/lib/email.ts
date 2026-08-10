@@ -96,9 +96,13 @@ export async function sendLowStockAlert(items: { name: string; currentStock: num
 
 export async function sendEndOfDaySummary(data: {
   date: string;
-  totalOrders: number;
+  /** NET total collected on completed sales — `totalAmount` is stored net. */
   totalRevenue: number;
+  totalOrders: number;
+  /** Sum of reductions, for the gross reconciliation line. */
   totalOffsets: number;
+  /** Post-completion cancels: real sales that were refunded. */
+  totalRefunds?: number;
   netExpected: number;
   newcomersServed: number;
   topItems: { name: string; qty: number }[];
@@ -120,10 +124,22 @@ export async function sendEndOfDaySummary(data: {
       </div>
     </div>`;
 
+  // Mirrors the row order of the admin Reports summary table so the email and
+  // the page can be read side by side:
+  //   Gross Sales → Less Discounts → Net Sales → Refunds → Net Expected
+  //
+  // `totalRevenue` is already NET (that is how totalAmount is stored), so gross
+  // is reconstructed as net + offsets. The previous version labelled the net
+  // figure "Gross Revenue" and then subtracted the discounts a second time,
+  // which understated the bottom line whenever any discount applied.
+  const refunds = Number(data.totalRefunds || 0);
+  const grossSales = data.totalRevenue + data.totalOffsets;
   const breakdownHtml = `
     <table style="width:100%;border-collapse:collapse;margin:16px 0">
-      <tr><td style="padding:8px 0;color:#7A6355">Gross Revenue</td><td style="padding:8px 0;text-align:right;font-weight:600">RM ${data.totalRevenue.toFixed(2)}</td></tr>
-      <tr><td style="padding:8px 0;color:#7A6355">Discounts & Offsets</td><td style="padding:8px 0;text-align:right;font-weight:600;color:#C0392B">- RM ${data.totalOffsets.toFixed(2)}</td></tr>
+      <tr><td style="padding:8px 0;color:#7A6355">Gross Sales</td><td style="padding:8px 0;text-align:right;font-weight:600">RM ${grossSales.toFixed(2)}</td></tr>
+      <tr><td style="padding:8px 0;color:#7A6355">Less Discounts</td><td style="padding:8px 0;text-align:right;font-weight:600;color:#C0392B">- RM ${data.totalOffsets.toFixed(2)}</td></tr>
+      <tr><td style="padding:8px 0;color:#7A6355">Net Sales</td><td style="padding:8px 0;text-align:right;font-weight:600">RM ${data.totalRevenue.toFixed(2)}</td></tr>
+      ${refunds > 0 ? `<tr><td style="padding:8px 0;color:#7A6355">Refunds</td><td style="padding:8px 0;text-align:right;font-weight:600;color:#C0392B">- RM ${refunds.toFixed(2)}</td></tr>` : ''}
       <tr style="border-top:2px solid #f5ede4"><td style="padding:10px 0;font-weight:700">Net Expected</td><td style="padding:10px 0;text-align:right;font-weight:800;font-size:1.1rem;color:#2D8A4E">RM ${data.netExpected.toFixed(2)}</td></tr>
     </table>`;
 

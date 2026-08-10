@@ -812,30 +812,77 @@ async function closeCafe(): Promise<APIGatewayProxyResult> {
   return res(200, { cafeStatus: 'CLOSED', expiredOrders: expired, archivedOrders });
 }
 
+/**
+ * Roll a day's orders up into the money figures for the end-of-day email.
+ *
+ * Revenue counts COMPLETED SALES only — the same rule the admin Reports page
+ * applies (`buildSummaryCol` in frontend/js/reports.js), so the email and the
+ * page agree. They disagreed before: this summed EVERY status, so cancelled and
+ * expired orders were billed as revenue. On 2026-08-09 ten cancelled orders
+ * (RM 99.20) inflated the emailed net from the true RM 463.00 to RM 515.40. A
+ * cancelled order was never collected; an EXPIRED one never reached the counter.
+ *
+ * A post-completion cancel is different: it IS a refund of a real sale, so it
+ * is subtracted rather than ignored.
+ *
+ * `totalAmount` is stored NET (see conventions), so `netExpected` deducts only
+ * refunds — subtracting discounts again would double-count them.
+ *
+ * Exported for tests; pure so it can be exercised without DynamoDB.
+ */
+export function summarizeDailyRevenue(allOrders: any[]) {
+  const soldOrders = allOrders.filter(o =>
+    (o.status === 'ARCHIVED' || o.status === 'READY') && o.postCompletionCancel !== true
+  );
+  const refundedOrders = allOrders.filter(o => o.postCompletionCancel === true);
+
+  const totalRevenue = soldOrders.reduce((s, o) => s + Number(o.totalAmount || 0), 0);
+  const totalOffsets = soldOrders.reduce((s, o) => s + Number(o.discountOffset || 0), 0);
+  const totalRefunds = refundedOrders.reduce((s, o) => s + Number(o.totalAmount || 0), 0);
+
+  return {
+    soldOrders,
+    totalOrders: soldOrders.length,
+    totalRevenue,
+    totalOffsets,
+    totalRefunds,
+    netExpected: totalRevenue - totalRefunds,
+    newcomersServed: soldOrders.filter(o => isNewcomerOrder(o)).length,
+  };
+}
+
 async function sendDailySummaryEmail() {
   const today = new Date().toISOString().split('T')[0];
+  // Query every status so item counts and the low-stock context still reflect
+  // the whole day, then narrow to the revenue-bearing subset below.
   const statuses = ['PENDING', 'PREPARING', 'READY', 'ARCHIVED', 'EXPIRED', 'CANCELLED'];
   let allOrders: any[] = [];
 
   for (const status of statuses) {
-    const r = await docClient.send(new QueryCommand({
-      TableName: ORDERS_TABLE,
-      IndexName: 'status-createdAt-index',
-      KeyConditionExpression: '#s = :s AND createdAt >= :today',
-      ExpressionAttributeNames: { '#s': 'status' },
-      ExpressionAttributeValues: { ':s': status, ':today': today },
-    }));
-    allOrders.push(...(r.Items || []));
+    // Paginate: a Query returns at most 1MB. A busy Sunday can exceed that for
+    // ARCHIVED, which would silently drop orders from the totals.
+    let lastKey: Record<string, any> | undefined = undefined;
+    do {
+      const r: any = await docClient.send(new QueryCommand({
+        TableName: ORDERS_TABLE,
+        IndexName: 'status-createdAt-index',
+        KeyConditionExpression: '#s = :s AND createdAt >= :today',
+        ExpressionAttributeNames: { '#s': 'status' },
+        ExpressionAttributeValues: { ':s': status, ':today': today },
+        ExclusiveStartKey: lastKey,
+      }));
+      allOrders.push(...(r.Items || []));
+      lastKey = r.LastEvaluatedKey;
+    } while (lastKey);
   }
 
-  const totalOrders = allOrders.length;
-  const totalRevenue = allOrders.reduce((s, o) => s + (o.totalAmount || 0), 0);
-  const totalOffsets = allOrders.reduce((s, o) => s + (o.discountOffset || 0), 0);
-  const netExpected = totalRevenue - totalOffsets;
-  const newcomersServed = allOrders.filter(o => isNewcomerOrder(o)).length;
+  const { soldOrders, totalOrders, totalRevenue, totalOffsets, totalRefunds, netExpected, newcomersServed } =
+    summarizeDailyRevenue(allOrders);
 
+  // Item counts stay across all non-cancelled statuses: they drive the "top
+  // items" list and the kitchen's sense of what moved, not the money.
   const itemCounts: Record<string, number> = {};
-  for (const o of allOrders) {
+  for (const o of soldOrders) {
     for (const i of o.items || []) {
       const key = i.name + (i.variant ? ` (${i.variant})` : '');
       itemCounts[key] = (itemCounts[key] || 0) + (i.quantity || 1);
@@ -852,7 +899,7 @@ async function sendDailySummaryEmail() {
     .filter((i: any) => i.currentStock <= (i.lowStockThreshold || 0) && i.lowStockThreshold > 0)
     .map((i: any) => ({ name: i.name, currentStock: i.currentStock, unit: i.unit }));
 
-  await sendEndOfDaySummary({ date: today, totalOrders, totalRevenue, totalOffsets, netExpected, newcomersServed, topItems, lowStockItems });
+  await sendEndOfDaySummary({ date: today, totalOrders, totalRevenue, totalOffsets, totalRefunds, netExpected, newcomersServed, topItems, lowStockItems });
 }
 
 async function toggleCelebration(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
