@@ -1157,10 +1157,34 @@ header h1{
   gap:10px;
   padding:14px 20px;
   align-items:center;
+  /* Wrap rather than squeezing the search field to nothing: this bar now also
+     carries the Walk-up button, and a narrow tablet in portrait would otherwise
+     crush every control. */
+  flex-wrap:wrap;
   background:var(--cream);
   border-bottom:1px solid var(--cream-dark);
 }
 .pos-search{flex:1;max-width:320px}
+/* Walk-up sits in the controls bar above the board as the primary action —
+   solid fill so it reads as the one button a cashier reaches for mid-service,
+   and a taller tap target than its neighbours since it is used on a tablet
+   while someone is waiting at the counter. */
+.pos-btn-walkup{
+  background:var(--brown,#6B4226);
+  border-color:var(--brown,#6B4226);
+  color:#fff;
+  font-weight:700;
+  min-height:40px;
+  padding:8px 16px;
+  white-space:nowrap;
+  flex:0 0 auto;
+}
+.pos-btn-walkup:hover,
+.pos-btn-walkup:focus-visible{
+  background:#5A3620;
+  border-color:#5A3620;
+  color:#fff;
+}
 .pos-last-refresh{
   font-size:.72rem;
   color:#9CA3AF;
@@ -1981,9 +2005,11 @@ header h1{
    the backdrop's massive box-shadow dim can't reach it. Without this
    overlay the sidebar stays fully lit while the rest of the screen
    goes dark, making it visually look like the tour target.
-   For steps that DO target a sidebar element (btnWalkup, btnCelebration,
-   etc.) `training-target-sidebar` on <body> hides the dim so the
-   sidebar and its highlighted button read as the focus. */
+   For steps that DO target a sidebar element (btnCelebration, btnMenu,
+   btnCafeToggle, etc.) `training-target-sidebar` on <body> hides the dim
+   so the sidebar and its highlighted button read as the focus.
+   Note btnWalkup is NOT one of them — it lives in the controls bar above
+   the board, so its tour step correctly leaves the sidebar dimmed. */
 body.training-active .pos-sidebar::after{
   content:'';
   position:fixed;top:52px;left:0;bottom:0;width:220px;

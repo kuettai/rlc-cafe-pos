@@ -98,7 +98,6 @@ function renderMain(){
   <div class="pos-sidebar-user">👤 ${currentUser} <span class="pos-status-dot ${cafeOpen?'open':'closed'}"></span></div>
   <div class="pos-sidebar-section-label">Quick Actions</div>
   <div class="pos-sidebar-actions">
-    <button id="btnWalkup" class="pos-action-btn pos-action-primary">➕ Walk-up</button>
     <button id="btnVoucher" class="pos-action-btn pos-action-primary">🎟️ Voucher</button>
     <button id="btnCelebration" class="pos-action-btn pos-action-toggle ${celebrationMode?'active':''}" aria-pressed="${celebrationMode?'true':'false'}">${celebrationMode?'🎉 Celebration: ON':'🎉 Celebration: OFF'}</button>
     <button id="btnCafeToggle" class="pos-action-btn ${cafeOpen?'pos-action-cafe-open':'pos-action-cafe-closed'}">${cafeOpen?'☕ Close Café':'☕ Open Café'}</button>
@@ -123,6 +122,12 @@ function renderMain(){
   <div id="celebBanner" class="pos-celeb-banner${celebrationMode?' visible':''}" role="status" aria-live="polite">🎉 CELEBRATION MODE — All eligible drinks discounted</div>
   <div id="posStats" class="pos-stats-bar"></div>
   <div class="pos-controls">
+    <!-- Walk-up lives here, not in the sidebar. A customer arriving at the
+         counter is the most time-critical action a cashier takes, and it used
+         to cost three taps: open the hamburger, tap Walk-up, then close the
+         hamburger to get the full board back. Kept id="btnWalkup" so the "W"
+         shortcut and the training tour still find it. -->
+    <button id="btnWalkup" class="pos-btn pos-btn-sm pos-btn-walkup">➕ Walk-up</button>
     <input id="orderSearch" class="pos-input pos-search" placeholder="Search customer...">
     <button id="btnFeatured" class="pos-btn pos-btn-sm pos-btn-outline pos-btn-featured${featuredDrink?' pos-btn-featured-active':''}">⭐ ${featuredDrink?featuredDrink.name:'Set Featured'}</button>
     <button id="btnView" class="pos-btn pos-btn-sm pos-btn-outline">${viewMode==='kanban'?'📋 List':'📊 Kanban'}</button>
