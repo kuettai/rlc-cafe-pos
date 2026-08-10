@@ -236,33 +236,21 @@ async function openWalkup(){
     cart._notes = modal.querySelector('#wkNotes')?.value ?? cart._notes ?? '';
   }
 
-  function renderWalkup(){
-    // Preserve menu scroll position across re-renders
-    const prevMenuScroll = modal.querySelector('.pos-walkup-menu')?.scrollTop || 0;
-
-    // Rebuilt below by the grid renderer; cleared so a stale index from a
-    // previous filter or layout can't be clicked.
+  /**
+   * Inner HTML of the menu pane.
+   *
+   * Extracted so a search keystroke can repaint ONLY the list. Search used to
+   * call renderWalkup(), which rewrites the entire modal — the search input was
+   * destroyed and recreated on every character, and while .focus() put focus
+   * back it could not restore the caret, so the cursor jumped to position 0 and
+   * typing came out scrambled.
+   */
+  function menuInnerHtml(){
+    // Cleared here rather than in renderWalkup so a partial repaint cannot
+    // leave a stale combination index behind for a tile click to resolve.
     gridCombos = {};
-
     const filtered = filteredMenu();
-
-    modal.innerHTML=`<div class="pos-modal pos-modal-walkup">
-      <button class="pos-modal-close">✕</button>
-      <h3>Walk-up Order</h3>
-      <div class="pos-walkup-grid">
-        <div class="pos-walkup-col-left">
-          <input id="wkName" class="pos-input" placeholder="Customer name" value="${cart._name||''}" style="margin-bottom:12px">
-          <input id="wkSearch" class="pos-input" placeholder="Search menu..." value="${wkFilter}" style="margin-bottom:8px">
-          <div class="pos-walkup-filters">
-            <button class="pos-btn pos-btn-sm ${wkCategory==='ALL'?'active':''}" data-wk-cat="ALL">All</button>
-            <button class="pos-btn pos-btn-sm ${wkCategory==='DRINK'?'active':''}" data-wk-cat="DRINK">Drinks</button>
-            <button class="pos-btn pos-btn-sm ${wkCategory==='FOOD'?'active':''}" data-wk-cat="FOOD">Food</button>
-            <span class="pos-walkup-layout-toggle">
-              <button class="pos-btn pos-btn-sm ${wkLayout==='list'?'active':''}" data-wk-layout="list" aria-label="List layout" title="Compact list">☰</button>
-              <button class="pos-btn pos-btn-sm ${wkLayout==='grid'?'active':''}" data-wk-layout="grid" aria-label="Block layout" title="Large blocks">▦</button>
-            </span>
-          </div>
-          <div class="pos-walkup-menu pos-walkup-menu-${wkLayout}">${filtered.length ? filtered.map(m=>{
+    return filtered.length ? filtered.map(m=>{
             const mid = m.menuItemId||m.id;
             const price = m.basePrice || m.price || 0;
             const isFood     = m.category === 'FOOD';
@@ -323,59 +311,27 @@ async function openWalkup(){
               + `${variantHtml}`
               + `<button class="pos-add-btn" data-mid="${mid}" data-mname="${m.name}" data-mp="${price}"${soldOut?' disabled aria-disabled="true"':''}>+</button>`
               + `</div>`;
-          }).join('') : '<div style="padding:16px;text-align:center;color:var(--text-light,#7A6355)">No items match</div>'}</div>
-        </div>
-        <div class="pos-walkup-col-right">
-          <!-- Only this section scrolls. The discount chips and Submit button
-               below sit in a pinned footer so they are always reachable. -->
-          <div class="pos-walkup-cart-scroll">
-            <div class="pos-walkup-cart">${cartInnerHtml()}</div>
-            <input id="wkNotes" class="pos-input" placeholder="Special requests (less sugar, extra hot)" value="${cart._notes||''}">
-          </div>
-          <div class="pos-walkup-actions">
-            <fieldset class="pos-chip-group" id="wkDiscountGroup" aria-label="Discount">
-              <legend class="pos-chip-legend">Discount</legend>
-              ${[
-                {value:'',         label:'No Discount'},
-                {value:'STAFF',    label:'Staff (RM5)'},
-                {value:'PASTOR',   label:'Pastor (Free)'},
-                {value:'NEWCOMER', label:'Newcomer (Free)'},
-              ].map(o=>`<label class="pos-chip"><input type="radio" name="wkDiscount" value="${o.value}" ${selectedDiscount===o.value?'checked':''}><span>${o.label}</span></label>`).join('')}
-            </fieldset>
-            <button id="wkSubmit" class="pos-btn pos-btn-primary pos-btn-lg" ${cart.length?'':'disabled'}>Submit Order</button>
-          </div>
-        </div>
-      </div>
-    </div>`;
+          }).join('') : '<div style="padding:16px;text-align:center;color:var(--text-light,#7A6355)">No items match</div>';
+  }
 
-    modal.querySelector('.pos-modal-close').onclick=()=>modal.remove();
-    modal.onclick=e=>{ if(e.target===modal) modal.remove(); };
+  /** Repaint just the menu pane, preserving its scroll position. */
+  function updateMenuList(){
+    const pane = modal.querySelector('.pos-walkup-menu');
+    if (!pane) return;
+    const scroll = pane.scrollTop;
+    pane.className = 'pos-walkup-menu pos-walkup-menu-' + wkLayout;
+    pane.innerHTML = menuInnerHtml();
+    pane.scrollTop = scroll;
+    bindMenuHandlers();
+  }
 
-    // Restore menu scroll position
-    const menuEl = modal.querySelector('.pos-walkup-menu');
-    if (menuEl && prevMenuScroll) menuEl.scrollTop = prevMenuScroll;
-
-    modal.querySelector('#wkSearch').oninput=e=>{
-      wkFilter=e.target.value.toLowerCase();
-      preserveInputs();
-      renderWalkup();
-      modal.querySelector('#wkSearch').focus();
-    };
-
-    modal.querySelectorAll('[data-wk-cat]').forEach(btn=>btn.onclick=()=>{
-      wkCategory=btn.dataset.wkCat;
-      preserveInputs();
-      renderWalkup();
-    });
-
-    // Layout switch — remembered per device for the next order.
-    modal.querySelectorAll('[data-wk-layout]').forEach(btn=>btn.onclick=()=>{
-      wkLayout = btn.dataset.wkLayout === 'grid' ? 'grid' : 'list';
-      localStorage.setItem('walkup_layout', wkLayout);
-      preserveInputs();
-      renderWalkup();
-    });
-
+  /**
+   * (Re)bind the click handlers for the menu pane.
+   *
+   * Called after a full render AND after updateMenuList() replaces the pane's
+   * innerHTML, since replacing markup discards the old element handlers.
+   */
+  function bindMenuHandlers(){
     // Block layout: one tap on a combination tile orders exactly that drink.
     modal.querySelectorAll('[data-combo]').forEach(b=>b.onclick=()=>{
       const [mid, ci] = b.dataset.combo.split(':');
@@ -441,6 +397,87 @@ async function openWalkup(){
       // rebuilding the whole modal on every tap.
       updateMenuRow(mid);
     });
+  }
+
+  function renderWalkup(){
+    // Preserve menu scroll position across re-renders
+    const prevMenuScroll = modal.querySelector('.pos-walkup-menu')?.scrollTop || 0;
+
+    modal.innerHTML=`<div class="pos-modal pos-modal-walkup">
+      <button class="pos-modal-close">✕</button>
+      <h3>Walk-up Order</h3>
+      <div class="pos-walkup-grid">
+        <div class="pos-walkup-col-left">
+          <input id="wkName" class="pos-input" placeholder="Customer name" value="${cart._name||''}" style="margin-bottom:12px">
+          <input id="wkSearch" class="pos-input" placeholder="Search menu..." value="${wkFilter}" style="margin-bottom:8px">
+          <div class="pos-walkup-filters">
+            <button class="pos-btn pos-btn-sm ${wkCategory==='ALL'?'active':''}" data-wk-cat="ALL">All</button>
+            <button class="pos-btn pos-btn-sm ${wkCategory==='DRINK'?'active':''}" data-wk-cat="DRINK">Drinks</button>
+            <button class="pos-btn pos-btn-sm ${wkCategory==='FOOD'?'active':''}" data-wk-cat="FOOD">Food</button>
+            <span class="pos-walkup-layout-toggle">
+              <button class="pos-btn pos-btn-sm ${wkLayout==='list'?'active':''}" data-wk-layout="list" aria-label="List layout" title="Compact list">☰</button>
+              <button class="pos-btn pos-btn-sm ${wkLayout==='grid'?'active':''}" data-wk-layout="grid" aria-label="Block layout" title="Large blocks">▦</button>
+            </span>
+          </div>
+          <div class="pos-walkup-menu pos-walkup-menu-${wkLayout}">${menuInnerHtml()}</div>
+        </div>
+        <div class="pos-walkup-col-right">
+          <!-- Only this section scrolls. The discount chips and Submit button
+               below sit in a pinned footer so they are always reachable. -->
+          <div class="pos-walkup-cart-scroll">
+            <div class="pos-walkup-cart">${cartInnerHtml()}</div>
+            <input id="wkNotes" class="pos-input" placeholder="Special requests (less sugar, extra hot)" value="${cart._notes||''}">
+          </div>
+          <div class="pos-walkup-actions">
+            <fieldset class="pos-chip-group" id="wkDiscountGroup" aria-label="Discount">
+              <legend class="pos-chip-legend">Discount</legend>
+              ${[
+                {value:'',         label:'No Discount'},
+                {value:'STAFF',    label:'Staff (RM5)'},
+                {value:'PASTOR',   label:'Pastor (Free)'},
+                {value:'NEWCOMER', label:'Newcomer (Free)'},
+              ].map(o=>`<label class="pos-chip"><input type="radio" name="wkDiscount" value="${o.value}" ${selectedDiscount===o.value?'checked':''}><span>${o.label}</span></label>`).join('')}
+            </fieldset>
+            <button id="wkSubmit" class="pos-btn pos-btn-primary pos-btn-lg" ${cart.length?'':'disabled'}>Submit Order</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+    modal.querySelector('.pos-modal-close').onclick=()=>modal.remove();
+    modal.onclick=e=>{ if(e.target===modal) modal.remove(); };
+
+    // Restore menu scroll position
+    const menuEl = modal.querySelector('.pos-walkup-menu');
+    if (menuEl && prevMenuScroll) menuEl.scrollTop = prevMenuScroll;
+
+    modal.querySelector('#wkSearch').oninput=e=>{
+      wkFilter=e.target.value.toLowerCase();
+      // Repaint ONLY the menu list. A full renderWalkup() rewrites the modal,
+      // which destroyed and recreated this very input on every keystroke:
+      // .focus() restored focus but NOT the caret, so the cursor jumped to
+      // position 0 and "latte" came out as "ettal".
+      updateMenuList();
+    };
+
+    // Category and layout also repaint only the menu, so neither disturbs the
+    // customer-name or notes fields — and the active pill is re-marked in place
+    // rather than by rebuilding the modal.
+    modal.querySelectorAll('[data-wk-cat]').forEach(btn=>btn.onclick=()=>{
+      wkCategory=btn.dataset.wkCat;
+      modal.querySelectorAll('[data-wk-cat]').forEach(b=>b.classList.toggle('active', b===btn));
+      updateMenuList();
+    });
+
+    // Layout switch — remembered per device for the next order.
+    modal.querySelectorAll('[data-wk-layout]').forEach(btn=>btn.onclick=()=>{
+      wkLayout = btn.dataset.wkLayout === 'grid' ? 'grid' : 'list';
+      localStorage.setItem('walkup_layout', wkLayout);
+      modal.querySelectorAll('[data-wk-layout]').forEach(b=>b.classList.toggle('active', b===btn));
+      updateMenuList();
+    });
+
+    bindMenuHandlers();
     modal.querySelectorAll('.pos-remove-item').forEach(b=>b.onclick=()=>{ cart.splice(+b.dataset.ri,1); updateCart(); });
     modal.querySelectorAll('.pos-qty-minus').forEach(b=>b.onclick=()=>{ const i=+b.dataset.ri; if(cart[i].qty>1) cart[i].qty--; else cart.splice(i,1); updateCart(); });
     modal.querySelectorAll('.pos-qty-plus').forEach(b=>b.onclick=()=>{ const i=+b.dataset.ri; cart[i].qty++; updateCart(); });
