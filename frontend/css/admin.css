@@ -234,6 +234,54 @@
 }
 
 /* Variants editor */
+/* === Option groups (variantGroups) editor === */
+.admin-form-hint{
+  font-size:.8rem;
+  color:var(--text-light,#7A6355);
+  margin:2px 0 8px;
+  line-height:1.4;
+}
+.vg-list{margin:8px 0}
+/* One bordered card per group, so it is visually clear which options belong to
+   which group — the whole point of the format. */
+.vg-group{
+  border:1px solid var(--cream-dark,#E5DACB);
+  border-radius:10px;
+  padding:10px 12px;
+  margin-bottom:10px;
+  background:var(--cream,#f9f5f0);
+}
+.vg-group-head{
+  display:flex;
+  gap:8px;
+  align-items:center;
+  flex-wrap:wrap;
+  margin-bottom:8px;
+}
+.vg-group-head input{flex:2 1 160px;min-width:0}
+.vg-group-head select{flex:1 1 150px;min-width:0}
+.vg-options{padding-left:10px;border-left:3px solid var(--cream-dark,#E5DACB)}
+.vg-option-row{
+  display:flex;
+  gap:8px;
+  align-items:center;
+  margin-bottom:6px;
+}
+.vg-option-row input[data-of="name"]{flex:2 1 140px;min-width:0}
+.vg-option-row input[data-of="price"]{flex:0 0 90px}
+.vg-option-row .remove-variant{
+  width:32px;height:32px;flex:0 0 32px;
+  border-radius:50%;
+  border:none;
+  background:var(--danger-bg);
+  color:var(--danger);
+  cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+}
+/* Compact the shared form inputs inside this editor — the default 48px control
+   makes a group with several options unreasonably tall. */
+.vg-group .pos-input{min-height:38px;padding:8px 10px;font-size:.88rem;margin-bottom:0}
+
 .variant-list{margin:8px 0}
 .variant-row{
   display:flex;

@@ -60,7 +60,14 @@ function renderMenuSection(container, items){
   } else {
     filteredItems.forEach(item=>{
       const badge = item.category === 'DRINK' ? 'badge-drink' : 'badge-food';
-      const variants = (item.variants||[]).map(v=>v.name||v).join(', ');
+      // Summarise the live option groups, e.g. "Temperature: Hot/Iced".
+      // This line previously read only the legacy flat `variants` array, so
+      // every drink on the menu showed nothing — none of them use it.
+      const groupSummary = (item.variantGroups||[])
+        .map(g => `${g.group}: ${(g.options||[]).map(o=>o.name).join('/')}`)
+        .join(' · ');
+      const legacySummary = (item.variants||[]).map(v=>v.name||v).join(', ');
+      const variants = groupSummary || legacySummary;
       const isActive = item.isActive !== false;
       const id = item.menuItemId || item.id;
       html += `<div class="admin-card ${isActive?'':'is-disabled'}">
@@ -137,13 +144,48 @@ function renderMenuSection(container, items){
   });
 }
 
+/**
+ * Option groups for a menu item, e.g. Temperature → Hot / Iced (+1).
+ *
+ * `variantGroups` is the live format every drink uses; the flat `variants`
+ * array is legacy and no item on the menu still uses it. The editor used to
+ * expose only `variants`, so a Latte's Hot / Iced / Oat Milk were invisible
+ * here and could only be changed by running a script — and anything added
+ * through the old "+ Add Variant" control went into a field the customer page
+ * ignores, because variants.js prefers variantGroups whenever it is present.
+ *
+ * Types:
+ *   single   — exactly one option must be chosen (Temperature)
+ *   optional — zero or one (Oat Milk as an add-on)
+ *   multi    — any number
+ */
+const VG_TYPES = [
+  { value: 'single',   label: 'Single — must pick one' },
+  { value: 'optional', label: 'Optional — can skip' },
+  { value: 'multi',    label: 'Multi — pick any number' },
+];
+
+/**
+ * Local escaper. `escapeHtml` exists in admin-vouchers.js, but that file loads
+ * AFTER this one — relying on hoisting across files breaks the moment script
+ * order changes. Group and option names are admin-entered and land in
+ * innerHTML, so they must be escaped.
+ */
+function mfEsc(s){
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
 function openMenuForm(container, item, allItems){
   const isEdit = !!item;
-  const variants = item?.variants || [];
-  let variantHtml = variants.map((v,i)=>`<div class="variant-row">
-    <input class="pos-input" placeholder="Name" value="${v.name||''}" data-vi="${i}" data-vf="name">
-    <input class="pos-input" placeholder="+Price" type="number" step="0.5" value="${v.priceModifier||0}" data-vi="${i}" data-vf="priceModifier">
-    <button class="remove-variant" data-vri="${i}">✕</button></div>`).join('');
+
+  // Deep copy so Cancel genuinely discards edits rather than mutating the
+  // cached menu item in place.
+  let currentGroups = JSON.parse(JSON.stringify(item?.variantGroups || []));
+  // Legacy flat variants, kept only so an item that still has them isn't
+  // silently stripped on save. Not editable any more.
+  const legacyVariants = item?.variants || [];
 
   const form = document.createElement('div');
   form.className = 'admin-form';
@@ -160,38 +202,98 @@ function openMenuForm(container, item, allItems){
     <div class="admin-form-row">
       <div class="admin-form-group"><label>Celebration Eligible</label><select id="mfCelebration" class="pos-input"><option value="false" ${item?.celebrationEligible!==true?'selected':''}>No — always normal price</option><option value="true" ${item?.celebrationEligible===true?'selected':''}>Yes — RM5 on celebration day</option></select></div>
     </div>
-    <div class="admin-form-group"><label>Variants</label><div id="variantList" class="variant-list">${variantHtml}</div>
-      <button class="pos-btn pos-btn-sm" id="btnAddVariant" style="margin-top:8px">+ Add Variant</button></div>
+    <div class="admin-form-group">
+      <label>Option Groups</label>
+      <p class="admin-form-hint">What the customer chooses — e.g. a Temperature group with Hot and Iced (+RM1). Prices add to the base price.</p>
+      <div id="vgList" class="vg-list"></div>
+      <button class="pos-btn pos-btn-sm" id="btnAddGroup" style="margin-top:8px">+ Add Option Group</button>
+      ${legacyVariants.length ? `<p class="admin-form-hint" style="margin-top:8px">Note: this item also has ${legacyVariants.length} old-style variant(s) (${legacyVariants.map(v=>mfEsc(v.name||String(v))).join(', ')}). They are kept as-is; option groups above take precedence.</p>` : ''}
+    </div>
     <div class="admin-form-actions">
       <button class="pos-btn pos-btn-primary" id="mfSubmit">${isEdit?'Save Changes':'Add Item'}</button>
       <button class="pos-btn" id="mfCancel">Cancel</button>
     </div>`;
 
   showFormModal(form);
-  let currentVariants = [...variants];
 
-  form.querySelector('#btnAddVariant').onclick=()=>{
-    currentVariants.push({name:'',priceModifier:0});
-    refreshVariants();
-  };
+  /**
+   * Repaint the whole group list.
+   *
+   * Inputs are re-created on every change, so each handler writes to
+   * `currentGroups` and only re-renders when the STRUCTURE changes (a group or
+   * option added/removed). Typing updates the model without a repaint, which
+   * would otherwise steal focus mid-word.
+   */
+  function refreshGroups(){
+    const list = form.querySelector('#vgList');
+    if (!currentGroups.length) {
+      list.innerHTML = '<p class="admin-form-hint">No option groups — the customer just adds this item as-is.</p>';
+      return;
+    }
 
-  function refreshVariants(){
-    const list = form.querySelector('#variantList');
-    list.innerHTML = currentVariants.map((v,i)=>`<div class="variant-row">
-      <input class="pos-input" placeholder="Name" value="${v.name||''}" data-vi="${i}" data-vf="name">
-      <input class="pos-input" placeholder="+Price" type="number" step="0.5" value="${v.priceModifier||0}" data-vi="${i}" data-vf="priceModifier">
-      <button class="remove-variant" data-vri="${i}">✕</button></div>`).join('');
-    list.querySelectorAll('input').forEach(inp=>inp.oninput=()=>{
-      const idx=+inp.dataset.vi;
-      const field=inp.dataset.vf;
-      currentVariants[idx][field] = field==='priceModifier' ? +inp.value : inp.value;
+    list.innerHTML = currentGroups.map((g, gi) => {
+      const opts = (g.options || []).map((o, oi) => `
+        <div class="vg-option-row">
+          <input class="pos-input" placeholder="Option name (e.g. Iced)" value="${mfEsc(o.name)}" data-gi="${gi}" data-oi="${oi}" data-of="name">
+          <input class="pos-input" type="number" step="0.5" placeholder="+RM" value="${Number(o.price || 0)}" data-gi="${gi}" data-oi="${oi}" data-of="price" aria-label="Extra price">
+          <button class="remove-variant" data-rm-opt="${gi}:${oi}" aria-label="Remove option">✕</button>
+        </div>`).join('');
+
+      return `<div class="vg-group">
+        <div class="vg-group-head">
+          <input class="pos-input" placeholder="Group name (e.g. Temperature)" value="${mfEsc(g.group)}" data-gi="${gi}" data-gf="group" aria-label="Group name">
+          <select class="pos-input" data-gi="${gi}" data-gf="type" aria-label="Selection type">
+            ${VG_TYPES.map(t=>`<option value="${t.value}" ${(g.type||'single')===t.value?'selected':''}>${t.label}</option>`).join('')}
+          </select>
+          <button class="pos-btn pos-btn-sm" data-rm-group="${gi}" aria-label="Remove group">Remove group</button>
+        </div>
+        <div class="vg-options">${opts || '<p class="admin-form-hint">No options yet.</p>'}</div>
+        <button class="pos-btn pos-btn-sm" data-add-opt="${gi}" style="margin-top:6px">+ Add Option</button>
+      </div>`;
+    }).join('');
+
+    // Text/number/select edits mutate the model in place — no re-render, so
+    // the caret stays where the admin is typing.
+    list.querySelectorAll('[data-gf]').forEach(el=>{
+      const handler = () => {
+        const g = currentGroups[+el.dataset.gi];
+        if (g) g[el.dataset.gf] = el.value;
+      };
+      if (el.tagName === 'SELECT') el.onchange = handler; else el.oninput = handler;
     });
-    list.querySelectorAll('.remove-variant').forEach(btn=>btn.onclick=()=>{
-      currentVariants.splice(+btn.dataset.vri,1);
-      refreshVariants();
+    list.querySelectorAll('[data-of]').forEach(inp=>inp.oninput=()=>{
+      const g = currentGroups[+inp.dataset.gi];
+      const o = g && g.options[+inp.dataset.oi];
+      if (!o) return;
+      o[inp.dataset.of] = inp.dataset.of === 'price' ? (+inp.value || 0) : inp.value;
+    });
+
+    // Structural changes DO re-render.
+    list.querySelectorAll('[data-add-opt]').forEach(btn=>btn.onclick=()=>{
+      const g = currentGroups[+btn.dataset.addOpt];
+      (g.options = g.options || []).push({ name: '', price: 0 });
+      refreshGroups();
+    });
+    list.querySelectorAll('[data-rm-opt]').forEach(btn=>btn.onclick=()=>{
+      const [gi, oi] = btn.dataset.rmOpt.split(':').map(Number);
+      currentGroups[gi].options.splice(oi, 1);
+      refreshGroups();
+    });
+    list.querySelectorAll('[data-rm-group]').forEach(btn=>btn.onclick=()=>{
+      const gi = +btn.dataset.rmGroup;
+      const name = currentGroups[gi].group || 'this group';
+      if (!confirm(`Remove "${name}" and all its options?`)) return;
+      currentGroups.splice(gi, 1);
+      refreshGroups();
     });
   }
-  refreshVariants();
+
+  form.querySelector('#btnAddGroup').onclick=()=>{
+    currentGroups.push({ group: '', type: 'single', options: [{ name: '', price: 0 }] });
+    refreshGroups();
+  };
+
+  refreshGroups();
 
   form.querySelector('#mfCancel').onclick=()=>{ form._overlay.remove(); };
   form.querySelector('#mfSubmit').onclick=async()=>{
@@ -202,9 +304,45 @@ function openMenuForm(container, item, allItems){
       basePrice: +form.querySelector('#mfPrice').value,
       sortOrder: +form.querySelector('#mfSort').value,
       celebrationEligible: form.querySelector('#mfCelebration').value === 'true',
-      variants: currentVariants.filter(v=>v.name)
+      // Drop blank rows the admin left behind, and coerce prices to numbers so
+      // DynamoDB stores them as N rather than S.
+      variantGroups: currentGroups
+        .map(g => ({
+          group: String(g.group || '').trim(),
+          type: VG_TYPES.some(t => t.value === g.type) ? g.type : 'single',
+          options: (g.options || [])
+            .filter(o => String(o.name || '').trim())
+            .map(o => ({ name: String(o.name).trim(), price: Number(o.price) || 0 })),
+        }))
+        .filter(g => g.group && g.options.length),
     };
+    // Preserve legacy flat variants untouched rather than dropping them; the
+    // PUT overwrites whatever fields it is given.
+    if (legacyVariants.length) body.variants = legacyVariants;
+
     if(!body.name || !body.basePrice){ showError('Name and price are required'); return; }
+
+    // Validate before saving: a half-finished group would reach the customer
+    // ordering page, where a `single` group with no options blocks the item.
+    for (const g of currentGroups) {
+      const named = (g.options || []).filter(o => String(o.name || '').trim());
+      if (!String(g.group || '').trim() && named.length) {
+        showError('Every option group needs a name'); return;
+      }
+      if (String(g.group || '').trim() && !named.length) {
+        showError(`Group "${g.group}" needs at least one option`); return;
+      }
+      const seen = new Set();
+      for (const o of named) {
+        const key = o.name.trim().toLowerCase();
+        if (seen.has(key)) { showError(`"${g.group}" has duplicate option "${o.name}"`); return; }
+        seen.add(key);
+      }
+    }
+    const groupNames = body.variantGroups.map(g => g.group.toLowerCase());
+    if (new Set(groupNames).size !== groupNames.length) {
+      showError('Two option groups share the same name'); return;
+    }
     try{
       if(isEdit) await api('PUT',`/api/admin/menu/${item.menuItemId||item.id}`, body);
       else await api('POST','/api/admin/menu', body);
