@@ -214,9 +214,8 @@ function openMenuForm(container, item, allItems){
       <button class="pos-btn" id="mfCancel">Cancel</button>
     </div>`;
 
-  // Wider than the default 600px: the option-group editor lays out a group
-  // name, its selection type and priced option rows horizontally.
-  showFormModal(form, { maxWidth: '900px' });
+  // 900px comes from showFormModal's default now — no per-form override needed.
+  showFormModal(form);
 
   /**
    * Repaint the whole group list.

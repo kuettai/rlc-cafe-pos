@@ -12,12 +12,16 @@ let currentUser = localStorage.getItem('pos_user') || '';
 /**
  * Show an admin form in a modal.
  *
+ * Default width is 900px for EVERY admin form. It began as a 600px default with
+ * an opt-in override for the Menu form, but the same cramping showed up again in
+ * the pre-order form (checkbox lists of drinks and options) — the forms in this
+ * app are wide by nature, so the wide value is the sensible default rather than
+ * something each caller has to remember to ask for.
+ *
  * @param {HTMLElement} form
  * @param {Object} [opts]
- * @param {String} [opts.maxWidth='600px'] Override for forms that need more
- *   room. The Menu form's option-group editor puts a group name, a selection
- *   type and a row of priced options side by side, which is cramped at 600px.
- *   Kept opt-in so the other seven callers are untouched.
+ * @param {String} [opts.maxWidth='900px'] Per-form override, still available for
+ *   a genuinely narrow dialog.
  */
 function showFormModal(form, opts){
   const overlay = document.createElement('div');
@@ -25,7 +29,7 @@ function showFormModal(form, opts){
   const modal = document.createElement('div');
   modal.className = 'pos-modal';
   // min() so a wide form still fits a narrow screen without overflowing.
-  modal.style.maxWidth = `min(${(opts && opts.maxWidth) || '600px'}, calc(100vw - 32px))`;
+  modal.style.maxWidth = `min(${(opts && opts.maxWidth) || '900px'}, calc(100vw - 32px))`;
   modal.style.width = '100%';
   modal.style.maxHeight = '85vh';
   modal.style.overflowY = 'auto';

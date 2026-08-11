@@ -1,4 +1,6 @@
-[{"version":"v1.66.2","date":"2026-08-11","changes":["Admin: removed the redundant Reports button from the header (Reports is a sidebar tab; the button also showed on the login screen)"]},
+[{"version":"v1.67.1","date":"2026-08-11","changes":["Admin: all pop-up forms are now the wider 900px size, not just the Menu form"]},
+{"version":"v1.67.0","date":"2026-08-11","changes":["Pre-order links: can now block individual drink options (e.g. Oat Milk) per link — set them under Excluded Options when creating or editing a link. Paying customers are unaffected"]},
+{"version":"v1.66.2","date":"2026-08-11","changes":["Admin: removed the redundant Reports button from the header (Reports is a sidebar tab; the button also showed on the login screen)"]},
 {"version":"v1.66.1","date":"2026-08-10","changes":["Walk-up: fixed the search box scrambling text — the cursor no longer jumps to the start on every keystroke"]},
 {"version":"v1.66.0","date":"2026-08-10","changes":["Walk-up blocks: bigger text (drink name and price ~25% larger) for easier reading at the counter","Walk-up blocks: colour-coded by drink family — latte tan, black coffee dark, chocolate red-brown, matcha green, tea gold, soda and water blue, food pink"]},
 {"version":"v1.65.0","date":"2026-08-10","changes":["Walk-up block layout: each drink combination now has its own block (Latte Hot, Latte Hot + Oat Milk, Latte Iced, Latte Iced + Oat Milk) — one tap orders it, no toggling"]},

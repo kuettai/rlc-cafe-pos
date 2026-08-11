@@ -52,6 +52,42 @@ function generateCollectionSlots() {
 // redundant since each item has a real image. The slug helper below already
 // drops emoji as a side-effect, so image lookups still work either way; this
 // helper is purely for display text.
+/**
+ * Strip variant options a pre-order campaign excludes, e.g. no Oat Milk on a
+ * ministry link (`excludedOptions: ["Milk:Oat Milk"]`).
+ *
+ * Returns the item unchanged outside pre-order mode or when nothing is excluded,
+ * so the normal customer flow is untouched and keeps its object identity.
+ *
+ * A group left with no options is dropped entirely rather than rendered empty.
+ * This only hides choices — createOrder enforces the same rule server-side, so a
+ * crafted payload is still refused.
+ */
+function applyPreorderOptionExclusions(item) {
+  if (!preorderMode) return item;
+  const excluded = Array.isArray(preorderInfo?.excludedOptions) ? preorderInfo.excludedOptions : [];
+  if (!excluded.length) return item;
+
+  const blocked = new Set(excluded.map(String));
+  const isBlocked = (group, option) => blocked.has(`${String(group ?? '').trim()}:${String(option ?? '').trim()}`);
+
+  const out = { ...item };
+
+  if (Array.isArray(item.variantGroups) && item.variantGroups.length) {
+    out.variantGroups = item.variantGroups
+      .map(g => ({ ...g, options: (g.options || []).filter(o => !isBlocked(g.group, o.name)) }))
+      .filter(g => g.options.length > 0);
+  }
+
+  // Legacy flat variants carry no group, so match on the option half.
+  if (Array.isArray(item.variants) && item.variants.length) {
+    const blockedNames = new Set([...blocked].map(b => b.slice(b.indexOf(':') + 1)));
+    out.variants = item.variants.filter(v => !blockedNames.has(String(v.name || v.id || v).trim()));
+  }
+
+  return out;
+}
+
 function stripEmoji(name) {
   return String(name || '').replace(/^[\p{Emoji}\p{Emoji_Component}\s]+/u, '').trim();
 }
@@ -273,10 +309,13 @@ function renderMenu() {
       }
       html += `</div></div>`; // /info /header
 
-      // Middle row: variant pickers (full-width, separated by top border)
-      if ((item.variantGroups && item.variantGroups.length) ||
-          (item.variants && item.variants.length)) {
-        html += RLCVariants.pickerHtml(item, { itemId: item.id });
+      // Middle row: variant pickers (full-width, separated by top border).
+      // On a pre-order link, options the campaign excludes are stripped first so
+      // the customer never sees a choice the backend would reject.
+      const pickerItem = applyPreorderOptionExclusions(item);
+      if ((pickerItem.variantGroups && pickerItem.variantGroups.length) ||
+          (pickerItem.variants && pickerItem.variants.length)) {
+        html += RLCVariants.pickerHtml(pickerItem, { itemId: item.id });
       }
 
       // Bottom row: qty controls (centered, separated by top border)

@@ -53,6 +53,11 @@ function renderPreorderCodes(container, codes){
       const customDetails = [
         c.bannerMessage ? `📢 Banner: ${escapeHtml(String(c.bannerMessage).slice(0, 80))}${String(c.bannerMessage).length > 80 ? '…' : ''}` : '',
         eligibleCount > 0 ? `🥤 Eligible drinks: ${eligibleCount} selected` : `🥤 Eligible drinks: all active`,
+        // Surfaced on the card because an exclusion is easy to forget once set,
+        // and it silently changes what a circulated link allows.
+        Array.isArray(c.excludedOptions) && c.excludedOptions.length
+          ? `🚫 Blocked options: ${c.excludedOptions.map(k => escapeHtml(String(k).replace(':', ': '))).join(', ')}`
+          : '',
         collectionOpts.length ? `⏰ Collection: ${collectionOpts.map(escapeHtml).join(' | ')}` : '',
       ].filter(Boolean).map(s => `<div style="margin-top:2px">${s}</div>`).join('');
       html += `<div class="admin-card">
@@ -209,6 +214,14 @@ function openPreorderForm(container, existingCode){
     </div>
 
     <div class="admin-form-group">
+      <label>Excluded Options</label>
+      <p style="font-size:.75rem;color:var(--text-light);margin:2px 0 6px">Tick an option to block it on this link — e.g. Oat Milk, which is free on pre-orders and costly. Unticked options stay available. Paying customers are unaffected.</p>
+      <div id="pfOptionList" style="max-height:200px;overflow-y:auto;border:1px solid var(--cream-dark);border-radius:8px;padding:8px 12px;background:#fff">
+        <div class="loading">Loading options…</div>
+      </div>
+    </div>
+
+    <div class="admin-form-group">
       <label>Collection Options <span style="color:var(--text-light);font-weight:400">(radio choices on the customer page)</span></label>
       <div id="pfCollectionList" style="display:flex;flex-direction:column;gap:6px;margin-bottom:6px"></div>
       <button type="button" class="pos-btn pos-btn-sm" id="pfAddOpt">+ Add option</button>
@@ -296,6 +309,53 @@ function wirePreorderForm(form, container, menuP, collectionOpts, templatesP, ex
         </label>`;
       }).join('');
   });
+  // ─── Excluded variant options ──────────────────────────────────────
+  // Every distinct "Group:Option" across the active drinks, deduplicated: Oat
+  // Milk appears on Latte, Matcha Latte and Hot Chocolate, but the exclusion is
+  // per campaign, not per drink, so it is listed once.
+  menuP.then(drinks => {
+    const listEl = form.querySelector('#pfOptionList');
+    if (!listEl) return;
+
+    const seen = new Map();   // "Group:Option" -> { group, option, price, items[], type }
+    for (const m of drinks) {
+      for (const g of (Array.isArray(m.variantGroups) ? m.variantGroups : [])) {
+        for (const o of (Array.isArray(g.options) ? g.options : [])) {
+          const key = `${String(g.group || '').trim()}:${String(o.name || '').trim()}`;
+          if (!key.startsWith(':') && !key.endsWith(':')) {
+            const e = seen.get(key) || { group: g.group, option: o.name, price: Number(o.price || 0), type: g.type || 'single', items: [] };
+            e.items.push(m.name || '');
+            seen.set(key, e);
+          }
+        }
+      }
+    }
+
+    if (!seen.size) {
+      listEl.innerHTML = '<div style="color:var(--text-light);padding:4px 0">No drink options in the menu.</div>';
+      return;
+    }
+
+    const excludedSet = new Set(
+      (isEdit && Array.isArray(existingCode.excludedOptions) ? existingCode.excludedOptions : []).map(String)
+    );
+
+    // Paid options first — those are the ones that cost the café on a free
+    // pre-order, so they are what an admin is looking for.
+    const entries = [...seen.entries()].sort((a, b) =>
+      (b[1].price - a[1].price) || a[0].localeCompare(b[0]));
+
+    listEl.innerHTML = entries.map(([key, e]) => {
+      const priceTag = e.price ? ` <span style="color:var(--text-light);font-size:.85rem">+RM ${e.price.toFixed(2)}</span>` : '';
+      const onWhat = e.items.length > 2 ? `${e.items.length} drinks` : e.items.map(n => escapeHtml(n)).join(', ');
+      return `<label style="display:flex;gap:8px;align-items:center;padding:4px 0;font-weight:400">
+        <input type="checkbox" data-opt-key="${escapeAttr(key)}" data-opt-type="${escapeAttr(e.type)}" data-opt-group="${escapeAttr(e.group)}"${excludedSet.has(key) ? ' checked' : ''}>
+        <span>${escapeHtml(e.group)}: <strong>${escapeHtml(e.option)}</strong>${priceTag}
+          <span style="color:var(--text-light);font-size:.8rem"> — ${onWhat}</span></span>
+      </label>`;
+    }).join('');
+  });
+
   form.querySelector('#pfSelectAll').onclick = () => {
     form.querySelectorAll('#pfDrinkList input[data-drink-id]').forEach(cb => { cb.checked = true; });
   };
@@ -336,12 +396,33 @@ function wirePreorderForm(form, container, menuP, collectionOpts, templatesP, ex
       return;
     }
 
+    const optCbs = [...form.querySelectorAll('#pfOptionList input[data-opt-key]')];
+    const excludedOptions = optCbs.filter(cb => cb.checked).map(cb => cb.dataset.optKey);
+
+    // A `single` group must keep at least one option: excluding every choice in
+    // e.g. Temperature would leave the drink unorderable, since the customer has
+    // to pick one. `optional` groups can be emptied — that is the Oat Milk case.
+    const byGroup = {};
+    for (const cb of optCbs) {
+      const g = cb.dataset.optGroup;
+      (byGroup[g] = byGroup[g] || { type: cb.dataset.optType, total: 0, excluded: 0 });
+      byGroup[g].total++;
+      if (cb.checked) byGroup[g].excluded++;
+    }
+    for (const [g, info] of Object.entries(byGroup)) {
+      if (info.type === 'single' && info.total > 0 && info.excluded === info.total) {
+        showError(`"${g}" is a required choice — leave at least one option available`);
+        return;
+      }
+    }
+
     try {
       const payload = {
         name, serviceDate, opensAt, expiresAt,
         bannerMessage,
         eligibleItems,
         collectionOptions,
+        excludedOptions,
       };
       const result = isEdit
         ? await api('PUT', `/api/admin/preorder-codes/${encodeURIComponent(existingCode.code)}`, payload)
