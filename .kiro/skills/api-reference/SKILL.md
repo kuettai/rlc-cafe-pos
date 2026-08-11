@@ -23,7 +23,7 @@ Base URL: `https://hcydppml1a.execute-api.ap-southeast-5.amazonaws.com/prod`
 | POST | /api/customers | Register customer (phone, name, birthday) |
 | GET | /api/customers/{phone} | Lookup customer by phone |
 | GET | /api/customers/{phone}/orders | Get customer order history |
-| GET | /api/preorder/validate?code=... | Validate a pre-order code (returns campaign details) |
+| GET | /api/preorder/validate?code=... | Validate a pre-order code. Returns campaign details including `eligibleItems` and `excludedOptions` (`"Group:Option"` pairs the customer page must hide) |
 | POST | /api/push/subscribe | Subscribe to push notifications (orderId, subscription) |
 | DELETE | /api/push/subscribe | Unsubscribe (orderId, endpoint) |
 | GET | /api/push/vapid-public-key | Get VAPID public key |

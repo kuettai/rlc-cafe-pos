@@ -157,7 +157,8 @@ Stock count snapshots submitted by cashier during close procedure.
 | expiresAt | string | ISO timestamp when code expires |
 | serviceDate | string | Date of service/collection |
 | bannerMessage | string | Banner shown to customers |
-| eligibleItems | list | Menu items available for pre-order |
+| eligibleItems | list | Menu items available for pre-order. **Empty/absent = ALL active drinks**, not none |
+| excludedOptions | list | Variant options this link may not use, as `"Group:Option"` (e.g. `"Milk:Oat Milk"`). Empty/absent = nothing excluded. Enforced in `orders.ts` createOrder, mirrored by the customer page |
 | collectionOptions | list | Available collection time slots |
 
 ### Record Type 10: Pre-order Templates

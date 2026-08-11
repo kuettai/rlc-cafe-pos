@@ -53,6 +53,44 @@ export interface PreorderCode {
   bannerMessage?: string;               // banner override; max 200 chars; supports {$SUNDAY}
   eligibleItems?: string[];             // whitelist of menuItemIds; empty/undefined = all active drinks
   collectionOptions?: string[];         // choices for the collection-time radios
+  /**
+   * Variant options this link may NOT use, as "Group:Option" pairs — e.g.
+   * ["Milk:Oat Milk"]. Empty/undefined = nothing excluded.
+   *
+   * `eligibleItems` only gates whole menu items, so a ministry pre-order could
+   * pick a Latte and then add Oat Milk freely. Pre-orders are free (totalAmount
+   * 0, the whole gross recorded as discountOffset), so the +RM1 surcharge was
+   * never recovered — real cost to the café with no price signal.
+   *
+   * Qualified with the group name because option names are not unique across
+   * groups: "Hot" appears under Temperature on most drinks.
+   */
+  excludedOptions?: string[];
+}
+
+/** Canonical "Group:Option" key for a variant exclusion. */
+export function optionKey(group: unknown, option: unknown): string {
+  return `${String(group ?? '').trim()}:${String(option ?? '').trim()}`;
+}
+
+/**
+ * Normalise a raw excludedOptions payload into unique, trimmed "Group:Option"
+ * strings. Entries missing either half are dropped rather than stored
+ * half-formed, since a malformed key would silently never match.
+ */
+export function normalizeExcludedOptions(raw: unknown): string[] {
+  const list: unknown[] = Array.isArray(raw) ? raw : [];
+  const out = list
+    .filter((x): x is string => typeof x === 'string' && x.includes(':'))
+    .map((x) => {
+      const i = x.indexOf(':');
+      return optionKey(x.slice(0, i), x.slice(i + 1));
+    })
+    .filter((x) => {
+      const [g, o] = x.split(':');
+      return g.length > 0 && o.length > 0;
+    });
+  return Array.from(new Set(out));
 }
 
 // Server-side defaults for the two-option collection picker.
@@ -133,6 +171,10 @@ export async function handleValidatePreorder(event: APIGatewayProxyEvent): Promi
       bannerMessage: resolveTemplate(v.code.bannerMessage),
       // Empty array (never null) so the client can rely on Array.isArray().
       eligibleItems: Array.isArray(v.code.eligibleItems) ? v.code.eligibleItems : [],
+      // "Group:Option" pairs the customer page must hide from its variant
+      // picker. Also enforced server-side in createOrder — this is only so the
+      // customer never sees an option that would be rejected.
+      excludedOptions: Array.isArray(v.code.excludedOptions) ? v.code.excludedOptions : [],
       collectionOptions:
         Array.isArray(v.code.collectionOptions) && v.code.collectionOptions.length
           ? v.code.collectionOptions
@@ -171,6 +213,8 @@ async function createPreorderCode(event: APIGatewayProxyEvent, actor: string): P
       .map((x) => x.trim())
   ));
 
+  const excludedOptions = normalizeExcludedOptions(body.excludedOptions);
+
   const rawOpts: unknown[] = Array.isArray(body.collectionOptions) ? body.collectionOptions : [];
   const cleanedOpts: string[] = rawOpts
     .filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
@@ -205,6 +249,7 @@ async function createPreorderCode(event: APIGatewayProxyEvent, actor: string): P
     bannerMessage,
     eligibleItems,
     collectionOptions,
+    excludedOptions,
   };
 
   await docClient.send(new PutCommand({ TableName: SETTINGS_TABLE, Item: item }));
@@ -303,6 +348,10 @@ async function updatePreorderCode(code: string, event: APIGatewayProxyEvent, act
         .map((x: string) => x.trim())
     ));
     updates.push('eligibleItems = :ei'); values[':ei'] = cleaned;
+  }
+  if (Array.isArray(body.excludedOptions)) {
+    updates.push('excludedOptions = :xo');
+    values[':xo'] = normalizeExcludedOptions(body.excludedOptions);
   }
   if (Array.isArray(body.collectionOptions)) {
     const cleaned: string[] = body.collectionOptions

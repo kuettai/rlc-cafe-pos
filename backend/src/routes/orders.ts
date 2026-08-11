@@ -3,7 +3,7 @@ import { v4 as uuid } from 'uuid';
 import { docClient, ORDERS_TABLE, MENU_TABLE, SETTINGS_TABLE, GetCommand, PutCommand, UpdateCommand, ScanCommand } from '../lib/db';
 import { linkOrderToCustomer } from './customers';
 import { normalizePhone } from '../lib/phone';
-import { validatePreorderCode } from './preorder';
+import { validatePreorderCode, optionKey } from './preorder';
 import { logOrder, summarizeItems } from '../lib/audit';
 import {
   priceLine,
@@ -81,6 +81,34 @@ async function createOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
     if (preorderRecord && Array.isArray(preorderRecord.eligibleItems) && preorderRecord.eligibleItems.length > 0) {
       if (!preorderRecord.eligibleItems.includes(item.menuItemId)) {
         return res(400, { error: `${menu.name} is not available on this pre-order link` });
+      }
+    }
+
+    // Variant-level exclusions, e.g. no Oat Milk on a ministry link. The
+    // customer page already hides these, but that is only a courtesy — a reused
+    // link with a crafted payload has to be refused here, exactly as an
+    // ineligible menu item is above.
+    //
+    // Pre-orders are free and zero out the whole gross, so an excluded paid
+    // option would otherwise cost the café with nothing recovered.
+    if (preorderRecord && Array.isArray(preorderRecord.excludedOptions) && preorderRecord.excludedOptions.length > 0) {
+      const blocked = new Set<string>(preorderRecord.excludedOptions.map((x: unknown) => String(x)));
+      for (const sv of (Array.isArray(item.selectedVariants) ? item.selectedVariants : [])) {
+        const key = optionKey(sv?.group, sv?.option);
+        if (blocked.has(key)) {
+          return res(400, { error: `${sv.option} is not available on this pre-order link` });
+        }
+      }
+      // Legacy single-variant payloads carry only a name, with no group. Match
+      // those against the option half of each exclusion so an older client
+      // cannot slip past the check.
+      if (item.variant) {
+        const legacy = String(item.variant).trim();
+        for (const b of blocked) {
+          if (b.slice(b.indexOf(':') + 1) === legacy) {
+            return res(400, { error: `${legacy} is not available on this pre-order link` });
+          }
+        }
       }
     }
 

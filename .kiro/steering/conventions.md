@@ -34,6 +34,10 @@ Do not duplicate these — they have each caused a production bug when copied:
 - **Version numbers:** `scripts/bump-version.mjs`
 
 ## Data changes
-Menu/settings edits that the admin UI cannot express (e.g. `variantGroups`)
-require a script in `scripts/`. Follow the existing pattern: default to a dry
-run that prints before/after, write only with `--apply`.
+Menu/settings edits the admin UI cannot express require a script in `scripts/`.
+Follow the existing pattern: default to a dry run that prints before/after, write
+only with `--apply`.
+
+`variantGroups` used to be an example of this; since v1.64.0 it is editable in
+Admin → Menu → Edit (Option Groups), and pre-order links can block individual
+options via `excludedOptions` since v1.67.0. Prefer the UI over a script for both.
