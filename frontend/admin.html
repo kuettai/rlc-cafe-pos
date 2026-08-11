@@ -15,13 +15,15 @@
 <header class="pos-header" style="background:linear-gradient(135deg,#4A2C17 0%,#6B4226 50%,#8B5E3C 100%)">
   <button class="header-hamburger" id="adminHeaderToggle" aria-label="Toggle menu">☰</button>
   <h1>☕ RLC Café Admin</h1>
-  <a href="reports.html" class="header-logout" style="text-decoration:none;display:inline-flex;align-items:center;gap:6px">📊 Reports</a>
+  <!-- No Reports link here. Reports is a sidebar tab (see loadReportsTab in
+       admin.js), so a header shortcut was redundant — and being in the header it
+       also showed on the login screen, before anyone had authenticated. -->
 </header>
 <div class="error-banner" id="errorBanner" role="alert"></div>
 <div class="admin-app" id="app"></div>
 
 <footer class="app-footer" id="appFooter">
-  <span class="app-version">v1.66.1</span>
+  <span class="app-version">v1.66.2</span>
   <button id="checkUpdateBtn" class="check-update-btn">Check for update</button>
 </footer>
 
