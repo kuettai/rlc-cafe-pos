@@ -334,10 +334,21 @@ function refreshTrainingBoard() {
 }
 
 // How long the order-detail modal stays on screen before the tour clicks the
-// action button for the trainee. Long enough to read the buttons; short enough
-// that the walkthrough doesn't drag.
-const MODAL_DWELL_MS = 1400;
-const POST_CLICK_MS = 450;
+// action button for the trainee.
+//
+// Was 1400ms, which volunteers reported as too fast to read — and it has to
+// cover THREE things in sequence: notice the modal opened, read which of
+// Payment Confirmed / Newcomer / Reject is ringed, and register the click. At
+// ~200 wpm a one-line label plus a glance at the ring is comfortably over two
+// seconds, so 3200ms. The Reject step spends this twice (action buttons, then
+// the reason picker), which is correct — it is two decisions.
+const MODAL_DWELL_MS = 3200;
+// Pause after the click so the resulting board change is visibly connected to
+// the button press rather than appearing to happen on its own.
+const POST_CLICK_MS = 900;
+// Pause after a board-only state change (approve/undo/ready with no modal) so
+// the card is seen moving between columns.
+const BOARD_SETTLE_MS = 1100;
 
 /**
  * Open the REAL order-detail modal for a training order and hand it back.
@@ -375,8 +386,75 @@ async function openTrainingDetail(orderId, highlightSelector) {
   // top of it and hides the buttons being explained. Shift it aside.
   moveTourDialogClearOfModal(modal);
 
-  await waitMs(MODAL_DWELL_MS);   // let the trainee actually see it
+  // Countdown with a Hold button rather than a blind wait — the trainee decides
+  // when they have read enough.
+  await dwellWithHold(modal, MODAL_DWELL_MS, labelForSelector(highlightSelector));
   return modal;
+}
+
+/**
+ * Human wording for the button a step is about to press, used in the countdown.
+ * Falls back to a generic phrase so an unmapped selector still reads sensibly.
+ */
+function labelForSelector(selector) {
+  const map = {
+    '#btnApprove': 'Confirming payment',
+    '#btnUndo': 'Undoing',
+    '#btnReady': 'Marking ready',
+    '#btnCollected': 'Collecting',
+    '#btnReject': 'Rejecting',
+    '#btnUndoReady': 'Moving back to Preparing',
+  };
+  return map[selector] || 'Continuing';
+}
+
+/**
+ * Wait `ms`, showing a countdown the trainee can pause.
+ *
+ * A fixed dwell is only ever a guess at someone's reading speed, and volunteers
+ * reported the modal steps going too fast. This shows what is about to happen,
+ * counts down, and offers a Hold button that stops the clock indefinitely — so a
+ * slow reader is never rushed and a confident one is not made to wait.
+ */
+function dwellWithHold(modal, ms, label) {
+  return new Promise(resolve => {
+    const host = modal?.querySelector('.pos-modal');
+    if (!host) { setTimeout(resolve, ms); return; }
+
+    const bar = document.createElement('div');
+    bar.className = 'training-dwell';
+    bar.innerHTML = `<span class="training-dwell-text">${label} in <b class="training-dwell-n">${Math.ceil(ms / 1000)}</b>s</span>`
+      + `<button type="button" class="pos-btn pos-btn-sm training-dwell-hold">⏸ Hold</button>`;
+    host.appendChild(bar);
+
+    let remaining = ms;
+    let held = false;
+    const nEl = bar.querySelector('.training-dwell-n');
+    const holdBtn = bar.querySelector('.training-dwell-hold');
+
+    const tick = setInterval(() => {
+      if (held) return;
+      remaining -= 100;
+      if (nEl) nEl.textContent = String(Math.max(0, Math.ceil(remaining / 1000)));
+      if (remaining <= 0) { finish(); }
+    }, 100);
+
+    function finish() {
+      clearInterval(tick);
+      if (bar.isConnected) bar.remove();
+      resolve();
+    }
+
+    holdBtn.onclick = () => {
+      held = !held;
+      holdBtn.textContent = held ? '▶ Continue' : '⏸ Hold';
+      bar.classList.toggle('training-dwell-held', held);
+      const t = bar.querySelector('.training-dwell-text');
+      if (t) t.innerHTML = held
+        ? 'Paused — take your time'
+        : `${label} in <b class="training-dwell-n">${Math.max(1, Math.ceil(remaining / 1000))}</b>s`;
+    };
+  });
 }
 
 /**
@@ -532,7 +610,7 @@ async function executeTrainingAction(actionId) {
       const order = mockOrders.find(o => o.orderId === 'training-001');
       if (order) { order.status = 'PREPARING'; order.approvedAt = new Date().toISOString(); }
       refreshTrainingBoard();
-      await waitMs(500);
+      await waitMs(BOARD_SETTLE_MS);
       return;
     }
     case 'click-undo-training-001': {
@@ -541,7 +619,7 @@ async function executeTrainingAction(actionId) {
       const order = mockOrders.find(o => o.orderId === 'training-001');
       if (order) { order.status = 'PENDING'; delete order.approvedAt; }
       refreshTrainingBoard();
-      await waitMs(500);
+      await waitMs(BOARD_SETTLE_MS);
       return;
     }
     case 'click-ready-training-001': {
@@ -550,7 +628,7 @@ async function executeTrainingAction(actionId) {
       const order = mockOrders.find(o => o.orderId === 'training-001');
       if (order) { order.status = 'READY'; order.readyAt = new Date().toISOString(); }
       refreshTrainingBoard();
-      await waitMs(500);
+      await waitMs(BOARD_SETTLE_MS);
       return;
     }
     case 'click-archive-training-001': {
@@ -559,7 +637,7 @@ async function executeTrainingAction(actionId) {
       const idx = mockOrders.findIndex(o => o.orderId === 'training-001');
       if (idx >= 0) mockOrders.splice(idx, 1);
       refreshTrainingBoard();
-      await waitMs(500);
+      await waitMs(BOARD_SETTLE_MS);
       return;
     }
     case 'click-cancel-training-002': {
@@ -580,7 +658,7 @@ async function executeTrainingAction(actionId) {
           modal.querySelectorAll('.pos-reject-picker button')
             .forEach(b => { if (b !== reason) b.classList.add('training-dim'); });
         }
-        await waitMs(MODAL_DWELL_MS);      // let the trainee read the reasons
+        await dwellWithHold(modal, MODAL_DWELL_MS, 'Choosing a reason');
         if (reason) {
           reason.click();
           await waitMs(POST_CLICK_MS);
@@ -593,7 +671,7 @@ async function executeTrainingAction(actionId) {
       const idx = mockOrders.findIndex(o => o.orderId === 'training-002');
       if (idx >= 0) mockOrders.splice(idx, 1);
       refreshTrainingBoard();
-      await waitMs(500);
+      await waitMs(BOARD_SETTLE_MS);
       return;
     }
     case 'open-walkup-demo': {
@@ -608,7 +686,7 @@ async function executeTrainingAction(actionId) {
         totalAmount: 9,
       });
       refreshTrainingBoard();
-      await waitMs(500);
+      await waitMs(BOARD_SETTLE_MS);
       return;
     }
     case 'toggle-celebration': {
@@ -623,7 +701,7 @@ async function executeTrainingAction(actionId) {
       }
       const banner = document.getElementById('celebBanner');
       if (banner) banner.classList.toggle('visible', !!celebrationMode);
-      await waitMs(300);
+      await waitMs(BOARD_SETTLE_MS);
       return;
     }
     default:

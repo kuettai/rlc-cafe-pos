@@ -2022,8 +2022,17 @@ header h1{
    the board, so its tour step correctly leaves the sidebar dimmed. */
 body.training-active .pos-sidebar::after{
   content:'';
-  position:fixed;top:52px;left:0;bottom:0;width:220px;
-  background:rgba(33,33,33,.8);
+  /* Cover the sidebar's full height, not from y=52: the user strip at the top
+     was left undimmed. `inset` with a 0 top also survives a header height
+     change, which the hardcoded 52px did not. */
+  position:fixed;top:0;left:0;bottom:0;width:220px;
+  /* Tuned by measuring pixel luminance, not by eye. This overlay sits over the
+     sidebar's light cream while TourGuide's backdrop composites over the dark
+     page, so the previous rgba(33,33,33,.8) — identical to the backdrop's own
+     value — still rendered much brighter: luminance 77 against 56 for the rest
+     of the screen, i.e. a glowing strip down the left edge. This lands the
+     sidebar on 56 too, so the dim is seamless. */
+  background:rgba(28,28,28,.88);
   pointer-events:none;
   z-index:200;
   transition:opacity .2s ease;
@@ -2590,6 +2599,30 @@ body.training-active.training-target-sidebar .pos-sidebar::after{opacity:0}
 body.tg-no-interaction .pos-modal-overlay,
 body.tg-no-interaction .pos-modal-overlay *{
   pointer-events:auto !important;
+}
+
+/* Countdown strip inside the training modal: says what is about to happen and
+   lets the trainee stop the clock. A fixed dwell can only ever guess at someone's
+   reading speed, which is why volunteers found the steps too fast. */
+.training-dwell{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  margin-top:12px;
+  padding:8px 12px;
+  border-radius:10px;
+  background:var(--cream,#f9f5f0);
+  border:1px dashed var(--accent-light,#C89F73);
+  font-size:.9rem;
+  color:var(--text-light,#7A6355);
+}
+.training-dwell-text b{color:var(--primary,#6B4226);font-size:1.05rem}
+.training-dwell-hold{flex:0 0 auto;min-height:36px}
+.training-dwell-held{
+  background:#FFF7E6;
+  border-style:solid;
+  border-color:#F59E0B;
 }
 
 /* Not scoped to .pos-detail-actions: the Reject step cues a button in the
