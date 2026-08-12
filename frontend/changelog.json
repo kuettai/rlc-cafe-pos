@@ -1,4 +1,5 @@
-[{"version":"v1.67.1","date":"2026-08-11","changes":["Admin: all pop-up forms are now the wider 900px size, not just the Menu form"]},
+[{"version":"v1.68.0","date":"2026-08-12","changes":["Admin Settings: Pre-Order Templates can now set which drink options are blocked by default on new pre-order links (defaults to Oat Milk)"]},
+{"version":"v1.67.1","date":"2026-08-11","changes":["Admin: all pop-up forms are now the wider 900px size, not just the Menu form"]},
 {"version":"v1.67.0","date":"2026-08-11","changes":["Pre-order links: can now block individual drink options (e.g. Oat Milk) per link — set them under Excluded Options when creating or editing a link. Paying customers are unaffected"]},
 {"version":"v1.66.2","date":"2026-08-11","changes":["Admin: removed the redundant Reports button from the header (Reports is a sidebar tab; the button also showed on the login screen)"]},
 {"version":"v1.66.1","date":"2026-08-10","changes":["Walk-up: fixed the search box scrambling text — the cursor no longer jumps to the start on every keystroke"]},

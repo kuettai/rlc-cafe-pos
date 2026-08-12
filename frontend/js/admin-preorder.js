@@ -354,6 +354,11 @@ function wirePreorderForm(form, container, menuP, collectionOpts, templatesP, ex
           <span style="color:var(--text-light);font-size:.8rem"> — ${onWhat}</span></span>
       </label>`;
     }).join('');
+
+    // Covers the other ordering: if the template arrived before these boxes
+    // existed, its ticks could not be applied then. In edit mode the boxes are
+    // already set from the code's own excludedOptions, so this is skipped.
+    if (!isEdit) applyExcludedOptionDefaults(form);
   });
 
   form.querySelector('#pfSelectAll').onclick = () => {
@@ -454,7 +459,30 @@ function wirePreorderForm(form, container, menuP, collectionOpts, templatesP, ex
       // If drinks landed before templates, re-tick to match new keywords.
       applyDrinkDefaultChecks(form);
     }
+    if (Array.isArray(templates.excludedOptions)) {
+      // Stashed on the form because the option checkboxes render from a
+      // separate menu fetch: whichever of the two settles last applies the
+      // ticks. This branch covers "options already rendered".
+      form._tplExcludedOptions = templates.excludedOptions.map(String);
+      applyExcludedOptionDefaults(form);
+    }
   });
+}
+
+/**
+ * Tick the excluded-option checkboxes from the template defaults.
+ *
+ * Called from BOTH async paths — the template fetch and the menu fetch — since
+ * either can settle first and only the later one has both halves available. A
+ * no-op in edit mode, where the code's own stored value is the source of truth.
+ */
+function applyExcludedOptionDefaults(form) {
+  const defaults = form._tplExcludedOptions;
+  if (!Array.isArray(defaults)) return;
+  const cbs = form.querySelectorAll('#pfOptionList input[data-opt-key]');
+  if (!cbs.length) return;                       // options not rendered yet
+  const want = new Set(defaults.map(String));
+  cbs.forEach(cb => { cb.checked = want.has(cb.dataset.optKey); });
 }
 
 /** Case-insensitive substring match — used by the pre-check logic on the

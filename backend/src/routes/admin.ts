@@ -7,6 +7,9 @@ import {
 import { hashPin } from '../lib/auth';
 import { isBlockedIdentifier } from './auth';
 import { isNewcomerOrder } from '../lib/pricing';
+// Shared with the per-link field so a template and a link can never disagree
+// about what a valid "Group:Option" exclusion key looks like.
+import { normalizeExcludedOptions } from './preorder';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
@@ -720,6 +723,16 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
         collectionOptions: Array.isArray(stored.collectionOptions) && stored.collectionOptions.length
           ? stored.collectionOptions
           : ['After 1st Service', 'After 2nd Service'],
+        // Variant options a NEW pre-order link should block by default, as
+        // "Group:Option" pairs. Defaults to Oat Milk: it is free on pre-orders
+        // (the whole gross is written off as discountOffset) and its consumption
+        // was running high enough for the café to ask for it to be removed.
+        //
+        // Unlike the other fields there is no non-empty fallback — an admin who
+        // clears the list means "block nothing", and that must survive a reload.
+        excludedOptions: Array.isArray(stored.excludedOptions)
+          ? stored.excludedOptions
+          : ['Milk:Oat Milk'],
         updatedAt: stored.updatedAt || null,
       });
     }
@@ -744,6 +757,10 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
 
       if (!collectionOptions.length) return res(400, { error: 'At least one collectionOption is required' });
 
+      // Reuse the pre-order route's normaliser so the template and the per-link
+      // field can never disagree about what a valid "Group:Option" key is.
+      const excludedOptions = normalizeExcludedOptions(body.excludedOptions);
+
       const now = new Date().toISOString();
       await docClient.send(new PutCommand({
         TableName: SETTINGS_TABLE,
@@ -753,6 +770,7 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
           bannerMessage: banner,
           eligibleItemKeywords,
           collectionOptions,
+          excludedOptions,
           updatedAt: now,
         },
       }));
@@ -761,6 +779,7 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
         bannerMessage: banner,
         eligibleItemKeywords,
         collectionOptions,
+        excludedOptions,
         updatedAt: now,
       });
     }

@@ -164,7 +164,16 @@ Stock count snapshots submitted by cashier during close procedure.
 ### Record Type 10: Pre-order Templates
 - PK=`SETTINGS#PREORDER_TEMPLATES`, SK=`META`
 
-Default templates for creating new pre-order codes.
+Defaults that pre-fill the "Create Pre-Order Link" form. Existing codes are
+unaffected — each carries its own independent copy of these fields.
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| bannerMessage | string | Default banner; supports `{$SUNDAY}` |
+| eligibleItemKeywords | list | Drink-name substrings pre-checked as eligible |
+| collectionOptions | list | Default collection-time radio choices |
+| excludedOptions | list | Default blocked variant options, `"Group:Option"` (e.g. `"Milk:Oat Milk"`). Unlike the others there is **no non-empty fallback** — an empty list means "block nothing" and must survive a reload |
+| updatedAt | string | ISO timestamp of the last save |
 
 ### Record Type 11: Featured Drink
 - PK=`FEATURED_DRINK`, SK=`META`

@@ -474,6 +474,14 @@ function renderPreorderTemplatesSection(host, templates) {
         <button type="button" class="pos-btn pos-btn-sm" id="tplAddOpt">+ Add option</button>
       </div>
 
+      <div class="admin-form-group">
+        <label>Excluded Options (default)</label>
+        <p style="font-size:.75rem;color:var(--text-light);margin:2px 0 6px">Options pre-ticked as blocked on a NEW link — e.g. Oat Milk, which is free on pre-orders and costly. Each link can still be adjusted individually.</p>
+        <div id="tplOptionList" style="max-height:200px;overflow-y:auto;border:1px solid var(--cream-dark);border-radius:8px;padding:8px 12px;background:#fff">
+          <div class="loading">Loading options…</div>
+        </div>
+      </div>
+
       <div class="admin-form-actions" style="margin-top:24px;border-top:1px solid var(--cream-dark);padding-top:20px">
         <button class="pos-btn pos-btn-primary" id="btnSaveTemplates">Save Templates</button>
       </div>
@@ -518,6 +526,61 @@ function renderPreorderTemplatesSection(host, templates) {
   renderKeywordList();
   renderOptList();
 
+  // ─── Excluded options (default for new links) ──────────────────────
+  // Checkbox list of every distinct "Group:Option" across the active drinks,
+  // deduplicated: Oat Milk appears on several drinks but is one choice here.
+  // Fetched separately because the settings tab does not otherwise load the menu.
+  const tplExcluded = new Set(
+    (Array.isArray(templates.excludedOptions) ? templates.excludedOptions : []).map(String)
+  );
+  api('GET', '/api/admin/menu').then(data => {
+    const listEl = host.querySelector('#tplOptionList');
+    if (!listEl) return;
+    const items = (Array.isArray(data) ? data : data.items || [])
+      .filter(m => m.category === 'DRINK' && m.isActive !== false);
+
+    const seen = new Map();   // key -> { group, option, price, type, items[] }
+    for (const m of items) {
+      for (const g of (Array.isArray(m.variantGroups) ? m.variantGroups : [])) {
+        for (const o of (Array.isArray(g.options) ? g.options : [])) {
+          const group = String(g.group || '').trim();
+          const option = String(o.name || '').trim();
+          if (!group || !option) continue;
+          const key = `${group}:${option}`;
+          const e = seen.get(key) || { group, option, price: Number(o.price || 0), type: g.type || 'single', items: [] };
+          e.items.push(m.name || '');
+          seen.set(key, e);
+        }
+      }
+    }
+
+    if (!seen.size) {
+      listEl.innerHTML = '<div style="color:var(--text-light);padding:4px 0">No drink options in the menu.</div>';
+      return;
+    }
+
+    // Paid options first — those are the ones that cost the café on a free
+    // pre-order, so they are what an admin is looking for.
+    const entries = [...seen.entries()].sort((a, b) =>
+      (b[1].price - a[1].price) || a[0].localeCompare(b[0]));
+
+    listEl.innerHTML = entries.map(([key, e]) => {
+      const priceTag = e.price ? ` <span style="color:var(--text-light);font-size:.85rem">+RM ${e.price.toFixed(2)}</span>` : '';
+      const onWhat = e.items.length > 2 ? `${e.items.length} drinks` : e.items.map(escapeHtml).join(', ');
+      return `<label style="display:flex;gap:8px;align-items:center;padding:4px 0;font-weight:400">
+        <input type="checkbox" data-tpl-opt="${escapeAttr(key)}" data-tpl-type="${escapeAttr(e.type)}" data-tpl-group="${escapeAttr(e.group)}"${tplExcluded.has(key) ? ' checked' : ''}>
+        <span>${escapeHtml(e.group)}: <strong>${escapeHtml(e.option)}</strong>${priceTag}
+          <span style="color:var(--text-light);font-size:.8rem"> — ${onWhat}</span></span>
+      </label>`;
+    }).join('');
+  }).catch(() => {
+    const listEl = host.querySelector('#tplOptionList');
+    // A menu fetch failure must not make the rest of the form unusable, but the
+    // checkboxes are the only record of the saved value, so warn rather than
+    // silently saving an empty list.
+    if (listEl) listEl.innerHTML = '<div style="color:var(--danger,#B91C1C);padding:4px 0">Could not load drink options — saving now would leave this list unchanged.</div>';
+  });
+
   host.querySelector('#tplAddKeyword').onclick = () => {
     _preorderTplKeywords.push('');
     renderKeywordList();
@@ -539,9 +602,35 @@ function renderPreorderTemplatesSection(host, templates) {
       showError('At least one collection option is required');
       return;
     }
+
+    // The checkboxes ARE the value, so an unrendered list (menu fetch failed)
+    // must not be read as "block nothing" — that would silently wipe the saved
+    // default. Fall back to what was loaded instead.
+    const optCbs = [...host.querySelectorAll('#tplOptionList input[data-tpl-opt]')];
+    const excludedOptions = optCbs.length
+      ? optCbs.filter(cb => cb.checked).map(cb => cb.dataset.tplOpt)
+      : (Array.isArray(templates.excludedOptions) ? templates.excludedOptions : []);
+
+    // A `single` group must keep one option: excluding every choice in e.g.
+    // Temperature would make the drink unorderable on every new link. Mirrors
+    // the same guard on the per-link form.
+    const byGroup = {};
+    for (const cb of optCbs) {
+      const g = cb.dataset.tplGroup;
+      (byGroup[g] = byGroup[g] || { type: cb.dataset.tplType, total: 0, excluded: 0 });
+      byGroup[g].total++;
+      if (cb.checked) byGroup[g].excluded++;
+    }
+    for (const [g, info] of Object.entries(byGroup)) {
+      if (info.type === 'single' && info.total > 0 && info.excluded === info.total) {
+        showError(`"${g}" is a required choice — leave at least one option available`);
+        return;
+      }
+    }
+
     try {
       await api('PUT', '/api/admin/settings/preorder-templates', {
-        bannerMessage, eligibleItemKeywords, collectionOptions,
+        bannerMessage, eligibleItemKeywords, collectionOptions, excludedOptions,
       });
       showSuccess('Templates saved');
     } catch (e) {
