@@ -2568,6 +2568,50 @@ body.training-active.training-target-sidebar .pos-sidebar::after{opacity:0}
 .pos-fam-water     .pos-combo-price{color:#4A7C93}
 .pos-fam-food      .pos-combo-price{color:#964A32}
 
+/* === Training: cue the button the tour is about to press ================
+   The order-detail modal offers three similar buttons (Payment Confirmed /
+   Newcomer / Reject) and the tour clicks one programmatically. Without a cue
+   the trainee just saw the modal flash open and shut with no idea which was
+   used — the point of the step.
+
+   TourGuide's own spotlight can't be reused: its backdrop sits BELOW the POS
+   modal (z-index 400), so the highlight would be hidden behind it. */
+@keyframes training-cue-pulse{
+  0%   { box-shadow:0 0 0 0 rgba(45,138,78,.55), 0 2px 8px rgba(107,66,38,.2) }
+  70%  { box-shadow:0 0 0 12px rgba(45,138,78,0), 0 2px 8px rgba(107,66,38,.2) }
+  100% { box-shadow:0 0 0 0 rgba(45,138,78,0), 0 2px 8px rgba(107,66,38,.2) }
+}
+/* TourGuide's `tg-no-interaction` sets `pointer-events:none` on everything
+   except its dialog and the highlighted element. During a modal step the
+   highlighted element is the order CARD behind the modal, so the modal's own
+   buttons were dead to touch: a trainee who reached out and tapped the ringed
+   "Payment Confirmed" got no response, and had to wait for the tour to click it.
+   Re-enable interaction inside the POS modal so the cue is honest. */
+body.tg-no-interaction .pos-modal-overlay,
+body.tg-no-interaction .pos-modal-overlay *{
+  pointer-events:auto !important;
+}
+
+/* Not scoped to .pos-detail-actions: the Reject step cues a button in the
+   .pos-reject-picker sub-dialog too. */
+button.training-cue{
+  position:relative;
+  outline:3px solid #2D8A4E;
+  outline-offset:3px;
+  animation:training-cue-pulse 1.1s ease-out infinite;
+  /* Lift above its siblings so the ring is never clipped by the next button. */
+  z-index:1;
+}
+/* Fade the buttons NOT being pressed, so the eye goes to the cued one. */
+button.training-dim{
+  opacity:.35;
+  filter:grayscale(45%);
+}
+/* Respect a reduced-motion preference: keep the ring, drop the pulse. */
+@media (prefers-reduced-motion:reduce){
+  button.training-cue{animation:none}
+}
+
 /* Sold-out must win over the family tints above, including their :hover rules.
    Declared last and with !important because the family selectors have equal
    specificity, so source order alone would not settle the :hover case. */
