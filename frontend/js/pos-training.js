@@ -336,13 +336,17 @@ function refreshTrainingBoard() {
 // How long the order-detail modal stays on screen before the tour clicks the
 // action button for the trainee.
 //
-// Was 1400ms, which volunteers reported as too fast to read — and it has to
-// cover THREE things in sequence: notice the modal opened, read which of
-// Payment Confirmed / Newcomer / Reject is ringed, and register the click. At
-// ~200 wpm a one-line label plus a glance at the ring is comfortably over two
-// seconds, so 3200ms. The Reject step spends this twice (action buttons, then
-// the reason picker), which is correct — it is two decisions.
-const MODAL_DWELL_MS = 3200;
+// It has to cover THREE things in sequence: notice the modal opened, read which
+// of Payment Confirmed / Newcomer / Reject is ringed, and register the click.
+//
+// Tuned by feedback rather than theory: 1400ms was far too fast, 3200ms was
+// still reported as rushed, so 6200ms. Erring long is the right trade here —
+// this runs once per volunteer during training, never during service, and the
+// Hold button means an impatient reader is never actually stuck waiting.
+//
+// The Reject step spends this twice (action buttons, then the reason picker),
+// which is correct — it is two separate decisions.
+const MODAL_DWELL_MS = 6200;
 // Pause after the click so the resulting board change is visibly connected to
 // the button press rather than appearing to happen on its own.
 const POST_CLICK_MS = 900;

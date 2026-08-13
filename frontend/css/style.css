@@ -2020,24 +2020,40 @@ header h1{
    so the sidebar and its highlighted button read as the focus.
    Note btnWalkup is NOT one of them — it lives in the controls bar above
    the board, so its tour step correctly leaves the sidebar dimmed. */
-body.training-active .pos-sidebar::after{
-  content:'';
-  /* Cover the sidebar's full height, not from y=52: the user strip at the top
-     was left undimmed. `inset` with a 0 top also survives a header height
-     change, which the hardcoded 52px did not. */
-  position:fixed;top:0;left:0;bottom:0;width:220px;
-  /* Tuned by measuring pixel luminance, not by eye. This overlay sits over the
-     sidebar's light cream while TourGuide's backdrop composites over the dark
-     page, so the previous rgba(33,33,33,.8) — identical to the backdrop's own
-     value — still rendered much brighter: luminance 77 against 56 for the rest
-     of the screen, i.e. a glowing strip down the left edge. This lands the
-     sidebar on 56 too, so the dim is seamless. */
-  background:rgba(28,28,28,.88);
-  pointer-events:none;
-  z-index:200;
-  transition:opacity .2s ease;
+/* Mute the sidebar's own light chrome while the tour dims it.
+   `background` matters as much as the border: the sidebar is `overflow:auto`, so
+   it is a scroll container and the ::after overlay below gets clipped to the
+   scrollport — leaving its right-most column of white background uncovered as a
+   bright 1px line (measured luminance 255 against 56 either side). Proven by
+   elimination: setting this background dark took that pixel to 0, while widening
+   the overlay changed nothing. Dimming the background removes the line at source
+   and makes the overlay's exact width unimportant. */
+/* Dim the sidebar while the tour highlights something else.
+   Replaces an ::after overlay. The sidebar is `overflow:auto`, hence a scroll
+   container, so an absolutely-positioned pseudo-element gets clipped to the
+   scrollport and left its right-most column of white background showing as a
+   bright 1px line (measured luminance 255 against 56 either side). Proven by
+   elimination: darkening the sidebar's own background took that pixel to 0,
+   while widening the overlay changed nothing.
+
+   A filter dims the real pixels, so there is no uncovered edge by construction,
+   and one declaration covers the panel, its dividers and its buttons. .22 lands the
+   sidebar on luminance 56 against the backdrop's 57; measured, not guessed. */
+body.training-active .pos-sidebar{
+  filter:brightness(.22) saturate(.75);
+  border-right-color:transparent !important;
+  box-shadow:none !important;
+  transition:filter .2s ease;
 }
-body.training-active.training-target-sidebar .pos-sidebar::after{opacity:0}
+/* Steps that DO target a sidebar button (btnCelebration, btnMenu, btnCafeToggle,
+   …) light it back up, so the sidebar and its highlighted button read as the
+   focus. btnWalkup is NOT one of them — it lives in the controls bar above the
+   board, so its step correctly leaves the sidebar dimmed. */
+body.training-active.training-target-sidebar .pos-sidebar{
+  filter:none;
+}
+
+
 
 /* POS Sidebar sections */
 .pos-sidebar-section-label{padding:12px 16px 4px;font-size:.7rem;text-transform:uppercase;letter-spacing:.5px;color:var(--text-light,#7A6355);font-weight:700}
