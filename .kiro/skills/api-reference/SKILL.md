@@ -27,7 +27,7 @@ Base URL: `https://hcydppml1a.execute-api.ap-southeast-5.amazonaws.com/prod`
 | GET | /api/staff-code/validate?code=... | Validate a staff code (the `?code=staff` link). `200 {valid:true, code, label}` / `400 {valid:false, reason:'invalid'\|'not_yet'\|'expired'}`. `not_yet`/`expired` come from the inclusive `startDate`/`endDate` gate in Malaysia time |
 | POST | /api/push/subscribe | Subscribe to push notifications (orderId, subscription) |
 | DELETE | /api/push/subscribe | Unsubscribe (orderId, endpoint) |
-| GET | /api/push/vapid-public-key | Get VAPID public key |
+| GET | /api/push/vapid-public-key | Get VAPID public key. Method, path and (absent) auth unchanged, but as of v1.73.0 it **actually works** — it had returned `500 {error:'VAPID not configured'}` in production for weeks because the keys were empty Lambda env vars. It now resolves via `ensureVapidConfigured()` from SSM `/rlc-cafe/VAPID_*` and answers **only once web-push has accepted the whole triple** (subject + public + private); a partial config is still a `500`. Never serve the public key alone — a browser would subscribe successfully and be undeliverable forever, burning the customer's one notification permission |
 | GET | /api/verses/random | Get a random active bible verse |
 
 ## Display Endpoints (Requires JWT, any role)

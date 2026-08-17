@@ -18,7 +18,10 @@ import * as path from 'path';
  */
 function requireSecret(name: string, minLength = 32): string {
   const value = process.env[name];
-  const placeholders = ['CHANGE_ME_BEFORE_DEPLOY', 'CHANGE_ME', 'changeme', 'default-secret', 'secret'];
+  const placeholders = [
+    'CHANGE_ME_BEFORE_DEPLOY', 'CHANGE_ME', 'changeme', 'default-secret', 'secret',
+    'CHANGE_ME_WHEN_CLOUDFRONT_ENABLED',
+  ];
   if (!value || placeholders.includes(value) || value.length < minLength) {
     throw new Error(
       `${name} must be set in the deploy environment (min ${minLength} chars, not a placeholder).\n`
@@ -214,13 +217,40 @@ export class InfraStack extends cdk.Stack {
         // Rotating this value invalidates all outstanding tokens.
         JWT_SECRET: requireSecret('JWT_SECRET'),
         // Origin verification for CloudFront front-door (see docs/cloudfront-migration.md).
-        // Kept OFF until CloudFront is wired up to inject the header. When ENFORCE_ORIGIN_HEADER
-        // is 'true', requests missing/mismatching X-Origin-Verify are rejected with 403.
-        ORIGIN_VERIFY_SECRET: process.env.ORIGIN_VERIFY_SECRET || 'CHANGE_ME_WHEN_CLOUDFRONT_ENABLED',
-        ENFORCE_ORIGIN_HEADER: process.env.ENFORCE_ORIGIN_HEADER || 'false',
-        VAPID_PUBLIC_KEY: process.env.VAPID_PUBLIC_KEY || '',
-        VAPID_PRIVATE_KEY: process.env.VAPID_PRIVATE_KEY || '',
-        VAPID_SUBJECT: process.env.VAPID_SUBJECT || 'mailto:admin@rlccafe.com',
+        // Kept OFF until CloudFront is wired up to inject the header. When
+        // ENFORCE_ORIGIN_HEADER is 'true', requests missing/mismatching
+        // X-Origin-Verify are rejected with 403.
+        //
+        // The secret is REQUIRED from the deploy environment, but only when
+        // enforcement is actually on — and it is not emitted at all otherwise.
+        // It used to default to the literal 'CHANGE_ME_WHEN_CLOUDFRONT_ENABLED',
+        // which is committed in a public repository: the day anyone flipped
+        // ENFORCE_ORIGIN_HEADER to 'true', the "shared secret" would have been
+        // public knowledge and the geo restriction bypassable by any client
+        // setting one header. Failing synth is the only safe default; the router
+        // additionally fails closed (403) if the value is somehow absent at
+        // runtime with enforcement on.
+        ...(process.env.ENFORCE_ORIGIN_HEADER === 'true'
+          ? {
+            ENFORCE_ORIGIN_HEADER: 'true',
+            ORIGIN_VERIFY_SECRET: requireSecret('ORIGIN_VERIFY_SECRET'),
+          }
+          : { ENFORCE_ORIGIN_HEADER: 'false' }),
+        // NOTE: no VAPID_* here on purpose. Web push config lives in SSM
+        // (/rlc-cafe/VAPID_PUBLIC_KEY, /rlc-cafe/VAPID_PRIVATE_KEY,
+        // /rlc-cafe/VAPID_SUBJECT) and is read by backend/src/lib/ssm-config.ts.
+        // These three used to be env vars defaulting to '', so any `cdk deploy`
+        // from a shell that had not exported them overwrote the live keys with
+        // empty strings — which is how web push died in production, silently,
+        // for weeks. Do not reintroduce them here; there must be nothing in the
+        // deploy path capable of wiping them.
+        //
+        // FOLLOW-UP: JWT_SECRET is the remaining env-var secret. It is on the
+        // auth hot path and rotating it invalidates every outstanding token, so
+        // moving it to SSM is a separate, riskier change. It is protected by
+        // requireSecret() (synth fails rather than defaulting), so it cannot be
+        // wiped the same way. A /rlc-cafe/jwt-secret parameter already exists in
+        // SSM and is currently unread by any code.
       },
     });
 
@@ -286,7 +316,12 @@ export class InfraStack extends cdk.Stack {
     ingredientsTable.grantReadData(expiryHandler);
     settingsTable.grantReadWriteData(expiryHandler);
 
-    // Grant both handlers SSM read access for email/notification config
+    // Grant both handlers SSM read access to the whole /rlc-cafe/ prefix:
+    // email/notification config (GMAIL_*, NOTIFICATION_EMAIL) and Web Push VAPID
+    // keys (VAPID_*). GetParametersByPath is the call ssm-config.ts makes;
+    // GetParameter is kept for ad-hoc single reads. WithDecryption needs no extra
+    // kms:Decrypt grant because the parameters use the AWS-managed
+    // alias/aws/ssm key, which SSM decrypts on the caller's behalf.
     const ssmPolicy = new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: ['ssm:GetParametersByPath', 'ssm:GetParameter'],

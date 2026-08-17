@@ -1,5 +1,6 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { docClient, SETTINGS_TABLE, GetCommand, PutCommand, QueryCommand, DeleteCommand } from '../lib/db';
+import { ensureVapidConfigured } from '../lib/push';
 import * as crypto from 'crypto';
 
 const res = (statusCode: number, body: object): APIGatewayProxyResult => ({
@@ -16,7 +17,13 @@ export async function handlePush(event: APIGatewayProxyEvent): Promise<APIGatewa
 
   // GET /api/push/vapid-public-key
   if (method === 'GET' && path === '/api/push/vapid-public-key') {
-    const publicKey = process.env.VAPID_PUBLIC_KEY;
+    // Deliberately goes through ensureVapidConfigured() rather than reading the
+    // public key directly: it only returns a key once web-push has ACCEPTED the
+    // full triple (subject + public + private). Serving a public key whose
+    // private counterpart is missing or malformed would let the browser
+    // subscribe successfully and then never receive anything — the silent
+    // failure this endpoint used to be the front door for.
+    const publicKey = await ensureVapidConfigured();
     if (!publicKey) return res(500, { error: 'VAPID not configured' });
     return res(200, { publicKey });
   }

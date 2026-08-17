@@ -33,7 +33,9 @@ backend/src/     index.ts (router), expiry.ts (EventBridge cron — Sundays
                  auto-archive, low-stock alert, end-of-day revenue summary)
   lib/           db, auth (JWT/PIN), audit, phone, push, email, pricing,
                  date (Malaysia UTC+8 — the only place that conversion lives),
-                 daily-summary (end-of-day revenue email body + send)
+                 daily-summary (end-of-day revenue email body + send),
+                 ssm-config (the only reader of /rlc-cafe/ runtime config —
+                 one paginated, 5-min-cached fetch shared by email + VAPID)
   routes/        auth, cafe, menu, orders, pos, admin, checklist, receipt,
                  planogram, customers, vouchers, preorder, staffcode, push,
                  display, verses
@@ -53,6 +55,27 @@ docs/            requirements, architecture, deployment, update-YYYYMMDD.md
   `backend/src/lib/pricing.ts`, mirrored for display only in
   `frontend/js/pricing.js`. Never reimplement them inline — see
   `backend/tests/pricing.test.ts` for the specification.
+
+## Runtime configuration
+Anything the Lambdas need beyond table names lives in **SSM Parameter Store**
+under `/rlc-cafe/` (region `ap-southeast-5`), read through
+`backend/src/lib/ssm-config.ts` — one paginated fetch of the whole prefix, cached
+5 minutes per warm sandbox:
+
+| Parameter | Type | Consumer |
+|---|---|---|
+| `GMAIL_USER`, `GMAIL_APP_PASSWORD` | SecureString | `lib/email.ts` |
+| `NOTIFICATION_EMAIL` | String | `lib/email.ts` |
+| `VAPID_PRIVATE_KEY` | SecureString | `lib/push.ts` |
+| `VAPID_PUBLIC_KEY`, `VAPID_SUBJECT` | String | `lib/push.ts` |
+
+**Not** Lambda environment variables, on purpose: the VAPID keys used to be env
+vars that the CDK stack defaulted to `''`, so any `cdk deploy` from a shell that
+had not exported them wiped web push — silently, for weeks. `JWT_SECRET` is the
+one remaining env-var secret (deploy environment, `requireSecret()` fails synth
+rather than defaulting); `ORIGIN_VERIFY_SECRET` is required only when
+`ENFORCE_ORIGIN_HEADER=true`. Full table and rotation steps:
+`docs/deployment.md` → *Runtime configuration*.
 
 ## Local development
 ```bash

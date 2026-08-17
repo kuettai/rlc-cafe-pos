@@ -1,6 +1,6 @@
 ---
 name: invariants
-description: Reviewable invariants for RLC Café POS — the do-not-duplicate list (including Malaysia-time date conversion and dead code left behind by an early return), storage conventions, who may authorise a discount (cashier-selected vs customer-requested vs system-only), the pre-order ISO expiresAt exception, create/edit parity (a restriction enforced on create must be re-enforced on edit), bulk mutating routes and collection-route dispatch, API response shape, path-parameter handling, no un-awaited work after a handler returns (Lambda freezes the sandbox) and date-keyed markers for at-most-once cron side effects, auth and release rules, and test teeth (a guard is untested unless a fixture reaches it; a test that depends on the machine timezone is not a test). Each is a checkable assertion with the production bug it prevents. Use when reviewing a diff, writing or judging tests, before deploying, or when adding code that touches money, discounts, order status, expiry, pre-orders, emails, background or scheduled work, timezones, versions, or routing.
+description: Reviewable invariants for RLC Café POS — the do-not-duplicate list (including Malaysia-time date conversion and dead code left behind by an early return), storage conventions, who may authorise a discount (cashier-selected vs customer-requested vs system-only), the pre-order ISO expiresAt exception, create/edit parity (a restriction enforced on create must be re-enforced on edit), bulk mutating routes and collection-route dispatch, API response shape, path-parameter handling, no un-awaited work after a handler returns (Lambda freezes the sandbox) and date-keyed markers for at-most-once cron side effects, no silently-skipped feature when its config is missing (config in SSM, never a wipeable Lambda env default), auth and release rules, and test teeth (a guard is untested unless a fixture reaches it; a test that depends on the machine timezone is not a test). Each is a checkable assertion with the production bug it prevents. Use when reviewing a diff, writing or judging tests, before deploying, or when adding code that touches money, discounts, order status, expiry, pre-orders, emails, background or scheduled work, timezones, versions, or routing.
 ---
 
 # Invariants
@@ -17,6 +17,7 @@ production bug in this repo. Violations are defects, not style opinions.
 | Phone normalisation | `backend/src/lib/phone.ts` | duplicate customer records |
 | Version numbers | `scripts/bump-version.mjs` | shipped a release with 4 of 6 markers stale |
 | Malaysia-time dates | `backend/src/lib/date.ts` | end-of-day emails headed "Saturday" for a Sunday service |
+| Runtime config (`/rlc-cafe/` SSM) | `backend/src/lib/ssm-config.ts` | two separate readers of the same prefix, each with its own unpaginated fetch: web push died in production, the end-of-day email was three parameters from the same fate |
 
 `lib/date.ts` (`malaysiaToday` / `malaysiaClock` / `malaysiaDayStartUtc`) is the
 one place the UTC+8 conversion lives. It was extracted from `routes/staffcode.ts`
@@ -215,6 +216,41 @@ or into an excluded paid option.
   restores the lost-email failure mode with no retry; the absence of the record is
   what makes the next run try again. The send's return value must be checked — the
   old caller discarded `sendEndOfDaySummary`'s boolean.
+- ☐ **A FEATURE DISABLED BY MISSING CONFIG LOGS, LOUDLY, EVERY TIME IT IS
+  SKIPPED.** `if (!KEY) return; // not configured, skip silently` is a defect, not
+  defensive coding: a value that goes missing then looks identical to a feature
+  that was deliberately turned off, and nobody finds out. Two separate features
+  died this way for weeks each — the end-of-day email (`.catch(() => {})`, above)
+  and web push, whose `lib/push.ts` carried literally
+  `if (!VAPID_PUBLIC || !VAPID_PRIVATE) return; // VAPID not configured, skip silently`
+  while the Lambda's `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` sat at empty
+  strings. `GET /api/push/vapid-public-key` returned `500` the whole time, and the
+  customer-visible shape was the worst kind: `track.js` asked for notification
+  permission, the customer GRANTED it, and then received nothing, forever.
+
+  The log line must name **which** values are missing and **where** they were
+  looked for, or it is undiagnosable from CloudWatch. Keep the *response* minimal
+  (`{ error: 'VAPID not configured' }`); the detail goes to the log.
+- ☐ **Runtime config that can be silently emptied by a deploy does not belong in
+  the Lambda environment.** The VAPID keys were env vars that
+  `infra/lib/infra-stack.ts` defaulted to `''`, so any `cdk deploy` from a shell
+  that had not exported them wiped the live keys — which is how they were lost.
+  Runtime config lives in SSM under `/rlc-cafe/`, read through
+  `backend/src/lib/ssm-config.ts` (one cached, paginated fetch of the whole
+  prefix), because nothing in the deploy path can wipe a parameter. A secret that
+  must stay an env var is guarded by `requireSecret()` so synth FAILS rather than
+  defaulting — never by a placeholder literal, which in a public repo is a
+  published secret the moment the feature is switched on.
+- ☐ **A partial config is treated as no config.** `GET /api/push/vapid-public-key`
+  goes through `ensureVapidConfigured()` and only answers once web-push has
+  accepted the whole triple. Serving a public key with no working private
+  counterpart lets the browser subscribe successfully and be undeliverable
+  forever — worse than an honest 500, because it burns the one permission prompt
+  the customer will ever grant.
+- ☐ **A paged AWS list call is paginated, even when today's count is under the
+  page size.** `GetParametersByPath` returns 10 per call and `/rlc-cafe/` already
+  holds 7; a truncated read is indistinguishable from "never configured", i.e.
+  it re-arms the exact bug above.
 - ☐ Error responses stay minimal — no internal detail, no stack traces.
 - ☐ CORS headers merged from the router, not re-declared per route.
 

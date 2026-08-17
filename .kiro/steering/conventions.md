@@ -40,6 +40,13 @@ Do not duplicate these — they have each caused a production bug when copied:
   2026-08-02 and 2026-08-09 services were headed "Saturday". `backend` tests run
   as `TZ=UTC jest` to match production — a bare `jest` on a Malaysian laptop hides
   this whole class of bug.
+- **Runtime config:** `backend/src/lib/ssm-config.ts` — the only reader of the
+  `/rlc-cafe/` SSM prefix (Gmail credentials, VAPID keys), one paginated fetch of
+  the whole prefix cached 5 minutes. Runtime config does **not** belong in the
+  Lambda environment: the VAPID keys were env vars the CDK stack defaulted to
+  `''`, so any `cdk deploy` from a shell that had not exported them wiped web
+  push, silently, for weeks. A secret that must stay an env var is guarded by
+  `requireSecret()` so synth fails rather than defaulting.
 
 ## Data changes
 Menu/settings edits the admin UI cannot express require a script in `scripts/`.

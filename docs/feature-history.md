@@ -35,7 +35,7 @@ consume context on every turn. See `docs/update-YYYYMMDD.md` for session detail.
 - ✅ Customer CRM — phone-based registration, order linking, lookup, order history
 - ✅ Voucher system — campaigns, assign (individual + CSV bulk), redeem at POS, void
 - ✅ Pre-order codes — generate shareable links, validate, auto-remark orders
-- ✅ Push notifications — Web Push API, subscribe per order, VAPID keys
+- ✅ Push notifications — Web Push API, subscribe per order, VAPID keys (built here, but **dead in production until v1.73.0** — the keys were wipeable Lambda env vars and the failure was silent)
 - ✅ TV Display screen — ready orders board + promo slideshow (S3 presigned URLs)
 - ✅ Bible verses — admin CRUD, random verse on payment screen
 - ✅ Featured drink — POS set/unset, admin audit log
@@ -102,6 +102,18 @@ Second release of the same day, on top of v1.71.0. Session detail:
 - ✅ **Fix: the email subject was dated a day early** ("Saturday, 1 August" for the 2 August service) because `formatDate` called `toLocaleDateString` with no `timeZone`, so it rendered in the runtime's zone — UTC on Lambda. Now pinned to `Asia/Kuala_Lumpur`
 - ✅ New `backend/src/lib/date.ts` as the single source of truth for the UTC+8 conversion (`malaysiaToday` / `malaysiaClock` / `malaysiaDayStartUtc`), extracted from `routes/staffcode.ts`, which re-exports it
 - ✅ `npm test` is now `TZ=UTC jest` — the date test had passed against the broken code because the dev machine's zone is already `Asia/Kuala_Lumpur`, which is how the bug survived. New `daily-summary-cron.test.ts` and `email-date.test.ts`
+
+### Completed (2026-08-17 Sprint — v1.73.0)
+Third release of the same day, on top of v1.72.0. Session detail:
+`docs/update-20260817.md`.
+- ✅ **Fix: web push was dead in production and is now working.** `lib/push.ts` read the VAPID keys from Lambda env vars that `infra-stack.ts` defaulted to `''`, so any `cdk deploy` from a shell that had not exported them wiped the live keys; `push.ts` then hit `if (!VAPID_PUBLIC || !VAPID_PRIVATE) return; // skip silently` and `GET /api/push/vapid-public-key` returned `500` for weeks. Customer-visible shape: `track.js` offered the notifications banner, the customer **granted browser permission**, `subscribe()` then failed on an undefined key — the one notification permission they will ever grant, spent for nothing
+- ✅ VAPID config moved to SSM under `/rlc-cafe/` (`VAPID_PUBLIC_KEY` String, `VAPID_PRIVATE_KEY` SecureString, `VAPID_SUBJECT` String), read through a new awaited, cached `ensureVapidConfigured()`. All three `VAPID_*` env vars removed from the Lambda, so there is nothing left for a fresh deploy shell to wipe. **CDK change — backend deploy required**
+- ✅ The silent `return` is gone: a missing or malformed config now `console.error`s and names **which half** is missing, plus the SSM path it looked in
+- ✅ `routes/push.ts` no longer reads the env var directly — the endpoint answers only once web-push has accepted the whole triple, so it can never serve a public key whose private half is absent (which would produce a browser subscription undeliverable forever)
+- ✅ `VAPID_SUBJECT` changed from `mailto:admin@rlccafe.com` (a domain the project does not own) to `https://153.oasisofcare.org`
+- ✅ `ORIGIN_VERIFY_SECRET` no longer silently defaults to the committed literal `CHANGE_ME_WHEN_CLOUDFRONT_ENABLED`; it is `requireSecret`d when `ENFORCE_ORIGIN_HEADER === 'true'`, not emitted otherwise, and the placeholder is denylisted
+- ✅ **A second latent copy of the same bug, found and fixed:** `getEmailConfig` called `GetParametersByPath` with no pagination. Default page size is 10 and `/rlc-cafe/` already holds 7 — three more parameters and the end-of-day email would have failed in the identical indistinguishable way. Both configs now share one paginated, 5-minute-cached fetch
+- ✅ New `backend/tests/push-vapid.test.ts` (16 tests); offline suites 304 → 320 tests. `docs/deployment.md` gained a **Runtime configuration** section — the `/rlc-cafe/` parameters were documented nowhere
 
 ### TODO — Remaining
 - ✅ Email notifications — low stock alert (Sunday last run + Wednesday midweek) and end-of-day summary to admin (expiry cron, gated + exactly-once as of v1.72.0)

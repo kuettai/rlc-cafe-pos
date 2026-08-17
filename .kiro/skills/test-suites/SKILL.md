@@ -43,6 +43,7 @@ it.
 | `staff-code.test.ts` | the staff link — code validation/date gate, and that a requested STAFF price reverts on approve unless the cashier confirms |
 | `preorder-pending.test.ts` | ministry pre-orders as PENDING — free release (single and bulk), the preserved ISO `expiresAt`, the create/edit restriction parity, the backend-owned notes prefix, `closeCafe` skipping pre-orders, and the `expirePreOrders` recovery path |
 | `preorder-pending-gaps.test.ts` | the coverage holes a mutation audit found in the suite above — the 1-hour PENDING sweep **skipping** pre-orders (previously staged with an empty result, so untested), the `409` on a stale status for the single-order release, `getOrder`'s five pre-order response fields, and the admin daily-report pre-order bucket in both directions (its only prior coverage was the live integration suite) |
+| `push-vapid.test.ts` | web push VAPID config — read from SSM (`/rlc-cafe/VAPID_*`) and cached, paginated, env fallback, and above all that a **missing or malformed config LOGS instead of returning silently**; plus the `vapid-public-key` route, including its refusal to serve a public key whose private counterpart is missing. SSM, DynamoDB and `web-push` are all mocked — nothing is sent, nothing is read for real |
 | `test-markers.test.ts` | the test-data marker contract (below) |
 
 These mock DynamoDB. They touch nothing real.

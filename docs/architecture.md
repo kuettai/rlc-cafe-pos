@@ -401,7 +401,15 @@ awaited, logged, retried and exactly-once. See `.kiro/skills/invariants` →
 
 - **Frontend:** No secrets, all logic server-side
 - **API Auth:** Lambda authorizer validates JWT on protected endpoints
-- **JWT:** Signed with secret stored in Lambda environment variable (or AWS Secrets Manager)
+- **JWT:** Signed with secret stored in Lambda environment variable
+  (`JWT_SECRET`, required from the deploy environment — `requireSecret()` fails
+  synth rather than defaulting to a placeholder)
+- **Runtime config and other secrets:** SSM Parameter Store under `/rlc-cafe/`
+  (Gmail credentials, Web Push VAPID keys), read via
+  `backend/src/lib/ssm-config.ts`. **Not** Lambda environment variables — the
+  VAPID keys were env vars the CDK stack defaulted to `''`, so a `cdk deploy`
+  from a shell that had not exported them wiped web push silently. See
+  `docs/deployment.md` → *Runtime configuration*
 - **PINs:** Stored as bcrypt hashes in DynamoDB
 - **CORS:** Restrict to GitHub Pages domain only
 - **Rate limiting:** API Gateway throttling (prevent abuse of public order endpoint)
