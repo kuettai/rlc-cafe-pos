@@ -28,8 +28,12 @@ Live at https://153.oasisofcare.org/ (CNAME), API at
 
 ## Layout
 ```
-backend/src/     index.ts (router), expiry.ts (EventBridge cron, 5min)
-  lib/           db, auth (JWT/PIN), audit, phone, push, email, pricing
+backend/src/     index.ts (router), expiry.ts (EventBridge cron — Sundays
+                 01:00-09:00 UTC every 30min, + a Wednesday stock run; expiry,
+                 auto-archive, low-stock alert, end-of-day revenue summary)
+  lib/           db, auth (JWT/PIN), audit, phone, push, email, pricing,
+                 date (Malaysia UTC+8 — the only place that conversion lives),
+                 daily-summary (end-of-day revenue email body + send)
   routes/        auth, cafe, menu, orders, pos, admin, checklist, receipt,
                  planogram, customers, vouchers, preorder, staffcode, push,
                  display, verses

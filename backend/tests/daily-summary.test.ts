@@ -36,8 +36,10 @@ jest.mock('../src/lib/email', () => ({
   sendLowStockAlert: jest.fn().mockResolvedValue(true),
 }));
 
+// Moved out of routes/pos.ts into lib/daily-summary.ts when the end-of-day
+// summary became a cron job instead of a fire-and-forget call in `closeCafe`.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { summarizeDailyRevenue } = require('../src/routes/pos');
+const { summarizeDailyRevenue } = require('../src/lib/daily-summary');
 
 const sale = (total: number, offset = 0, extra: Record<string, any> = {}) => ({
   status: 'ARCHIVED', totalAmount: total, discountOffset: offset, ...extra,

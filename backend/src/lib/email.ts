@@ -181,7 +181,19 @@ export async function sendEndOfDaySummary(data: {
   return sendEmail(`☕ ${formatDate(data.date)}: ${data.totalOrders} orders · RM${data.netExpected.toFixed(0)} revenue`, emailWrapper(content));
 }
 
+/**
+ * Render a YYYY-MM-DD service date as "Sunday, 16 August 2026".
+ *
+ * `timeZone` is LOAD-BEARING. Without it `toLocaleDateString` formats in the
+ * runtime's zone, which on Lambda is UTC — and since the date is parsed as
+ * midnight MYT (UTC+8), that lands at 16:00 the PREVIOUS day. Production proof:
+ * the summaries for the 2026-08-02 and 2026-08-09 services were subject-lined
+ * "Saturday, 1 August 2026" and "Saturday, 8 August 2026". Both were Sundays.
+ */
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr + 'T00:00:00+08:00');
-  return d.toLocaleDateString('en-MY', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  return d.toLocaleDateString('en-MY', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+    timeZone: 'Asia/Kuala_Lumpur',
+  });
 }

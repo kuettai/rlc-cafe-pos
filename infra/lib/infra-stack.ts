@@ -297,8 +297,15 @@ export class InfraStack extends cdk.Stack {
 
     new events.Rule(this, 'OrderExpiryCron', {
       ruleName: 'rlc-cafe-order-expiry',
-      // Sundays 9am-3pm MYT (1am-7am UTC), every 30 min
-      schedule: events.Schedule.expression('cron(0/30 1-7 ? * SUN *)'),
+      // Sundays 9am-5pm MYT (1am-9am UTC), every 30 min.
+      //
+      // Widened from 1-7 (which stopped at 3:30pm MYT) because the end-of-day
+      // revenue summary now rides on this cron — `sendDailySummary` in
+      // expiry.ts — and it can only send once the cashier has tapped Close Café.
+      // A close after 3:30pm MYT would have had no run left to carry it, which
+      // is the same "no second chance" shape as the bug being fixed. The extra
+      // runs give seven attempts from 2pm MYT onward.
+      schedule: events.Schedule.expression('cron(0/30 1-9 ? * SUN *)'),
       targets: [new targets.LambdaFunction(expiryHandler)],
     });
 

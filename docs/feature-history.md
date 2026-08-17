@@ -89,8 +89,22 @@ From the WhatsApp thread with RLC CG, 2026-08-16. Spec and dependency graph:
 - ✅ T1 Admin > Checklist reordering — drag the ⠿ handle (pointer events, not HTML5 drag, which is unreliable on the counter iPad) or use ▲▼, within a phase only. Frontend-only: order is array position, and the whole-array `PutCommand` round-trips it
 - ✅ Test coverage from a mutation audit — `staff-code.test.ts`, `preorder-pending.test.ts`, `preorder-pending-gaps.test.ts`; offline suites 187 → 276 tests
 
+### Completed (2026-08-17 Sprint — v1.72.0)
+Second release of the same day, on top of v1.71.0. Session detail:
+`docs/update-20260817.md`.
+- ✅ Admin Dashboard restructured from eight equal-weight sections into two zones — a compact live "Right now" strip (pending, preparing, oldest wait) shown **only** when the selected date is today, then an analysis zone led by revenue. Sunday page height 4006px → 3087px
+- ✅ Three new visualisations, plain HTML/CSS with **no charting library**: order-source stacked bar, top items as horizontal bars, and session comparison as two small charts — orders and revenue on separate scales, deliberately not a dual-axis chart
+- ✅ **Order-source breakdown** (requested by the café) — how many of the day's orders were walk-ins at the counter, ministry pre-orders, or placed by customers on their phones. Derived client-side from `isWalkUp` / `isPreOrder` over the same non-cancelled/non-expired statuses as the headline count, so the three segments sum to it exactly. No backend change
+- ✅ Zero-order dates collapse to a single line instead of four empty panels; `Latest Stock Count` is now a collapsed `<details>`; headings name the date being viewed, so a past Sunday no longer says "Today's Discounts"
+- ✅ Fixed two unescaped interpolations in `featuredAuditHtml` and removed a duplicate `fmtTime`
+- ✅ **Fix: the Sunday end-of-day revenue email works again.** `closeCafe` fired it un-awaited after returning its response; Lambda freezes the sandbox at that point, so the promise completed only if later traffic happened to thaw the same sandbox. It survived 2026-08-02 (+50s) and 2026-08-09 (+4m39s) and produced nothing at all on 2026-08-16. The summary moved into the expiry cron: awaited, logged on every path, gated on `cafeStatus === 'CLOSED'` plus Sunday and 2pm-MYT, with a `DAILY_SUMMARY#{date}` marker written only after a confirmed send (so a failure retries instead of vanishing). New `backend/src/lib/daily-summary.ts`
+- ✅ EventBridge expiry cron widened `cron(0/30 1-7 ? * SUN *)` → `1-9` (9am–5pm MYT) so a café closed after 3:30pm still has a run left to carry the summary. **CDK change — backend deploy required**
+- ✅ **Fix: the email subject was dated a day early** ("Saturday, 1 August" for the 2 August service) because `formatDate` called `toLocaleDateString` with no `timeZone`, so it rendered in the runtime's zone — UTC on Lambda. Now pinned to `Asia/Kuala_Lumpur`
+- ✅ New `backend/src/lib/date.ts` as the single source of truth for the UTC+8 conversion (`malaysiaToday` / `malaysiaClock` / `malaysiaDayStartUtc`), extracted from `routes/staffcode.ts`, which re-exports it
+- ✅ `npm test` is now `TZ=UTC jest` — the date test had passed against the broken code because the dev machine's zone is already `Asia/Kuala_Lumpur`, which is how the bug survived. New `daily-summary-cron.test.ts` and `email-date.test.ts`
+
 ### TODO — Remaining
-- [ ] Email notifications (low stock alert, end-of-day summary to admin)
+- ✅ Email notifications — low stock alert (Sunday last run + Wednesday midweek) and end-of-day summary to admin (expiry cron, gated + exactly-once as of v1.72.0)
 - ✅ Customer order modify UI (change items while order is still PENDING) — Tier 1 (race-safe + cashier indicators), Tier 2 (add items + notes), Tier 3 (variant editing via shared variants.js)
 - [ ] Stock history & consumption trends (graph of usage over weeks)
 - [ ] Weekly/monthly sales summary report

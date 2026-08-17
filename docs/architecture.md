@@ -323,9 +323,13 @@ Attributes:
 
 ```
 - DynamoDB TTL on expiresAt automatically deletes expired orders
-- OR: Lambda cron (every 5 min) marks expired orders as EXPIRED and releases food reservations
+- OR: Lambda cron marks expired orders as EXPIRED and releases food reservations
 - Recommendation: Lambda cron approach (need to release foodReserved counts)
 ```
+
+As built, the cron runs **every 30 minutes on Sundays, 01:00–09:00 UTC (9am–5pm
+MYT)**, not every 5 minutes — the café only trades on Sunday mornings, so a
+weekday schedule bought nothing. See §7.1 for the exact expression.
 
 Ministry pre-orders are the exception: they sit in PENDING for days (they are
 placed ahead of the service) and their `expiresAt` is an ISO **string**, which
@@ -337,14 +341,28 @@ the pre-order link's service-end time.
 
 ```
 1. Cashier/Admin closes café (or auto-close at configured time)
-2. Lambda:
+2. Lambda (the request path):
    - Set cafeStatus=CLOSED
    - Archive any remaining READY orders
    - Expire any remaining PENDING orders, release reservations
      (ministry pre-orders are SKIPPED — they are for a future service)
-   - Generate reconciliation report
-   - Send end-of-day email (sales summary, menu changes, inventory status)
+   - Reset food counters and the featured drink
+   - Sends NO email
+3. Expiry cron (next run, within 30 min):
+   - Sees cafeStatus=CLOSED on a Sunday after 2pm MYT
+   - Generates the reconciliation report and sends the end-of-day email
+     (sales summary, menu changes, inventory status)
+   - Records DAILY_SUMMARY#{date} so it sends exactly once; a failure leaves no
+     marker, so the following run retries
 ```
+
+**Why the email is not on the close path.** It used to be, as an un-awaited
+`sendDailySummaryEmail().catch(() => {})` after the response. Lambda freezes the
+execution environment when a handler returns, so that promise advanced only if the
+same sandbox was later thawed by unrelated traffic — it survived two busy Sundays
+and silently produced nothing on 2026-08-16. Moving it to the cron makes it
+awaited, logged, retried and exactly-once. See `.kiro/skills/invariants` →
+"no un-awaited work outlives a request handler".
 
 ## 7. Infrastructure (AWS CDK)
 
@@ -352,11 +370,15 @@ the pre-order link's service-end time.
 
 - **API Gateway:** Single REST API with Lambda proxy integration (all CORS)
 - **Lambda:** Single bundled function (esbuild, Node.js 20, 256MB, 10s timeout)
-- **Lambda (expiry):** Cron function for order expiry (128MB, 30s, every 5 min)
+- **Lambda (expiry):** Cron function for order expiry, low-stock alerts and the
+  end-of-day revenue summary (128MB, 30s)
 - **DynamoDB:** 5 tables (orders, menu, ingredients, users, settings) — PAY_PER_REQUEST
 - **S3 (receipts):** `rlc-cafe-receipts-{account}` — 1-day lifecycle, CORS
 - **S3 (planogram):** `rlc-cafe-planogram-{account}` — 28-day lifecycle, CORS
-- **EventBridge:** Scheduled rule for order expiry (every 5 min)
+- **EventBridge:** Scheduled rules — order expiry `cron(0/30 1-9 ? * SUN *)`
+  (Sundays 9am–5pm MYT, every 30 min; widened from `1-7` in v1.72.0 so a late café
+  close still has a run left to carry the end-of-day summary), plus a midweek
+  Wednesday stock-check rule
 - **IAM:** Lambda role with DynamoDB RW + S3 RW + Bedrock InvokeModel
 - **Bedrock:** Claude Sonnet 4.6 (global inference profile)
 

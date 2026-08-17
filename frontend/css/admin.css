@@ -421,6 +421,262 @@
   color:var(--danger);
 }
 
+/* === Dashboard (Admin > Dashboard) =================================== */
+/* Two zones: a live strip ("Right now", today only) on a dark surface, then
+   the analysis zone on white panels. All spacing comes from the scale below —
+   no one-off inline values (that was the reason the old dashboard had no
+   adjustable hierarchy). Rhythm rule: more space ABOVE a heading than below. */
+.admin-dashboard{
+  --dash-1:4px;
+  --dash-2:8px;
+  --dash-3:12px;
+  --dash-4:16px;
+  --dash-5:24px;
+  --dash-6:32px;
+  --dash-surface:#fff;
+  --dash-rule:var(--cream-dark,#F5EDE4);
+  --dash-bar-h:14px;
+  /* Order-source categorical palette. Validated in light and dark (worst
+     adjacent CVD ΔE 8.4 protan, 19.5 normal-vision, all ≥3:1 on white).
+     Fixed order — never cycled, never reassigned by rank. */
+  --src-mobile:#B4691C;
+  --src-walkin:#0C8C63;
+  --src-preorder:#9457A6;
+  /* Session 1 → Session 2 is an ORDERED pair, so it is a light→dark step of
+     the brand hue (sequential), not a categorical pair. */
+  --ses-1:var(--primary-light,#8B5E3C);
+  --ses-2:var(--primary-dark,#4A2C17);
+}
+
+/* Header controls */
+.dash-controls{display:flex;align-items:center;gap:var(--dash-2);flex-wrap:wrap}
+.dash-date-select{
+  padding:6px 10px;border-radius:6px;
+  border:1px solid var(--cream-dark,#F5EDE4);
+  background:#fff;color:var(--text);
+  font-size:.9rem;font-family:inherit;min-height:36px;
+}
+.dash-refresh{display:flex;align-items:center;gap:6px}
+
+/* ── Zone 1: the live strip. Dark surface so it never reads as analysis, and
+      omitted entirely when a past Sunday is selected. Dense on purpose. ── */
+.dash-live{
+  display:flex;align-items:center;flex-wrap:wrap;
+  gap:var(--dash-2) var(--dash-5);
+  padding:var(--dash-3) var(--dash-4);
+  border-radius:var(--radius-lg,16px);
+  background:linear-gradient(135deg,var(--primary-dark,#4A2C17) 0%,var(--primary,#6B4226) 100%);
+  color:var(--cream,#FFF8F0);
+  box-shadow:var(--shadow-sm);
+}
+.dash-live-title{
+  font-size:.72rem;font-weight:800;letter-spacing:.08em;
+  text-transform:uppercase;opacity:.85;
+}
+.dash-live-metrics{display:flex;flex-wrap:wrap;align-items:baseline;gap:var(--dash-2) var(--dash-5)}
+.dash-live-metric{display:flex;align-items:baseline;gap:var(--dash-2)}
+.dash-live-value{
+  font-size:1.5rem;font-weight:800;line-height:1;
+  font-variant-numeric:tabular-nums;
+}
+.dash-live-label{font-size:.8rem;opacity:.85}
+
+/* ── Zone 2: analysis. Generous spacing. ── */
+.dash-zone{margin-top:var(--dash-6)}
+.dash-zone > :first-child{margin-top:0}
+.dash-zone-title{
+  margin:0 0 var(--dash-3);
+  color:var(--primary);font-size:1.1rem;
+}
+.dash-zone-title .dash-zone-basis{
+  font-size:.78rem;font-weight:400;color:var(--text-light);
+}
+.dash-h3{
+  margin:var(--dash-6) 0 var(--dash-3);
+  color:var(--primary);font-size:1.05rem;
+}
+.dash-h3.is-warning{color:var(--warning,#C47F17)}
+.dash-h3 .dash-h3-note{font-size:.82rem;font-weight:400;color:var(--text-light)}
+
+/* Revenue headline — one hero figure, the rest subordinate. */
+.dash-headline{
+  display:flex;flex-wrap:wrap;align-items:flex-end;
+  gap:var(--dash-4) var(--dash-6);
+  padding:var(--dash-5);
+  background:var(--dash-surface);
+  border:1px solid var(--cream-dark);
+  border-radius:var(--radius-lg);
+  box-shadow:var(--shadow-sm);
+}
+.dash-hero{flex:1 1 240px;min-width:0}
+.dash-hero-label{
+  font-size:.75rem;font-weight:800;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--text-light);
+}
+.dash-hero-value{
+  margin-top:var(--dash-1);
+  font-size:clamp(2.2rem,5.5vw,3.1rem);line-height:1.05;
+  font-weight:800;color:var(--primary);
+  font-variant-numeric:tabular-nums;
+}
+.dash-hero-note{margin-top:var(--dash-2);font-size:.8rem;color:var(--text-light)}
+.dash-support{display:flex;flex-wrap:wrap;gap:var(--dash-3) var(--dash-5)}
+.dash-support-item{display:flex;flex-direction:column;gap:2px}
+.dash-support-value{
+  font-size:1.35rem;font-weight:700;line-height:1.1;color:var(--text);
+  font-variant-numeric:tabular-nums;
+}
+.dash-support-label{font-size:.76rem;color:var(--text-light)}
+
+/* Panels (charts and the list sections) */
+.dash-panel{
+  padding:var(--dash-4) var(--dash-5) var(--dash-5);
+  background:var(--dash-surface);
+  border:1px solid var(--cream-dark);
+  border-radius:var(--radius-lg);
+  box-shadow:var(--shadow-sm);
+}
+.dash-panel.is-list{padding:var(--dash-3) var(--dash-5)}
+.dash-caption{margin:0 0 var(--dash-4);font-size:.78rem;color:var(--text-light)}
+.dash-empty{margin:0;padding:var(--dash-2) 0;font-size:.88rem;color:var(--text-light)}
+/* Zero-order date: the whole analysis zone becomes this one quiet line. */
+.dash-nodata{
+  margin:0;padding:var(--dash-5) 0;
+  font-size:.95rem;color:var(--text-light);
+}
+
+/* Collapsible section (Latest Stock Count) — long reference data. */
+.dash-details > summary{
+  cursor:pointer;
+  margin:var(--dash-6) 0 var(--dash-3);
+  color:var(--primary);
+}
+.dash-details > summary .dash-h3{display:inline;margin:0}
+.dash-details > summary:focus-visible{outline:2px solid var(--primary);outline-offset:3px;border-radius:4px}
+.dash-details[open] > summary{margin-bottom:var(--dash-3)}
+
+/* Legend — required wherever there are ≥2 series, so identity is never
+   colour-alone. Text keeps text tokens; the swatch carries the hue. */
+.dash-legend{
+  display:flex;flex-wrap:wrap;gap:var(--dash-2) var(--dash-4);
+  margin:0 0 var(--dash-3);padding:0;list-style:none;
+}
+.dash-legend-item{display:flex;align-items:center;gap:var(--dash-2);font-size:.85rem;color:var(--text)}
+.dash-swatch{width:10px;height:10px;border-radius:3px;flex:0 0 10px}
+.dash-legend-note{color:var(--text-light);font-size:.8rem}
+
+/* Chart A — one horizontal stacked bar. The 2px flex gap is the surface
+   showing through; no strokes are drawn around segments. */
+.dash-stack{display:flex;gap:2px;height:30px;margin:0 0 var(--dash-4)}
+.dash-stack-seg{
+  flex:0 1 auto;min-width:3px;
+  display:flex;align-items:center;justify-content:center;
+  /* 19.2px bold = WCAG "large text", so white on these fills clears 3:1. */
+  font-size:1.2rem;font-weight:700;line-height:1;color:#fff;
+  font-variant-numeric:tabular-nums;
+  white-space:nowrap;
+}
+.dash-stack-seg.is-first{border-radius:4px 0 0 4px}
+.dash-stack-seg.is-last{border-radius:0 4px 4px 0}
+.dash-stack-seg.is-first.is-last{border-radius:4px}
+.seg-mobile{background:var(--src-mobile)}
+.seg-walkin{background:var(--src-walkin)}
+.seg-preorder{background:var(--src-preorder)}
+
+/* Charts B and C — horizontal bars, single series each, brand hue. */
+.dash-bars{display:grid;gap:var(--dash-2)}
+.dash-bar-row{
+  display:grid;
+  grid-template-columns:minmax(0,9.5rem) 1fr auto;
+  align-items:center;gap:var(--dash-3);
+}
+.dash-bar-name{
+  font-size:.88rem;color:var(--text);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.dash-bar-track{
+  height:var(--dash-bar-h);
+  background:var(--dash-rule);
+  border-radius:0 4px 4px 0;
+}
+.dash-bar-fill{
+  height:100%;min-width:3px;
+  background:var(--primary,#6B4226);
+  /* Square at the baseline, 4px rounded at the data end. */
+  border-radius:0 4px 4px 0;
+}
+.dash-bar-fill.is-ses1{background:var(--ses-1)}
+.dash-bar-fill.is-ses2{background:var(--ses-2)}
+.dash-bar-value{
+  font-size:.88rem;font-weight:700;color:var(--text);
+  font-variant-numeric:tabular-nums;
+  min-width:3ch;text-align:right;
+}
+.dash-minis{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:var(--dash-5)}
+.dash-mini-title{
+  margin:0 0 var(--dash-3);
+  font-size:.75rem;font-weight:800;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--text-light);
+}
+.dash-mini .dash-bar-row{grid-template-columns:minmax(0,4.5rem) 1fr auto}
+.dash-notes{
+  margin:var(--dash-4) 0 0;padding:var(--dash-3) 0 0;
+  border-top:1px solid var(--dash-rule);
+  display:grid;gap:var(--dash-1);
+  font-size:.82rem;color:var(--text-light);
+}
+.dash-notes strong{color:var(--text);font-variant-numeric:tabular-nums}
+
+/* Tables — text equivalent for chart A, plus the discounts table. */
+.dash-table{width:100%;border-collapse:collapse;font-size:.9rem}
+.dash-table th{
+  padding:var(--dash-2) 0;text-align:left;
+  font-size:.72rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+  color:var(--text-light);
+  border-bottom:1px solid var(--dash-rule);
+}
+.dash-table td{padding:var(--dash-2) 0;border-bottom:1px solid var(--dash-rule)}
+.dash-table .num{text-align:right;font-variant-numeric:tabular-nums}
+.dash-table tfoot td{
+  font-weight:700;
+  border-bottom:none;border-top:1px solid var(--dash-rule);
+}
+.dash-table-compact{font-size:.82rem}
+.dash-table-compact caption{
+  padding-bottom:var(--dash-2);
+  text-align:left;font-size:.72rem;letter-spacing:.05em;
+  text-transform:uppercase;color:var(--text-light);
+}
+.dash-dot{
+  display:inline-block;width:8px;height:8px;border-radius:2px;
+  margin-right:var(--dash-2);vertical-align:middle;
+}
+.dash-row-toggle{cursor:pointer}
+.dash-row-static{cursor:default}
+.dash-breakdown td{
+  padding:0 0 var(--dash-2) var(--dash-4);
+  font-size:.85rem;color:var(--text-light);
+}
+
+/* Simple list rows (low stock, activity, stock count, featured audit) */
+.dash-list-row{
+  display:flex;justify-content:space-between;align-items:center;
+  gap:var(--dash-3);padding:var(--dash-2) 0;
+  border-bottom:1px solid var(--dash-rule);
+}
+.dash-list-row:last-child{border-bottom:none}
+.dash-list-row.is-dim{opacity:.55}
+.dash-list-row .dash-num{font-weight:600;font-variant-numeric:tabular-nums;text-align:right}
+.dash-muted{color:var(--text-light);font-weight:400;font-variant-numeric:tabular-nums}
+.dash-meta{font-size:.8rem;white-space:nowrap}
+
+@media(max-width:560px){
+  .dash-bar-row{grid-template-columns:1fr auto}
+  .dash-bar-name{grid-column:1 / -1}
+  .dash-mini .dash-bar-row{grid-template-columns:minmax(0,4.5rem) 1fr auto}
+  .dash-mini .dash-bar-name{grid-column:auto}
+}
+
 /* Planogram */
 .planogram-preview{
   min-height:60px;

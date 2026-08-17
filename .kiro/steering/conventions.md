@@ -32,6 +32,14 @@ Do not duplicate these — they have each caused a production bug when copied:
 - **Variant selection UI:** `frontend/js/variants.js`
 - **Phone normalisation:** `backend/src/lib/phone.ts`
 - **Version numbers:** `scripts/bump-version.mjs`
+- **Malaysia-time dates:** `backend/src/lib/date.ts` — `malaysiaToday()`,
+  `malaysiaClock()`, `malaysiaDayStartUtc()`. Every "what day is it" decision is a
+  Malaysian wall-clock decision, never a UTC one. Lambda runs in UTC, so anything
+  derived from `new Date().toISOString()` or from an unqualified
+  `toLocaleDateString` is 8 hours early: that is why the end-of-day emails for the
+  2026-08-02 and 2026-08-09 services were headed "Saturday". `backend` tests run
+  as `TZ=UTC jest` to match production — a bare `jest` on a Malaysian laptop hides
+  this whole class of bug.
 
 ## Data changes
 Menu/settings edits the admin UI cannot express require a script in `scripts/`.

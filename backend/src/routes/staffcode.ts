@@ -24,6 +24,7 @@
  */
 
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
+import { malaysiaToday } from '../lib/date';
 import {
   docClient, SETTINGS_TABLE,
   GetCommand, PutCommand, ScanCommand, DeleteCommand,
@@ -76,18 +77,11 @@ export function isWellFormedStaffCode(code: string): boolean {
 /**
  * Today's calendar date in Malaysia time as YYYY-MM-DD.
  *
- * The date gate is a wall-clock decision made in the café, not in UTC: a code
- * ending "today" must stay valid until midnight local. MYT is UTC+8 with no
- * DST, so shifting the epoch by a fixed 8h and reading the UTC parts is exact.
- * Factored out (and taking `now`) so a test can pin the boundary.
+ * The implementation moved to `lib/date.ts` when the end-of-day summary cron
+ * needed the same conversion — one copy, not two. Re-exported here because
+ * `routes/pos.ts` and the staff-code tests already import it from this module.
  */
-export function malaysiaToday(now: Date = new Date()): string {
-  const myt = new Date(now.getTime() + 8 * 60 * 60 * 1000);
-  const y = myt.getUTCFullYear();
-  const m = String(myt.getUTCMonth() + 1).padStart(2, '0');
-  const d = String(myt.getUTCDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
+export { malaysiaToday };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 

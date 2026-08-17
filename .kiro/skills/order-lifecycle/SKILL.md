@@ -158,9 +158,12 @@ Notes:
 
 ## Cron
 
-`backend/src/expiry.ts` runs on EventBridge every 5 minutes and does three jobs:
-expire stale PENDING orders (older than 1h), expire pre-orders past their ISO
-`expiresAt`, and auto-archive old READY orders. All three are status-guarded.
+`backend/src/expiry.ts` runs on EventBridge every 30 minutes on Sundays
+(01:00–09:00 UTC = 9am–5pm MYT), plus a midweek stock run on Wednesdays. It does
+four jobs: expire stale PENDING orders (older than 1h), expire pre-orders past
+their ISO `expiresAt`, auto-archive old READY orders, and — since the end-of-day
+email moved off the request path — send the low-stock alert and the **end-of-day
+revenue summary**. The three order jobs are all status-guarded.
 
 ### Who may expire a pre-order — exactly one thing
 
@@ -186,6 +189,31 @@ record is gone or has no `serviceEndTime`, the order is logged and skipped rathe
 than expired against a guessed cutoff. The repair lives in the cron, not in
 `undoToPending`, so it covers however the field was lost and adds no reads to a
 hot cashier gesture.
+
+### Closing the café does NOT send the end-of-day email
+
+`closeCafe` expires PENDING orders, archives PREPARING/READY, resets the food
+counters and featured drink — and then returns. It sends **no email**.
+
+It used to end with `sendDailySummaryEmail().catch(() => {})`. Lambda freezes the
+execution environment as soon as a handler returns, so that un-awaited promise
+only progressed when the same sandbox happened to be thawed by a later request.
+It survived on busy Sundays and died on a quiet one: on 2026-08-16 the sandbox
+took two more requests and was reaped 0.78s after the close, and the revenue
+report simply never arrived — silently, because the `catch` discarded the error
+and the caller discarded `sendEndOfDaySummary`'s boolean.
+
+The summary now belongs to the cron (`sendDailySummary` in `expiry.ts`), gated on
+`cafeStatus === 'CLOSED'`, Malaysian Sunday after 2pm, and a
+`DAILY_SUMMARY#{date}` marker written only after a confirmed send. So:
+
+- **Close Café is what triggers it**, indirectly — the cron picks it up within
+  30 minutes of the status flip.
+- **Never add an email or other slow side effect to a request handler and leave
+  it un-awaited.** Either await it (and justify the added latency against the
+  10s API timeout) or hand it to the cron.
+- A close after 5pm MYT has no cron run left to carry the summary. Widen the
+  EventBridge window in `infra/lib/infra-stack.ts` if service hours change.
 
 ## Checklist for a new transition
 

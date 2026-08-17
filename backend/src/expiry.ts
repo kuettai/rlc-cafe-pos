@@ -3,6 +3,8 @@ import { docClient, ORDERS_TABLE, MENU_TABLE, INGREDIENTS_TABLE, SETTINGS_TABLE,
 import { sendLowStockAlert } from './lib/email';
 import { logOrder } from './lib/audit';
 import { getPreorderCode } from './routes/preorder';
+import { sendDailySummaryEmail } from './lib/daily-summary';
+import { malaysiaToday, malaysiaClock } from './lib/date';
 
 export async function handler(_event: ScheduledEvent): Promise<void> {
   console.log('[expiry] handler invoked at %s, source: %s', new Date().toISOString(), _event.source || 'unknown');
@@ -61,6 +63,11 @@ export async function handler(_event: ScheduledEvent): Promise<void> {
 
   // Check low stock and send alert (max once per hour)
   await checkLowStock();
+
+  // Send the end-of-day revenue summary once the café has been closed.
+  // Deliberately LAST: it is the least urgent thing the cron does, and the order
+  // expiry / archive work above must not be delayed behind an SMTP call.
+  await sendDailySummary();
 
   console.log('[expiry] handler completed');
 }
@@ -261,7 +268,7 @@ async function checkLowStock() {
   // Send low stock alert:
   // - Sunday: only on the last cron run (after 2:30pm MYT)
   // - Wednesday: always (triggered by dedicated midweek rule at 12pm MYT)
-  const nowMYT = new Date(Date.now() + 8 * 60 * 60 * 1000); // UTC+8
+  const nowMYT = malaysiaClock(); // UTC+8, shared helper — see lib/date.ts
   const day = nowMYT.getUTCDay(); // 0=Sun, 3=Wed
   const hour = nowMYT.getUTCHours();
   console.log('[checkLowStock] day=%d hour=%d nowMYT=%s', day, hour, nowMYT.toISOString());
@@ -271,7 +278,7 @@ async function checkLowStock() {
     return;
   }
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = malaysiaToday();
   const alertKey = `LOW_STOCK_ALERT#${today}`;
 
   const lastAlert = await docClient.send(new GetCommand({
@@ -319,4 +326,100 @@ async function checkLowStock() {
     }));
     console.log('[checkLowStock] alert recorded for %s (%d items)', alertKey, lowItems.length);
   }
+}
+
+/**
+ * Send the end-of-day revenue summary email, at most once per service date.
+ *
+ * ── Why the cron owns this and `closeCafe` does not ───────────────────────────
+ * `closeCafe` used to fire it as `sendDailySummaryEmail().catch(() => {})` after
+ * its own response had gone out. Lambda freezes the sandbox at that point, so
+ * the orphaned promise only advanced when the same sandbox was thawed by an
+ * unrelated request. It survived on busy Sundays (2026-08-02 +50s, 2026-08-09
+ * +4m39s, both logged against a LATER request id than the close) and died on the
+ * quiet one: on 2026-08-16 the sandbox took two more requests and was reaped
+ * 0.78s after the close, and the report never arrived. See lib/daily-summary.ts.
+ *
+ * Here the work is awaited inside a 30s invocation, so it either finishes or
+ * says why in the log — never both silent and unfinished.
+ *
+ * ── The three gates ──────────────────────────────────────────────────────────
+ * 1. SUNDAY, AFTER 2PM MYT. The café runs Sundays only. This also protects the
+ *    single per-date send from being consumed by an accidental mid-morning
+ *    close: tapping Close Café at 10am and reopening must not burn the day's
+ *    one summary on a partial service. The same rule (and the same reasoning)
+ *    gates `checkLowStock` above. The Wednesday midweek stock rule invokes this
+ *    handler too — `day !== 0` is what stops it emailing an empty RM0 report.
+ * 2. `cafeStatus === 'CLOSED'`. The summary describes a finished service, so it
+ *    waits for the cashier's Close Café rather than guessing from the clock.
+ * 3. A `DAILY_SUMMARY#{date}` marker, written ONLY after a confirmed send. That
+ *    makes it exactly-once, and — because a failure leaves no marker — every
+ *    later run in the window retries it for free. With the cron widened to
+ *    01:00–09:00Z there are seven runs from 2pm MYT onward.
+ *
+ * The date is the MALAYSIAN one. The old code used `toISOString()`, which is why
+ * the two emails that did arrive were headed "Saturday" for a Sunday service.
+ */
+async function sendDailySummary(): Promise<void> {
+  const nowMYT = malaysiaClock();
+  const day = nowMYT.getUTCDay();   // 0=Sun
+  const hour = nowMYT.getUTCHours();
+
+  if (day !== 0) {
+    console.log('[dailySummary] skipped — not Sunday (MYT day=%d)', day);
+    return;
+  }
+  if (hour < 14) {
+    console.log('[dailySummary] skipped — Sunday before 2pm MYT (hour=%d)', hour);
+    return;
+  }
+
+  const today = malaysiaToday();
+  const summaryKey = `DAILY_SUMMARY#${today}`;
+
+  const settings = await docClient.send(new GetCommand({
+    TableName: SETTINGS_TABLE,
+    Key: { PK: 'SETTINGS', SK: 'CONFIG' },
+  }));
+  const cafeStatus = settings.Item?.cafeStatus;
+  if (cafeStatus !== 'CLOSED') {
+    console.log('[dailySummary] skipped — café is %s, waiting for Close Café', cafeStatus || '(unset)');
+    return;
+  }
+
+  const marker = await docClient.send(new GetCommand({
+    TableName: SETTINGS_TABLE,
+    Key: { PK: summaryKey, SK: 'META' },
+  }));
+  if (marker.Item?.lastSent) {
+    console.log('[dailySummary] skipped — already sent for %s (%s)', today, marker.Item.lastSent);
+    return;
+  }
+
+  // Everything below is logged on every path. A summary that does not arrive
+  // must leave a reason in CloudWatch — the whole point of moving off the
+  // fire-and-forget path was that a silent failure went unnoticed for a week.
+  let sent: boolean;
+  try {
+    sent = await sendDailySummaryEmail(today);
+  } catch (err) {
+    // Swallowed only so one bad summary cannot fail the whole cron (order
+    // expiry has already run by this point and must not be retried). LOUDLY.
+    console.error('[dailySummary] ERROR building or sending the summary for %s:', today, err);
+    return;
+  }
+
+  console.log('[dailySummary] sendDailySummaryEmail returned: %s', sent);
+
+  if (!sent) {
+    // No marker: the next run in the window will try again.
+    console.error('[dailySummary] NOT SENT for %s — sendEmail reported failure or missing config; will retry next run', today);
+    return;
+  }
+
+  await docClient.send(new PutCommand({
+    TableName: SETTINGS_TABLE,
+    Item: { PK: summaryKey, SK: 'META', lastSent: new Date().toISOString(), date: today },
+  }));
+  console.log('[dailySummary] summary recorded for %s', summaryKey);
 }

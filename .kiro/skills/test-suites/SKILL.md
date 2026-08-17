@@ -1,6 +1,6 @@
 ---
 name: test-suites
-description: How to run the RLC Café POS test suites safely — which are offline and which write to the live production café, the ZZTEST_ prefix every test-created record must carry, the reserved test phone range, and the cleanup procedure afterwards. Use before running any test, adding a suite that writes data, or cleaning up after a live run.
+description: How to run the RLC Café POS test suites safely — which are offline and which write to the live production café, why it must be `npm test` (`TZ=UTC jest`) and never a bare `npx jest`, the ZZTEST_ prefix every test-created record must carry, the reserved test phone range, the Sunday-afternoon end-of-day-email hazard, and the cleanup procedure afterwards. Use before running any test, adding a suite that writes data, or cleaning up after a live run.
 ---
 
 # Test Suites
@@ -13,9 +13,19 @@ real volunteers use on Sunday mornings. There is no staging environment.
 
 ```bash
 cd backend && npx tsc                                          # typecheck
-cd backend && npx jest --testPathIgnorePatterns integration     # all unit suites
+cd backend && npm test                                         # all suites (integration self-skips)
+cd backend && TZ=UTC npx jest --testPathIgnorePatterns integration   # unit suites only
 npm run version:check                                          # six markers + SHELL
 ```
+
+**Always `npm test`, never a bare `npx jest`.** `npm test` is `TZ=UTC jest`, and
+the `TZ` is load-bearing: Lambda runs in UTC, the dev machines are in
+`Asia/Kuala_Lumpur`, and the end-of-day email's date test passed against **broken
+code** because the ambient MYT zone made the wrong output look right. If you must
+invoke `jest` directly, pass `TZ=UTC` yourself. Setting `process.env.TZ` inside
+`tests/setup.ts` does not work — Node caches the zone before `setupFiles` runs —
+so `setup.ts` only prints a warning when the resolved zone is not UTC. Watch for
+it.
 
 | Suite | Covers |
 |---|---|
@@ -27,6 +37,8 @@ npm run version:check                                          # six markers + S
 | `phone.test.ts` | phone normalisation |
 | `planogram.test.ts` | planogram routes |
 | `daily-summary.test.ts` | `summarizeDailyRevenue` — the end-of-day figures |
+| `daily-summary-cron.test.ts` | `sendDailySummary` in the cron — the Sunday/2pm-MYT/`CLOSED` gates, the `DAILY_SUMMARY#{date}` exactly-once marker, that a failure leaves no marker so the next run retries, and that `closeCafe` no longer sends |
+| `email-date.test.ts` | that the summary subject renders the **Malaysian** service date; emulates the runtime zone itself so it passes or fails identically anywhere |
 | `preorder-excluded-options.test.ts` | `optionKey` / `normalizeExcludedOptions`, and `createOrder` refusing an excluded pre-order option |
 | `staff-code.test.ts` | the staff link — code validation/date gate, and that a requested STAFF price reverts on approve unless the cashier confirms |
 | `preorder-pending.test.ts` | ministry pre-orders as PENDING — free release (single and bulk), the preserved ISO `expiresAt`, the create/edit restriction parity, the backend-owned notes prefix, `closeCafe` skipping pre-orders, and the `expirePreOrders` recovery path |
@@ -39,7 +51,7 @@ These mock DynamoDB. They touch nothing real.
 
 | Suite | What it writes |
 |---|---|
-| `backend/tests/integration.test.ts` "Order Flow" | opens the café, creates a real order, approves it (deducts ingredient stock), marks it ready, closes the café (**sends an end-of-day email**) |
+| `backend/tests/integration.test.ts` "Order Flow" | opens the café, creates a real order, approves it (deducts ingredient stock), marks it ready, closes the café (expires PENDING orders and archives the rest) |
 | `screenshots/journey_customer/customer.spec.ts` | submits a real customer order, then cancels it (leaving a CANCELLED record) |
 | `screenshots/journey_cashier/cashier.spec.ts` | may **open the café** and tick opening-checklist rows; the walk-up cart does not submit |
 | `screenshots/journey_admin/admin.spec.ts` | read-only (login + tab navigation) |
@@ -58,6 +70,20 @@ group skips and warns.
 
 **Before running either category-2 suite:** state what will be created, get
 explicit confirmation, and confirm the café is OPEN (the order flow needs it).
+
+### The summary email risk moved, it did not go away
+
+Since v1.72.0 the café close no longer sends the end-of-day email itself — the
+expiry cron does. So an Order Flow run **on a Sunday after 2pm MYT** leaves
+`cafeStatus = CLOSED`, and the next cron run (within 30 min, up to 09:00 UTC) will
+email a real summary that includes the test order, then write the
+`DAILY_SUMMARY#{date}` marker. Worse than the old behaviour in one way: it also
+**burns that date's single send**, so the genuine service summary is then
+suppressed as already-sent. `scripts/cleanup-test-data.mjs` cannot recall an email.
+
+Practical rule: do not run a category-2 suite on a Sunday afternoon. If it
+happens, delete the `DAILY_SUMMARY#{date}` / `SK=META` record from the settings
+table before the real close so the true summary can still go out.
 
 ## Credentials
 

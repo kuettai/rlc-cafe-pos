@@ -5,8 +5,8 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "test": "jest",
-    "test:watch": "jest --watch"
+    "test": "TZ=UTC jest",
+    "test:watch": "TZ=UTC jest --watch"
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.1060.0",

@@ -227,7 +227,8 @@ status, café-open check, food eligibility and expiry.
 | updatedAt | string | ISO timestamp of the last save; also the tiebreak if a partial write ever left two records |
 
 Both dates are compared against **today in Malaysia time (UTC+8)**, not UTC —
-`malaysiaToday()` in `backend/src/routes/staffcode.ts`. A code ending "today"
+`malaysiaToday()` in `backend/src/lib/date.ts` (re-exported from
+`routes/staffcode.ts`, which is where it used to live). A code ending "today"
 must stay valid until local midnight.
 
 This record carries **no `expiresAt`**, so the settings-table TTL cannot reach
@@ -235,6 +236,38 @@ it. That is intentional (the link is long-lived and date-gated instead) — do n
 "tidy up" by adding one, and note the accepted consequence: the code is
 permanent and guessable, with the cashier's approve-time confirmation as the
 only real control.
+
+### Record Type 15: Low Stock Alert Marker
+- PK=`LOW_STOCK_ALERT#{date}`, SK=`META`
+
+Written by `checkLowStock()` in `backend/src/expiry.ts` **only after a confirmed
+send**, to keep the alert to one email per day. `{date}` is the Malaysian date.
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| lastSent | string | ISO timestamp of the successful send. Its presence IS the "already sent" flag |
+| itemCount | number | How many ingredients were below threshold, for forensics |
+
+### Record Type 16: Daily Summary Marker
+- PK=`DAILY_SUMMARY#{date}`, SK=`META`
+
+Written by `sendDailySummary()` in `backend/src/expiry.ts` after the end-of-day
+revenue email has been confirmed sent. `{date}` is the **Malaysian** service date
+from `malaysiaToday()`.
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| lastSent | string | ISO timestamp of the successful send. Its presence IS the "already sent" flag |
+| date | string | The MYT service date the summary covered, `YYYY-MM-DD` |
+
+**Write it only on success.** The cron re-runs every 30 min until 09:00Z, and the
+absence of this record is what makes a failed summary retry instead of vanishing.
+Writing it unconditionally would restore the old failure mode: one lost email per
+week and no second attempt.
+
+Both marker records are how an at-most-once email survives a handler that runs
+repeatedly. Neither carries `expiresAt`; they are tiny and their date-keyed PKs
+make them self-documenting, so the settings-table TTL is not involved.
 
 ## Customers Table (rlc-cafe-customers)
 - PK: `CUSTOMER#{phone}` (string), SK: `META` (string)

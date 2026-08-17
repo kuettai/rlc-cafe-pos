@@ -1,12 +1,11 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { v4 as uuid } from 'uuid';
 import { docClient, ORDERS_TABLE, MENU_TABLE, SETTINGS_TABLE, INGREDIENTS_TABLE, USERS_TABLE, GetCommand, PutCommand, UpdateCommand, QueryCommand, ScanCommand } from '../lib/db';
-import { sendEndOfDaySummary } from '../lib/email';
 import { logOrder, summarizeItems } from '../lib/audit';
 import { sendOrderPush } from '../lib/push';
 // Malaysia-time (UTC+8) date helper. Reused rather than reimplemented — the
 // bulk pre-order release compares service-end dates in the café's timezone.
-import { malaysiaToday } from './staffcode';
+import { malaysiaToday } from '../lib/date';
 import {
   priceLine,
   summarizeOrderDiscount,
@@ -1087,100 +1086,19 @@ async function closeCafe(): Promise<APIGatewayProxyResult> {
     }));
   }
 
-  // Send end-of-day summary email (fire and forget)
-  sendDailySummaryEmail().catch(() => {});
-
+  // NO EMAIL HERE — deliberately. The end-of-day summary used to be kicked off
+  // from this line as `sendDailySummaryEmail().catch(() => {})`. Lambda freezes
+  // the execution environment the moment this handler returns its 200, so that
+  // un-awaited promise only advanced if this exact sandbox happened to be thawed
+  // by a later request. On 2026-08-16 it was not, and the report never arrived —
+  // with no log line, because the catch swallowed everything.
+  //
+  // The summary now belongs to the cron: `sendDailySummary()` in `expiry.ts`
+  // picks it up once `cafeStatus` is CLOSED and records a `DAILY_SUMMARY#{date}`
+  // marker so it sends exactly once. Do not reintroduce a send on this path;
+  // awaiting it here would put a ~4s third-party SMTP call inside a cashier's
+  // request against a 10s function timeout.
   return res(200, { cafeStatus: 'CLOSED', expiredOrders: expired, archivedOrders });
-}
-
-/**
- * Roll a day's orders up into the money figures for the end-of-day email.
- *
- * Revenue counts COMPLETED SALES only — the same rule the admin Reports page
- * applies (`buildSummaryCol` in frontend/js/reports.js), so the email and the
- * page agree. They disagreed before: this summed EVERY status, so cancelled and
- * expired orders were billed as revenue. On 2026-08-09 ten cancelled orders
- * (RM 99.20) inflated the emailed net from the true RM 463.00 to RM 515.40. A
- * cancelled order was never collected; an EXPIRED one never reached the counter.
- *
- * A post-completion cancel is different: it IS a refund of a real sale, so it
- * is subtracted rather than ignored.
- *
- * `totalAmount` is stored NET (see conventions), so `netExpected` deducts only
- * refunds — subtracting discounts again would double-count them.
- *
- * Exported for tests; pure so it can be exercised without DynamoDB.
- */
-export function summarizeDailyRevenue(allOrders: any[]) {
-  const soldOrders = allOrders.filter(o =>
-    (o.status === 'ARCHIVED' || o.status === 'READY') && o.postCompletionCancel !== true
-  );
-  const refundedOrders = allOrders.filter(o => o.postCompletionCancel === true);
-
-  const totalRevenue = soldOrders.reduce((s, o) => s + Number(o.totalAmount || 0), 0);
-  const totalOffsets = soldOrders.reduce((s, o) => s + Number(o.discountOffset || 0), 0);
-  const totalRefunds = refundedOrders.reduce((s, o) => s + Number(o.totalAmount || 0), 0);
-
-  return {
-    soldOrders,
-    totalOrders: soldOrders.length,
-    totalRevenue,
-    totalOffsets,
-    totalRefunds,
-    netExpected: totalRevenue - totalRefunds,
-    newcomersServed: soldOrders.filter(o => isNewcomerOrder(o)).length,
-  };
-}
-
-async function sendDailySummaryEmail() {
-  const today = new Date().toISOString().split('T')[0];
-  // Query every status so item counts and the low-stock context still reflect
-  // the whole day, then narrow to the revenue-bearing subset below.
-  const statuses = ['PENDING', 'PREPARING', 'READY', 'ARCHIVED', 'EXPIRED', 'CANCELLED'];
-  let allOrders: any[] = [];
-
-  for (const status of statuses) {
-    // Paginate: a Query returns at most 1MB. A busy Sunday can exceed that for
-    // ARCHIVED, which would silently drop orders from the totals.
-    let lastKey: Record<string, any> | undefined = undefined;
-    do {
-      const r: any = await docClient.send(new QueryCommand({
-        TableName: ORDERS_TABLE,
-        IndexName: 'status-createdAt-index',
-        KeyConditionExpression: '#s = :s AND createdAt >= :today',
-        ExpressionAttributeNames: { '#s': 'status' },
-        ExpressionAttributeValues: { ':s': status, ':today': today },
-        ExclusiveStartKey: lastKey,
-      }));
-      allOrders.push(...(r.Items || []));
-      lastKey = r.LastEvaluatedKey;
-    } while (lastKey);
-  }
-
-  const { soldOrders, totalOrders, totalRevenue, totalOffsets, totalRefunds, netExpected, newcomersServed } =
-    summarizeDailyRevenue(allOrders);
-
-  // Item counts stay across all non-cancelled statuses: they drive the "top
-  // items" list and the kitchen's sense of what moved, not the money.
-  const itemCounts: Record<string, number> = {};
-  for (const o of soldOrders) {
-    for (const i of o.items || []) {
-      const key = i.name + (i.variant ? ` (${i.variant})` : '');
-      itemCounts[key] = (itemCounts[key] || 0) + (i.quantity || 1);
-    }
-  }
-  const topItems = Object.entries(itemCounts).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name, qty]) => ({ name, qty }));
-
-  const ingredientResult = await docClient.send(new ScanCommand({
-    TableName: INGREDIENTS_TABLE,
-    FilterExpression: 'begins_with(PK, :prefix) AND SK = :sk',
-    ExpressionAttributeValues: { ':prefix': 'INGREDIENT#', ':sk': 'META' },
-  }));
-  const lowStockItems = (ingredientResult.Items || [])
-    .filter((i: any) => i.currentStock <= (i.lowStockThreshold || 0) && i.lowStockThreshold > 0)
-    .map((i: any) => ({ name: i.name, currentStock: i.currentStock, unit: i.unit }));
-
-  await sendEndOfDaySummary({ date: today, totalOrders, totalRevenue, totalOffsets, totalRefunds, netExpected, newcomersServed, topItems, lowStockItems });
 }
 
 async function toggleCelebration(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {

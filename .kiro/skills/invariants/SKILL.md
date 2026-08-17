@@ -1,6 +1,6 @@
 ---
 name: invariants
-description: Reviewable invariants for RLC Café POS — the do-not-duplicate list (including dead code left behind by an early return), storage conventions, who may authorise a discount (cashier-selected vs customer-requested vs system-only), the pre-order ISO expiresAt exception, create/edit parity (a restriction enforced on create must be re-enforced on edit), bulk mutating routes and collection-route dispatch, API response shape, path-parameter handling, auth and release rules, and test teeth (a guard is untested unless a fixture reaches it), each written as a checkable assertion with the production bug it prevents. Use when reviewing a diff, writing or judging tests, before deploying, or when adding code that touches money, discounts, order status, expiry, pre-orders, versions, or routing.
+description: Reviewable invariants for RLC Café POS — the do-not-duplicate list (including Malaysia-time date conversion and dead code left behind by an early return), storage conventions, who may authorise a discount (cashier-selected vs customer-requested vs system-only), the pre-order ISO expiresAt exception, create/edit parity (a restriction enforced on create must be re-enforced on edit), bulk mutating routes and collection-route dispatch, API response shape, path-parameter handling, no un-awaited work after a handler returns (Lambda freezes the sandbox) and date-keyed markers for at-most-once cron side effects, auth and release rules, and test teeth (a guard is untested unless a fixture reaches it; a test that depends on the machine timezone is not a test). Each is a checkable assertion with the production bug it prevents. Use when reviewing a diff, writing or judging tests, before deploying, or when adding code that touches money, discounts, order status, expiry, pre-orders, emails, background or scheduled work, timezones, versions, or routing.
 ---
 
 # Invariants
@@ -16,6 +16,15 @@ production bug in this repo. Violations are defects, not style opinions.
 | Variant selection UI | `frontend/js/variants.js` | inconsistent variant pricing between pages |
 | Phone normalisation | `backend/src/lib/phone.ts` | duplicate customer records |
 | Version numbers | `scripts/bump-version.mjs` | shipped a release with 4 of 6 markers stale |
+| Malaysia-time dates | `backend/src/lib/date.ts` | end-of-day emails headed "Saturday" for a Sunday service |
+
+`lib/date.ts` (`malaysiaToday` / `malaysiaClock` / `malaysiaDayStartUtc`) is the
+one place the UTC+8 conversion lives. It was extracted from `routes/staffcode.ts`
+in v1.72.0 when the summary cron needed it; `staffcode.ts` re-exports it so old
+imports keep working. **One copy remains outside it** —
+`backend/src/routes/preorder.ts:108` still does its own
+`now.getTime() + 8 * 60 * 60 * 1000`. That is a known follow-up, not a licence to
+add a second.
 
 `frontend/js/pricing.js` is a **display mirror only**. It may not be the basis of
 any persisted number.
@@ -185,6 +194,27 @@ or into an excluded paid option.
   cannot diverge on the guard, the pricing, the audit line, the push or the
   ingredient deduction (`releasePreOrderToPreparing()` is called by both
   `approveOrder` and `releaseAllPreOrders`).
+- ☐ **No un-awaited work outlives a request handler.** A promise started but not
+  awaited before the handler returns is not "background work" on Lambda — the
+  execution environment is FROZEN the instant the response goes out, and the
+  promise only advances if that same sandbox happens to be thawed by a later
+  request. It may never resume, and the sandbox is eventually reaped mid-flight.
+  `closeCafe` ended with `sendDailySummaryEmail().catch(() => {})` and so the
+  Sunday revenue email was a coin flip on traffic: it landed on 2026-08-02 (+50s)
+  and 2026-08-09 (+4m39s), both completing against a *later* request id than the
+  close, and on the quiet 2026-08-16 the sandbox was reaped 0.78s after the close
+  and no email was ever sent. The `.catch(() => {})` meant there was no log line
+  either, so it went unnoticed for a week.
+  Either **await it** — and justify the latency against the 10s API timeout — or
+  hand it to the EventBridge cron (`expiry.ts`), which is what the summary now
+  does. A fire-and-forget `.catch(() => {})` on the request path is a defect.
+- ☐ **An at-most-once side effect owned by a repeating cron is guarded by a
+  date-keyed marker record written ONLY after a confirmed success**
+  (`DAILY_SUMMARY#{date}`, `LOW_STOCK_ALERT#{date}`, both `SK=META` in the
+  settings table). Writing the marker before or regardless of the outcome
+  restores the lost-email failure mode with no retry; the absence of the record is
+  what makes the next run try again. The send's return value must be checked — the
+  old caller discarded `sendEndOfDaySummary`'s boolean.
 - ☐ Error responses stay minimal — no internal detail, no stack traces.
 - ☐ CORS headers merged from the router, not re-declared per route.
 
@@ -250,6 +280,21 @@ caught by reading a diff, or not at all.
   anyway — wrong status, missing field, empty `items` — the guard is not what the
   test is pinning. Instances of both this and the previous item were found in the
   v1.71 suites.
+- ☐ **A test whose result depends on the machine's timezone is not a test.**
+  `npm test` is `TZ=UTC jest` (`backend/package.json`) because Lambda runs in UTC
+  while the dev machines are in `Asia/Kuala_Lumpur`. The date test for the
+  end-of-day email passed against the *broken* code for exactly that reason: with
+  no `timeZone` option, `toLocaleDateString` rendered in the ambient zone, which
+  locally is MYT and looked right — so the assertion could not see the production
+  bug it was supposed to guard.
+
+  Two traps: setting `process.env.TZ` in `setupFiles` does **not** work, because
+  Node resolves and caches the process timezone before that code runs — it has to
+  come from the environment before the process starts, hence the `package.json`
+  script rather than a jest config. And running a bare `npx jest` bypasses the
+  pin entirely; `tests/setup.ts` warns when the resolved zone is not UTC. Anything
+  genuinely timezone-sensitive converts explicitly via `lib/date.ts` instead of
+  relying on the ambient zone.
 
 ## Test data
 

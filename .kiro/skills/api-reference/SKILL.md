@@ -52,7 +52,7 @@ Base URL: `https://hcydppml1a.execute-api.ap-southeast-5.amazonaws.com/prod`
 | PUT | /api/pos/orders/{id}/reject | Reject order |
 | POST | /api/pos/orders/{id}/cancel-completed | Cancel a completed order |
 | PUT | /api/pos/cafe/open | Open café |
-| PUT | /api/pos/cafe/close | Close café |
+| PUT | /api/pos/cafe/close | Close café — expires PENDING (skipping pre-orders), archives PREPARING/READY, resets food counters and the featured drink. **Sends no email**: since v1.72.0 the end-of-day revenue summary is sent by the expiry cron once it sees `cafeStatus = CLOSED`, so it arrives within 30 min rather than in this response. Do not reintroduce a send here — it used to be fire-and-forget and Lambda's post-response freeze silently lost it |
 | PUT | /api/pos/cafe/celebration | Toggle celebration mode |
 | PUT | /api/pos/menu/{id}/toggle | Toggle item enabled today |
 | PUT | /api/pos/menu/{id}/quantity | Update food quantity |
