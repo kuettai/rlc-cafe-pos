@@ -96,6 +96,7 @@ function renderApp(){
     <button data-tab="users">👥 Users</button>
     <button data-tab="vouchers">🎟️ Vouchers</button>
     <button data-tab="preorder">🔗 Pre-Order Links</button>
+    <button data-tab="stafflink">🎫 Staff Link</button>
     <button data-tab="display">📺 Display</button>
     <button data-tab="customers">👤 Customers</button>
     <button data-tab="reports">📈 Reports</button>
@@ -151,6 +152,7 @@ function loadTab(){
     case 'planogram': loadPlanogram(c); break;
     case 'vouchers': loadVouchers(c); break;
     case 'preorder': loadPreorderCodes(c); break;
+    case 'stafflink': loadStaffLink(c); break;
     case 'display': loadDisplay(c); break;
     case 'customers': loadCustomers(c); break;
     case 'reports': loadReportsTab(c); break;

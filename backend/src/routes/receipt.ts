@@ -53,6 +53,16 @@ export async function handleReceipt(event: APIGatewayProxyEvent): Promise<APIGat
       const order = orderResult.Item;
       if (!order) return res(404, { error: 'Order not found' });
       if (order.status !== 'PENDING') return res(400, { error: 'Order is not pending' });
+      // A ministry pre-order is free (totalAmount 0), so there is no payment to
+      // evidence. This guard used to be implicit: pre-orders were created
+      // PREPARING and so were caught by the check above. Since v1.71 they are
+      // created PENDING (to make them customer-editable) and would otherwise
+      // reach the upload path — and any extracted `receiptAmount` then differs
+      // from the RM0 total, which makes the POS card render a permanent
+      // "⚠️ expected RM0.00" mismatch badge at frontend/js/pos.js:694 for the
+      // rest of the service. The frontend also hides the upload UI; this is the
+      // server-side rule, which is the one that has to hold.
+      if (order.isPreOrder === true) return res(400, { error: 'Pre-orders do not require payment' });
 
       // Upload to S3
       const s3Key = `receipts/${orderId}/${Date.now()}.jpg`;

@@ -327,6 +327,12 @@ Attributes:
 - Recommendation: Lambda cron approach (need to release foodReserved counts)
 ```
 
+Ministry pre-orders are the exception: they sit in PENDING for days (they are
+placed ahead of the service) and their `expiresAt` is an ISO **string**, which
+DynamoDB TTL ignores by design. Neither the 1-hour PENDING sweep nor the café
+close expires them — only `expirePreOrders()` in `backend/src/expiry.ts`, keyed on
+the pre-order link's service-end time.
+
 ### 6.5 End-of-Day
 
 ```
@@ -335,6 +341,7 @@ Attributes:
    - Set cafeStatus=CLOSED
    - Archive any remaining READY orders
    - Expire any remaining PENDING orders, release reservations
+     (ministry pre-orders are SKIPPED — they are for a future service)
    - Generate reconciliation report
    - Send end-of-day email (sales summary, menu changes, inventory status)
 ```

@@ -153,6 +153,50 @@
 .admin-card.is-disabled{opacity:.55;background:#f7f5f2}
 .admin-card.is-disabled .admin-card-title{text-decoration:line-through;color:var(--text-light)}
 
+/* Checklist config rows (Admin > Checklist) — reorderable by drag handle or ▲▼ */
+.cl-row{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:12px 14px;
+  flex-wrap:wrap;
+}
+.cl-row .cl-num{min-width:24px;color:var(--text-light);font-weight:600}
+.cl-row .cl-label{flex:1 1 180px;min-width:0;margin:0}
+.cl-row .cl-type{flex:0 0 120px;width:120px;margin:0}
+.cl-move-group{display:flex;gap:6px;flex-shrink:0}
+.cl-move{min-width:40px;padding:8px 8px}
+.cl-move:disabled{opacity:.3;cursor:default}
+.cl-move:disabled:hover{background:#fff;border-color:var(--cream-dark)}
+.cl-handle{
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  width:30px;
+  min-height:40px;
+  border-radius:8px;
+  color:var(--text-light);
+  font-size:1.2rem;
+  line-height:1;
+  cursor:grab;
+  /* The drag is driven by pointer events, so the browser must not claim the
+     gesture for scrolling or text selection on the tablet. */
+  touch-action:none;
+  user-select:none;
+  -webkit-user-select:none;
+  -webkit-touch-callout:none;
+}
+.cl-handle:hover{background:var(--cream);color:var(--text)}
+.cl-handle:active,.cl-row.is-dragging .cl-handle{cursor:grabbing}
+.cl-row.is-dragging{
+  position:relative;
+  z-index:5;
+  transition:none;          /* .admin-card animates `all`, which would lag the drag */
+  border-color:var(--primary);
+  box-shadow:var(--shadow-lg);
+}
+
 /* Toggle switch (used for isActive on menu items and enabled on checklist items) */
 .toggle-switch{
   position:relative;

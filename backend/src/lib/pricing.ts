@@ -16,7 +16,15 @@
  *   STAFF        = flat RM5                               (DRINKs only)
  *   PASTOR       = RM0                                    (DRINKs only)
  *   NEWCOMER     = RM0                                    (DRINKs only)
+ *   PREORDER     = RM0                                    (DRINKs only)
  *   FOOD         = never discounted by any rule
+ *
+ * PREORDER is the ministry pre-order class. It is NOT cashier-selectable and
+ * `parseCustomerClass` deliberately refuses it — see the note there. It exists
+ * so `createOrder` / `modifyOrder` / `approveOrder` can price a pre-order
+ * through this module instead of hardcoding "free" three times, and it is
+ * reported as `discountType: 'MINISTRY_PREORDER'` (see
+ * `summarizeOrderDiscount`), never as 'PREORDER'.
  *
  * The celebration candidate is clamped by `Math.min(gross, ...)`, so turning
  * on celebration mode can never RAISE a price. Without the clamp, marking a
@@ -33,14 +41,29 @@
 export const STAFF_DRINK_PRICE = 5;
 export const DEFAULT_CELEBRATION_PRICE = 5;
 
-/** Cashier-selected customer category. Identifies WHO, not how much. */
-export type CustomerClass = 'STAFF' | 'PASTOR' | 'NEWCOMER';
+/**
+ * Customer category a line is priced for. Identifies WHO, not how much.
+ *
+ * STAFF / PASTOR / NEWCOMER are cashier-selected (STAFF may also be
+ * customer-REQUESTED via the staff link). PREORDER is neither: it is derived
+ * from the order record's `isPreOrder` flag and can never arrive from a request
+ * body — `parseCustomerClass` rejects it.
+ */
+export type CustomerClass = 'STAFF' | 'PASTOR' | 'NEWCOMER' | 'PREORDER';
 
 /** Rule that produced the charged price for a line. */
 export type PricingRule = 'NONE' | 'CELEBRATION' | CustomerClass;
 
-/** Value persisted on the order record and used by reports. */
-export type DiscountType = PricingRule | 'MINISTRY_PREORDER' | 'VOUCHER';
+/**
+ * Value persisted on the order record and used by reports.
+ *
+ * 'PREORDER' is deliberately excluded: reports switch on this value against a
+ * fixed list (`frontend/js/admin.js`, `frontend/js/pos.js`,
+ * `frontend/js/admin-dashboard.js`), and a pre-order is labelled
+ * MINISTRY_PREORDER there. The `Exclude` makes that mapping a compile error to
+ * forget — see `summarizeOrderDiscount`.
+ */
+export type DiscountType = Exclude<PricingRule, 'PREORDER'> | 'MINISTRY_PREORDER' | 'VOUCHER';
 
 export interface PricingSettings {
   celebrationMode?: boolean;
@@ -194,6 +217,10 @@ export interface OrderDiscountSummary {
  * answer different questions. A newcomer who orders food only gets no price
  * reduction, so `discountType` is NONE — but they are still a newcomer, and
  * the shift summary / monthly report need to count them.
+ *
+ * The PREORDER class is the sharpest example: the returned `customerClass` stays
+ * 'PREORDER' (who), while `discountType` is 'MINISTRY_PREORDER' (what happened
+ * to the money).
  */
 export function summarizeOrderDiscount(
   lines: PricedLine[],
@@ -212,7 +239,15 @@ export function summarizeOrderDiscount(
   // Prefer the cashier's category when it actually priced something; fall
   // back to CELEBRATION so celebration-day reporting stays intact.
   let discountType: DiscountType = 'NONE';
-  if (customerClass && rules.has(customerClass)) discountType = customerClass;
+  if (customerClass === 'PREORDER') {
+    // A ministry pre-order reports as MINISTRY_PREORDER, unconditionally — the
+    // whole order is free by construction, so the label does not depend on a
+    // rule having fired (a hypothetical RM0 menu item would otherwise come out
+    // 'NONE' and drop the order out of the discount tables). 'PREORDER' must
+    // never reach the record: every report switches on `discountType` against a
+    // fixed list that does not contain it.
+    discountType = 'MINISTRY_PREORDER';
+  } else if (customerClass && rules.has(customerClass)) discountType = customerClass;
   else if (rules.has('CELEBRATION')) discountType = 'CELEBRATION';
 
   return {
@@ -224,7 +259,17 @@ export function summarizeOrderDiscount(
   };
 }
 
-/** Narrow arbitrary request input to a valid CustomerClass, or null. */
+/**
+ * Narrow arbitrary request input to a valid CustomerClass, or null.
+ *
+ * STAFF / PASTOR / NEWCOMER only. **'PREORDER' is deliberately NOT accepted.**
+ * This function's whole input is untrusted request bodies (`body.discountType`
+ * on approve, the walk-up cart's `discountType`). PREORDER prices every drink
+ * at RM0, so accepting it here would let a cashier — or a crafted request —
+ * zero out any order and have it reported as MINISTRY_PREORDER, i.e. a free
+ * order with nobody accountable. The PREORDER class may only be derived from
+ * the order record's own `isPreOrder` flag, never from input.
+ */
 export function parseCustomerClass(value: any): CustomerClass | null {
   return value === 'STAFF' || value === 'PASTOR' || value === 'NEWCOMER' ? value : null;
 }
@@ -241,9 +286,17 @@ export function isNewcomerOrder(order: { customerClass?: any; discountType?: any
   return order?.customerClass === 'NEWCOMER' || order?.discountType === 'NEWCOMER';
 }
 
-/** Shape a PricedLine into the item record persisted on orders. */
-export function toOrderItem(line: PricedLine) {
-  return {
+/**
+ * Shape a PricedLine into the item record persisted on orders.
+ *
+ * `opts.baseUnitPrice` is only supplied by callers that priced the line with a
+ * CUSTOMER-REQUESTED class (the staff link). It records what the same line
+ * would have cost with no class at all, so the cashier declining the request
+ * can fall back to it. Omitted, the returned shape is exactly what it has
+ * always been — existing callers are unaffected.
+ */
+export function toOrderItem(line: PricedLine, opts?: { baseUnitPrice?: number }) {
+  const item = {
     menuItemId: line.menuItemId,
     name: line.name,
     variant: line.variant,
@@ -254,6 +307,10 @@ export function toOrderItem(line: PricedLine) {
     // re-read the menu (prices may have changed since the order was placed).
     grossUnitPrice: line.grossUnitPrice,
   };
+  if (opts?.baseUnitPrice !== undefined) {
+    return { ...item, baseUnitPrice: opts.baseUnitPrice };
+  }
+  return item;
 }
 
 export interface StoredOrderItem {
@@ -266,7 +323,41 @@ export interface StoredOrderItem {
   category: string;
   /** Absent on orders created before this field existed. */
   grossUnitPrice?: number;
+  /**
+   * Net unit price this line would have had with NO customer class —
+   * celebration-or-full. Only written by the staff-link path; see
+   * `revertRequestedClassPricing`.
+   */
+  baseUnitPrice?: number;
   [k: string]: any;
+}
+
+/**
+ * Undo a CUSTOMER-REQUESTED customer-class price, restoring each line to what
+ * it would have cost with no class.
+ *
+ * Why this exists: the staff link lets a customer ask for the RM5 staff price
+ * themselves, and the order is stored already priced that way so the customer
+ * sees the number they will pay. But a self-applied discount is not an
+ * approved one — the cashier must confirm at approve time.
+ *
+ * `repriceStoredItems` treats the stored net as the incumbent candidate and
+ * only ever charges the cheaper option, so without this step the RM5 would
+ * silently stick when the cashier DECLINED, and (because the incumbent net is
+ * below gross) be mislabelled CELEBRATION on the way out.
+ *
+ * This is a lookup, not arithmetic: `baseUnitPrice` was computed by
+ * `priceLine` with a null class at submission time. Falling back to
+ * `grossUnitPrice` covers legacy records that predate the field; falling back
+ * to `unitPrice` leaves an item alone when neither is present. Using
+ * `baseUnitPrice` rather than `grossUnitPrice` matters because declining the
+ * staff price must not also throw away a legitimate celebration discount.
+ */
+export function revertRequestedClassPricing(items: StoredOrderItem[]): StoredOrderItem[] {
+  return items.map(item => ({
+    ...item,
+    unitPrice: Number(item.baseUnitPrice ?? item.grossUnitPrice ?? item.unitPrice),
+  }));
 }
 
 /**

@@ -2,6 +2,7 @@ import { ScheduledEvent } from 'aws-lambda';
 import { docClient, ORDERS_TABLE, MENU_TABLE, INGREDIENTS_TABLE, SETTINGS_TABLE, QueryCommand, UpdateCommand, ScanCommand, GetCommand, PutCommand } from './lib/db';
 import { sendLowStockAlert } from './lib/email';
 import { logOrder } from './lib/audit';
+import { getPreorderCode } from './routes/preorder';
 
 export async function handler(_event: ScheduledEvent): Promise<void> {
   console.log('[expiry] handler invoked at %s, source: %s', new Date().toISOString(), _event.source || 'unknown');
@@ -18,9 +19,12 @@ export async function handler(_event: ScheduledEvent): Promise<void> {
   }));
 
   for (const order of pendingResult.Items || []) {
-    // Defensive: pre-orders skip PENDING entirely, but if one ever lands
-    // there we don't want the 1-hour sweep to nuke it — it has its own
-    // longer expiry tied to the service end time.
+    // Pre-orders live in PENDING BY DESIGN since v1.71 (that is what makes them
+    // editable by the customer; the cashier's approve is the lock). They are
+    // placed days ahead of the service they are for, so this 1-hour sweep must
+    // never touch them — skipping here is exactly what lets a Wednesday
+    // pre-order survive to Sunday. Their own expiry is `expirePreOrders()`
+    // below, keyed on the ISO service-end time.
     if (order.isPreOrder === true) continue;
 
     await docClient.send(new UpdateCommand({
@@ -63,17 +67,63 @@ export async function handler(_event: ScheduledEvent): Promise<void> {
 
 /**
  * Expire pre-orders (isPreOrder = true) whose `expiresAt` (ISO datetime,
- * usually 3PM MYT on service date) is in the past. Only active states
- * (PREPARING / READY) are eligible — completed and cancelled orders are
- * already terminal.
+ * usually 3PM MYT on service date) is in the past. Non-terminal states only —
+ * completed and cancelled orders are already terminal.
+ *
+ * PENDING is in that list and is load-bearing. Since v1.71 pre-orders are
+ * CREATED PENDING so the customer can edit them, and the 1-hour PENDING sweep in
+ * `handler()` deliberately skips them. Nothing else expires a PENDING order once
+ * `closeCafe` also skips pre-orders — so without PENDING here, a pre-order the
+ * customer never got approved would sit in the queue forever, past its service,
+ * for as long as the table lives.
  *
  * Pre-order expiresAt is stored as an ISO string (unlike the numeric
  * unix-seconds TTL on regular orders), so the comparison is by string
- * ordering of ISO timestamps, which is lexicographically valid.
+ * ordering of ISO timestamps, which is lexicographically valid. Do not
+ * normalise it to a number: numeric would arm a real DynamoDB TTL on a record
+ * that is meant to live for days, and the row would just vanish.
+ *
+ * ── Recovering a pre-order that has LOST its expiresAt ────────────────────
+ * A pre-order with no usable (string) `expiresAt` would be immortal: this sweep
+ * used to `continue` past it, the 1-hour PENDING sweep skips all pre-orders by
+ * design, and `closeCafe` skips them too. So when the field is missing (or has
+ * somehow been written as a number) we resolve the cutoff from the linked
+ * `PREORDER_CODE#` record's `serviceEndTime` instead, and backfill it as an ISO
+ * string so later runs need no lookup and the field is auditable again.
+ *
+ * This repair lives HERE and not in `undoToPending` (`pos.ts`) deliberately:
+ *
+ *   - `undoToPending` is a hot cashier swipe action that today does zero reads.
+ *     Restoring `expiresAt` there would need a Get on the order plus a Get on
+ *     the code record, adding latency to a gesture volunteers use during rush —
+ *     and it would only cover the one route that can produce the state.
+ *   - The cron is not user-facing and self-heals the record HOWEVER it lost the
+ *     field, including if a future change stops `approveOrder` preserving it.
+ *     That is exactly the class of regression this repo keeps re-learning.
+ *
+ * If the code record is gone or carries no `serviceEndTime` the order is skipped
+ * and logged rather than expired against a guessed cutoff.
  */
 async function expirePreOrders(): Promise<void> {
   const nowIso = new Date().toISOString();
-  for (const status of ['PREPARING', 'READY']) {
+  // One lookup per distinct code per sweep, not per order.
+  const codeCache = new Map<string, string | null>();
+
+  /** Service-end time for a pre-order code, or null if unresolvable. */
+  async function serviceEndFor(code: unknown): Promise<string | null> {
+    const key = String(code ?? '').trim().toUpperCase();
+    if (!key) return null;
+    if (codeCache.has(key)) return codeCache.get(key) ?? null;
+    const rec = await getPreorderCode(key);
+    const end = rec?.serviceEndTime;
+    // Must be a non-empty STRING. A numeric value here would be meaningless as
+    // a cutoff and must never be copied onto the order — see the TTL note above.
+    const resolved = typeof end === 'string' && end.trim() ? end : null;
+    codeCache.set(key, resolved);
+    return resolved;
+  }
+
+  for (const status of ['PENDING', 'PREPARING', 'READY']) {
     const r = await docClient.send(new QueryCommand({
       TableName: ORDERS_TABLE,
       IndexName: 'status-createdAt-index',
@@ -83,8 +133,49 @@ async function expirePreOrders(): Promise<void> {
     }));
     for (const order of r.Items || []) {
       if (order.isPreOrder !== true) continue;
-      if (!order.expiresAt || typeof order.expiresAt !== 'string') continue;
-      if (order.expiresAt >= nowIso) continue;
+
+      const stored = typeof order.expiresAt === 'string' && order.expiresAt ? order.expiresAt : null;
+      let cutoff = stored;
+      if (!cutoff) {
+        cutoff = await serviceEndFor(order.preorderCode);
+        if (!cutoff) {
+          console.warn(
+            '[expiry] pre-order %s (%s) has no usable expiresAt and its code %s could not supply a serviceEndTime — skipped',
+            order.orderId, status, order.preorderCode || '(none)',
+          );
+          continue;
+        }
+      }
+
+      if (cutoff >= nowIso) {
+        // Not due yet. Backfill the recovered value so subsequent runs need no
+        // lookup and the field is visible again. Guarded on the status so a
+        // concurrent approve/cancel wins; ALWAYS a string, never numeric, and
+        // only on an isPreOrder record. Writing it also disarms any stray
+        // NUMERIC expiresAt that put us on this branch in the first place.
+        //
+        // No backfill on the expiring path below: that update REMOVEs expiresAt
+        // on the way to EXPIRED, as every terminal transition does, so the write
+        // would be undone immediately.
+        if (!stored) {
+          try {
+            await docClient.send(new UpdateCommand({
+              TableName: ORDERS_TABLE,
+              Key: { PK: order.PK, SK: 'META' },
+              UpdateExpression: 'SET expiresAt = :ea, updatedAt = :now',
+              ExpressionAttributeNames: { '#s': 'status' },
+              ExpressionAttributeValues: { ':ea': cutoff, ':now': nowIso, ':prev': status },
+              ConditionExpression: '#s = :prev',
+            }));
+            console.log('[expiry] backfilled ISO expiresAt %s onto pre-order %s', cutoff, order.orderId);
+          } catch (e: any) {
+            if (e.name !== 'ConditionalCheckFailedException') throw e;
+            // Status changed under us — leave it alone.
+          }
+        }
+        continue;
+      }
+
       try {
         await docClient.send(new UpdateCommand({
           TableName: ORDERS_TABLE,

@@ -135,7 +135,8 @@ A Progressive Web App (PWA) replacing the current Loyverse POS for the church ca
 | Newcomer | Free | Normal | Cashier marks per-order at approval |
 | Staff (walk-up) | RM5 flat | Normal | Cashier creates walk-up order |
 | Pastor (walk-up) | Free | Normal | Cashier creates walk-up order |
-| Staff/Pastor (self-order) | Normal price | Normal | No discount — self-service = normal pricing |
+| Staff (staff link, self-order) | RM5 flat — **requested, not granted** | Normal | Customer orders through the staff link (`?code=<CODE>`). The order lands PENDING already showing RM5, but the price only survives if the cashier explicitly confirms STAFF at approval; otherwise it reverts to celebration-or-full |
+| Staff/Pastor (self-order, no staff link) | Normal price | Normal | No discount — plain self-service is normal pricing |
 
 ## 7. Inventory Logic
 
@@ -164,6 +165,18 @@ Customer submits → [PENDING]
   │
   [ARCHIVED] → available in reporting
 ```
+
+**Ministry pre-orders take the same lifecycle with two exceptions** (v1.71 —
+before that they were created PREPARING and were never editable):
+
+- They are created **PENDING**, like any customer order, so the customer keeps the
+  modify/cancel window. The **1-hour auto-expiry does not apply to them**: they are
+  placed days ahead of the service they are for, and neither the hourly cron nor
+  closing the café will expire one. They expire only after the pre-order link's
+  service-end time.
+- The cashier's PENDING → PREPARING approve is presented as **"release to the
+  barista"** and is what closes the customer's edit window. A whole service worth
+  of them can be released at once from the POS.
 
 ## 9. Non-Functional Requirements
 

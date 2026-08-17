@@ -123,6 +123,33 @@ function resolveTemplate(text: string | undefined | null): string {
 }
 
 /**
+ * Plain lookup of a pre-order code record — **no time-window validation**.
+ *
+ * `validatePreorderCode` additionally enforces the link's own `opensAt` /
+ * `expiresAt` ordering window, which is correct when a customer is placing a
+ * NEW order through the link. It is wrong for reading the restrictions
+ * (`eligibleItems`, `excludedOptions`) attached to an order that already
+ * exists: a customer legitimately editing a still-PENDING pre-order after the
+ * link's ordering window closed would be blocked outright rather than having
+ * their edit checked. Callers that only need the restrictions use this.
+ *
+ * Returns null when the code does not exist. `isActive: false` is NOT filtered
+ * here — a deactivated link's restrictions still apply to orders already placed
+ * through it.
+ */
+export async function getPreorderCode(code: string): Promise<PreorderCode | null> {
+  if (!code || typeof code !== 'string') return null;
+  const trimmed = code.trim().toUpperCase();
+  if (!trimmed) return null;
+
+  const r = await docClient.send(new GetCommand({
+    TableName: SETTINGS_TABLE,
+    Key: { PK: pk(trimmed), SK: 'META' },
+  }));
+  return (r.Item as PreorderCode | undefined) || null;
+}
+
+/**
  * Validate a code against the current time. Returned reasons match the
  * validate endpoint contract.
  */

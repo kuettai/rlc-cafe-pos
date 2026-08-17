@@ -11,6 +11,7 @@
  *   RLCVariants.bindPicker(rootEl, onChange)
  *   RLCVariants.renderVariantPicker(item, container, onChange)
  *   RLCVariants.getSelectedVariantsFromContainer(container)
+ *   RLCVariants.applyOptionExclusions(item, excludedOptions)
  *
  *   window.renderVariantPicker(item, container, onChange)   — alias
  *   window.getSelectedVariants(itemId)                      — by-id lookup
@@ -61,6 +62,51 @@
       html += `</div>`;
     }
     return html;
+  }
+
+  /**
+   * Strip variant options a pre-order campaign excludes, e.g. no Oat Milk on a
+   * ministry link (`excludedOptions: ["Milk:Oat Milk"]`).
+   *
+   * Lives here rather than in a page module because two surfaces need it — the
+   * customer ordering page (app.js) and the pre-order edit flow on track.html
+   * (track.js) — and variant selection is a single source of truth. Callers own
+   * the decision of WHEN it applies; this function only knows how.
+   *
+   * Returns the item unchanged (same object identity) when nothing is excluded,
+   * so the normal customer flow is untouched. A group left with no options is
+   * dropped entirely rather than rendered empty.
+   *
+   * This only HIDES choices — createOrder / the order-update path enforce the
+   * same rule server-side, so a crafted payload is still refused.
+   *
+   * @param {Object} item
+   * @param {Array<String>} excludedOptions  "Group:Option" pairs.
+   */
+  function applyOptionExclusions(item, excludedOptions) {
+    if (!item) return item;
+    const excluded = Array.isArray(excludedOptions) ? excludedOptions : [];
+    if (!excluded.length) return item;
+
+    const blocked = new Set(excluded.map(String));
+    const isBlocked = (group, option) =>
+      blocked.has(`${String(group == null ? '' : group).trim()}:${String(option == null ? '' : option).trim()}`);
+
+    const out = { ...item };
+
+    if (Array.isArray(item.variantGroups) && item.variantGroups.length) {
+      out.variantGroups = item.variantGroups
+        .map(g => ({ ...g, options: (g.options || []).filter(o => !isBlocked(g.group, o.name)) }))
+        .filter(g => g.options.length > 0);
+    }
+
+    // Legacy flat variants carry no group, so match on the option half.
+    if (Array.isArray(item.variants) && item.variants.length) {
+      const blockedNames = new Set([...blocked].map(b => b.slice(b.indexOf(':') + 1)));
+      out.variants = item.variants.filter(v => !blockedNames.has(String(v.name || v.id || v).trim()));
+    }
+
+    return out;
   }
 
   /**
@@ -170,6 +216,7 @@
     bindPicker,
     renderVariantPicker,
     getSelectedVariantsFromContainer,
+    applyOptionExclusions,
   };
   window.renderVariantPicker = renderVariantPicker;
   window.getSelectedVariants = getSelectedVariants;

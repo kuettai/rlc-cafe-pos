@@ -31,8 +31,10 @@ Live at https://153.oasisofcare.org/ (CNAME), API at
 backend/src/     index.ts (router), expiry.ts (EventBridge cron, 5min)
   lib/           db, auth (JWT/PIN), audit, phone, push, email, pricing
   routes/        auth, cafe, menu, orders, pos, admin, checklist, receipt,
-                 planogram, customers, vouchers, preorder, push, display, verses
-frontend/js/     app, track, pos*, admin*, display, variants, pricing, changelog
+                 planogram, customers, vouchers, preorder, staffcode, push,
+                 display, verses
+frontend/js/     app, track, pos*, admin* (incl. admin-stafflink), display,
+                 variants, pricing, changelog
 infra/lib/       infra-stack.ts — DynamoDB, Lambda, API GW, S3, Bedrock perms
 scripts/         one-off data migrations + release tooling
 docs/            requirements, architecture, deployment, update-YYYYMMDD.md

@@ -6,6 +6,80 @@ let prevStatus = null;
 let queueSize = 0;
 let isEditing = false;
 
+function escHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// ─── Ministry pre-orders ──────────────────────────────────────────────
+// A pre-order is free at the ORDER level: totalAmount 0, discountOffset the
+// full gross. Each ITEM record deliberately keeps its full unitPrice (the
+// backend does not rewrite item prices and there is no migration), so showing
+// RM 0.00 here is strictly a DISPLAY decision. Nothing in this file may be the
+// basis of a charged number — pricing.js is a mirror and the backend wins.
+//
+// `isPreOrder` comes from GET /api/orders/{id}. An older cached shell simply
+// doesn't see it and renders the order as an ordinary one, which is the safe
+// direction to degrade.
+function isPreOrderView(order) { return !!order && order.isPreOrder === true; }
+
+// Campaign restrictions for the pre-order being tracked: which drinks may be
+// added, which variant options are blocked. Fetched LAZILY — once per page load,
+// when edit mode or the add-item picker opens — never on the 7s poll.
+let preorderRules = null;
+let preorderRulesPromise = null;
+const PREORDER_RULES_FALLBACK = { eligibleItems: [], excludedOptions: [] };
+
+function loadPreorderRules(order) {
+  if (preorderRules) return Promise.resolve(preorderRules);
+  if (preorderRulesPromise) return preorderRulesPromise;
+  const code = order && order.preorderCode ? String(order.preorderCode) : '';
+  if (!code) {
+    // No code on the record (or an older API shell that doesn't return it):
+    // fall back to DRINK-only filtering. The backend stays authoritative and
+    // answers 400 for anything it will not accept.
+    preorderRules = PREORDER_RULES_FALLBACK;
+    return Promise.resolve(preorderRules);
+  }
+  preorderRulesPromise = fetch(`${API_BASE}/api/preorder/validate?code=${encodeURIComponent(code)}`)
+    .then(r => (r.ok ? r.json() : null))
+    .then(data => {
+      // A 400 {valid:false, reason} means the link's ordering window has closed.
+      // Whether this order may still be edited is the backend's call (the order
+      // is PENDING until the cashier releases it), so fall back to DRINK-only
+      // rather than blocking the customer here.
+      preorderRules = data && data.valid
+        ? {
+            eligibleItems: Array.isArray(data.eligibleItems) ? data.eligibleItems : [],
+            excludedOptions: Array.isArray(data.excludedOptions) ? data.excludedOptions : [],
+          }
+        : PREORDER_RULES_FALLBACK;
+      return preorderRules;
+    })
+    .catch(() => { preorderRules = PREORDER_RULES_FALLBACK; return preorderRules; });
+  return preorderRulesPromise;
+}
+
+/**
+ * Split the backend-composed pre-order notes string
+ *   "[PRE-ORDER: CODE] Collect: After 1st Service | customer's own note"
+ * into its parts, so the collection time can be shown as a proper field and the
+ * notes box only holds the customer's own words.
+ *
+ * The prefix is re-attached on save (see enterEditMode). The cashier reads it in
+ * the POS queue, so an edit that dropped it would lose the collection time.
+ * Anything that doesn't match is returned untouched as `tail`.
+ */
+function splitPreorderNotes(notes) {
+  const raw = typeof notes === 'string' ? notes : '';
+  const m = raw.match(/^(\[PRE-ORDER:[^\]]*\]\s*Collect:[^|]*?)\s*(?:\|\s*([\s\S]*))?$/);
+  if (!m) return { prefix: '', collect: '', tail: raw };
+  const prefix = m[1].trim();
+  const collect = (prefix.split(/Collect:/)[1] || '').trim();
+  return { prefix, collect, tail: (m[2] || '').trim() };
+}
+
 // --- Push Notification Subscription ---
 function urlBase64ToUint8Array(base64String) {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -86,13 +160,27 @@ const STATUS_MAP = {
 function renderOrder(order) {
   const s = STATUS_MAP[order.status] || STATUS_MAP.PENDING;
   const items = order.items || [];
-  const total = order.totalPrice || order.totalAmount || items.reduce((sum, i) => sum + (i.price || i.unitPrice || 0) * (i.quantity || 1), 0);
+  const isPre = isPreOrderView(order);
+  // A pre-order is free. `order.totalAmount` is already 0, but 0 is falsy, so
+  // the ||-chain below would fall through to summing the (deliberately
+  // full-price) item records and show a ministry volunteer a full-price cart.
+  const total = isPre
+    ? 0
+    : (order.totalPrice || order.totalAmount || items.reduce((sum, i) => sum + (i.price || i.unitPrice || 0) * (i.quantity || 1), 0));
+  // Free pre-orders have no payment step: "Waiting for payment confirmation"
+  // over a RM0 order is simply wrong, and the customer can do nothing about it.
+  const preNotes = isPre
+    ? splitPreorderNotes(order.notes)
+    : { prefix: '', collect: '', tail: typeof order.notes === 'string' ? order.notes : '' };
+  const statusText = (isPre && order.status === 'PENDING') ? 'Pre-order received' : s.text;
+  const statusIcon = (isPre && order.status === 'PENDING') ? '🎉' : s.icon;
+  const stepOneLabel = isPre ? 'Received' : 'Payment';
 
   let html = '';
 
   if (s.step > 0) {
     html += `<div class="track-stepper">
-      <div class="track-step ${s.step >= 1 ? 'active' : ''}"><div class="step-dot">1</div><div class="step-label">Payment</div></div>
+      <div class="track-step ${s.step >= 1 ? 'active' : ''}"><div class="step-dot">1</div><div class="step-label">${stepOneLabel}</div></div>
       <div class="track-step-line ${s.step >= 2 ? 'active' : ''}"></div>
       <div class="track-step ${s.step >= 2 ? 'active' : ''}"><div class="step-dot">2</div><div class="step-label">Preparing</div></div>
       <div class="track-step-line ${s.step >= 3 ? 'active' : ''}"></div>
@@ -104,19 +192,50 @@ function renderOrder(order) {
     html += `<p style="margin-bottom:8px;font-size:1.1rem;font-weight:600;color:var(--primary,#6B4226)">Hi, ${order.customerName}!</p>`;
   }
 
-  if (['PENDING', 'PREPARING'].includes(order.status) && queueSize > 0) {
+  // "2 orders ahead · est. wait ~6 min" is meaningless on a pre-order that is not
+  // being made yet — it may be days from its collection time. It becomes true
+  // again once the cashier releases it (PREPARING).
+  if (['PENDING', 'PREPARING'].includes(order.status) && queueSize > 0 && !(isPre && order.status === 'PENDING')) {
     html += `<div style="text-align:center;font-size:.85rem;color:var(--text-light,#7A6355);margin-bottom:12px">Queue: ${queueSize} order${queueSize > 1 ? 's' : ''} ahead · Est. wait ~${Math.max(3, queueSize * 3)} min</div>`;
   }
 
-  html += `<div class="status-indicator status-${order.status}"><h2>${s.icon} ${s.text}</h2>`;
-  if (order.status === 'PENDING') html += `<p style="margin-top:8px">Total: <strong>RM ${total.toFixed(2)}</strong></p>`;
+  html += `<div class="status-indicator status-${order.status}"><h2>${statusIcon} ${statusText}</h2>`;
+  if (order.status === 'PENDING') {
+    html += isPre
+      ? `<p style="margin-top:8px">Ministry pre-order — <strong>free</strong>, nothing to pay</p>`
+      : `<p style="margin-top:8px">Total: <strong>RM ${total.toFixed(2)}</strong></p>`;
+  }
   if (order.status === 'PREPARING') html += `<p style="margin-top:8px">Sit tight, your order is being made!</p>`;
   if (order.status === 'READY') html += `<p style="margin-top:8px">Collect your order at the counter</p>`;
   if (order.status === 'CANCELLED' && order.reason) html += `<p>${order.reason}</p>`;
   html += `</div>`;
 
-  // Payment section when PENDING
+  // T3 — Edit Order was already implemented but nobody knew it existed: the
+  // buttons sit below the item list, and app.js redirects straight here after
+  // submit, so this page IS the confirmation screen. One modest prompt directly
+  // under the status indicator, pointing at the same handler as #editBtn (which
+  // stays where it is, below the items).
   if (order.status === 'PENDING') {
+    html += `<div class="track-edit-nudge">
+      <div class="track-edit-nudge-text">${isPre
+        ? 'Need to change your drink, or add one for someone else?'
+        : 'Need to add another drink?'} You can still edit this order until the counter starts it.</div>
+      <button class="edit-btn track-edit-nudge-btn" id="editHintBtn" type="button">✏️ Edit Order</button>
+    </div>`;
+  }
+
+  // Free ministry pre-order: no payment, no receipt upload. "Pay at the counter
+  // — RM 0.00" would just confuse the music team.
+  if (order.status === 'PENDING' && isPre) {
+    html += `<div class="payment-section preorder-notice">
+      <h3>🎉 Ministry Pre-Order</h3>
+      ${preNotes.collect ? `<p class="preorder-collect">🕘 Collect: <strong>${escHtml(preNotes.collect)}</strong></p>` : ''}
+      <p style="font-size:.85rem;color:var(--text-light,#7A6355);margin-top:8px">Nothing to pay. Come to the counter at your collection time and give your name.</p>
+    </div>`;
+  }
+
+  // Payment section when PENDING (never for a pre-order — see above)
+  if (order.status === 'PENDING' && !isPre) {
     const hasReceipt = !!order.receiptUrl;
     html += `<div class="payment-section">
       <h3>💳 Payment</h3>
@@ -167,11 +286,16 @@ function renderOrder(order) {
   }
 
   html += `<div class="order-details"><h3>Order Details</h3>`;
-  if (order.notes) html += `<div style="background:var(--cream,#f9f5f0);padding:10px 12px;border-radius:8px;font-size:.85rem;margin-bottom:10px">📝 ${order.notes}</div>`;
+  // For a pre-order only the customer's own note is shown — the machine-composed
+  // "[PRE-ORDER: CODE] Collect: …" prefix is surfaced as a field above instead.
+  if (preNotes.tail) html += `<div style="background:var(--cream,#f9f5f0);padding:10px 12px;border-radius:8px;font-size:.85rem;margin-bottom:10px">📝 ${preNotes.tail}</div>`;
   html += `<ul id="orderItemsList">`;
   items.forEach((i, idx) => {
     const label = i.variant ? `${i.name} (${i.variant})` : i.name;
-    html += `<li><span>${label} × ${i.quantity || 1}</span><span>RM ${((i.price || i.unitPrice || 0) * (i.quantity || 1)).toFixed(2)}</span></li>`;
+    // Item records keep their full unitPrice on a pre-order (free-ness lives at
+    // order level), so the RM0 is applied here at display time only.
+    const amount = isPre ? 'Free' : `RM ${((i.price || i.unitPrice || 0) * (i.quantity || 1)).toFixed(2)}`;
+    html += `<li><span>${label} × ${i.quantity || 1}</span><span>${amount}</span></li>`;
   });
   html += `</ul><div class="order-total">Total: RM ${total.toFixed(2)}</div></div>`;
 
@@ -245,8 +369,12 @@ function renderOrder(order) {
     } catch { showError('Failed to cancel, try again'); }
   });
 
-  // Bind edit
+  // Bind edit — both the button below the items and the T3 prompt near the top
+  // run the same handler; there is only one edit flow.
   document.getElementById('editBtn')?.addEventListener('click', () => {
+    enterEditMode(order);
+  });
+  document.getElementById('editHintBtn')?.addEventListener('click', () => {
     enterEditMode(order);
   });
 
@@ -260,10 +388,41 @@ function enterEditMode(order) {
   // and only redraws (or bails out) when status drifts away from PENDING.
   isEditing = true;
   const items = [...(order.items || [])];
-  let notes = order.notes || '';
+  const isPre = isPreOrderView(order);
+  // Pre-order: the editable notes box holds only the customer's own words; the
+  // "[PRE-ORDER: CODE] Collect: …" prefix is preserved and re-attached on save so
+  // the cashier does not lose the collection time.
+  const preNotes = isPre
+    ? splitPreorderNotes(order.notes)
+    : { prefix: '', collect: '', tail: typeof order.notes === 'string' ? order.notes : '' };
+  const notesPrefix = preNotes.prefix;
+  // Flat 200 for everyone, pre-order or not: the backend measures its 200-char
+  // budget against the CUSTOMER's portion, after stripping the operational
+  // prefix, so the prefix costs the customer nothing and this box may spend the
+  // whole budget. (`modifyOrder` also owns the prefix now — it re-attaches the
+  // STORED one and strips whatever we send — so the re-attach below is belt and
+  // braces, kept deliberately.)
+  //
+  // This used to subtract the prefix (200 - prefix - 3), which was stricter than
+  // the server and silently so: `maxlength` just stops accepting keystrokes with
+  // no message. That cost the customer 51 characters in the default setup
+  // ("[PRE-ORDER: 8CHARCDE] Collect: After 1st Service" = 48) and up to 94 when a
+  // campaign uses a long collection-slot label (admin allows 60). Worse, the
+  // ORDER FORM caps notes at nothing at all (`#orderNotes` in app.js has no
+  // maxlength, and `createOrder` does no length check), so a customer could place
+  // a pre-order with a 180-char note and then find this box — which loads that
+  // value programmatically, since maxlength does not truncate a scripted value —
+  // would let them delete but not add a single character, unexplained. The server
+  // arbitrates the limit; the client must not be quietly harsher than it.
+  const notesMax = 200;
+  let notes = preNotes.tail;
   let menuCache = null;
   const listEl = document.getElementById('orderItemsList');
   const actionsRow = document.querySelector('.order-actions-row');
+  // The T3 prompt offers "Edit Order" again; tapping it mid-edit would restart
+  // the session and discard the working cart. Hidden until the next render.
+  const nudgeEl = document.querySelector('.track-edit-nudge');
+  if (nudgeEl) nudgeEl.style.display = 'none';
 
   // Inject "+ Add item" button + notes textarea between the items list and
   // the action buttons. Defensive cleanup in case a previous edit session
@@ -274,9 +433,10 @@ function enterEditMode(order) {
       <button id="addItemBtn" type="button" style="width:100%;padding:12px;background:#fff;border:1px dashed var(--primary,#6B4226);color:var(--primary,#6B4226);border-radius:10px;font-size:.95rem;font-weight:600;cursor:pointer">+ Add item</button>
       <div style="margin-top:14px">
         <label for="editNotes" style="display:block;font-size:.85rem;color:var(--text-light,#7A6355);margin-bottom:4px">Notes (optional)</label>
-        <textarea id="editNotes" maxlength="200" rows="2" placeholder="Special requests…" style="width:100%;padding:10px;border:1px solid var(--cream-dark,#ddd);border-radius:8px;font-size:.9rem;resize:none;font-family:inherit;box-sizing:border-box"></textarea>
-        <div style="display:flex;justify-content:flex-end;font-size:.75rem;color:var(--text-light,#7A6355);margin-top:2px"><span id="editNotesCount">0</span>/200</div>
+        <textarea id="editNotes" maxlength="${notesMax}" rows="2" placeholder="Special requests…" style="width:100%;padding:10px;border:1px solid var(--cream-dark,#ddd);border-radius:8px;font-size:.9rem;resize:none;font-family:inherit;box-sizing:border-box"></textarea>
+        <div style="display:flex;justify-content:flex-end;font-size:.75rem;color:var(--text-light,#7A6355);margin-top:2px"><span id="editNotesCount">0</span>/${notesMax}</div>
       </div>
+      ${notesPrefix ? `<p style="font-size:.75rem;color:var(--text-light,#7A6355);margin-top:6px">Your collection time (${escHtml(preNotes.collect || '—')}) stays on the order.</p>` : ''}
     </div>
   `);
 
@@ -298,28 +458,62 @@ function enterEditMode(order) {
 
   async function ensureMenuLoaded() {
     if (menuCache) return menuCache;
+    // Campaign rules ride along with the menu fetch: one call, on demand, the
+    // first time the customer opens edit mode or the picker.
+    const rulesPromise = isPre ? loadPreorderRules(order) : Promise.resolve(null);
     try {
       const r = await fetch(`${API_BASE}/api/menu`);
       const data = await r.json();
-      menuCache = (data.items || data || []).filter(m => m.isActive && m.isEnabledToday);
+      let list = (data.items || data || []).filter(m => m.isActive && m.isEnabledToday);
+      const rules = await rulesPromise;
+      // Hide the variant options this campaign blocks, using the same helper the
+      // customer ordering page uses (variants.js is the single source of truth).
+      if (isPre && rules && window.RLCVariants && typeof RLCVariants.applyOptionExclusions === 'function') {
+        list = list.map(m => RLCVariants.applyOptionExclusions(m, rules.excludedOptions));
+      }
+      menuCache = list;
     } catch {
       menuCache = [];
     }
     return menuCache;
   }
 
+  /**
+   * What the "+ Add item" picker may offer. For a pre-order this mirrors the
+   * three restrictions createOrder enforces (and which the order-update path
+   * enforces too, answering 400): DRINK only, the `eligibleItems` allowlist, and
+   * — via ensureMenuLoaded — `excludedOptions`. This only avoids offering what
+   * would be refused; the backend remains authoritative.
+   */
+  function pickableItems() {
+    const list = menuCache || [];
+    if (!isPre) return list;
+    const eligible = Array.isArray(preorderRules?.eligibleItems) ? preorderRules.eligibleItems : [];
+    return list.filter(m => {
+      if (m.category !== 'DRINK') return false;
+      if (eligible.length && !eligible.includes(m.menuItemId || m.id)) return false;
+      return true;
+    });
+  }
+
   function lookupMenuItem(menuItemId) {
     return (menuCache || []).find(m => (m.menuItemId || m.id) === menuItemId);
   }
 
+  // Pre-orders are free at order level — never sum the (full-price) item records.
+  function workingTotal() {
+    if (isPre) return 0;
+    return items.reduce((s, i) => s + (i.unitPrice || i.price || 0) * (i.quantity || 1), 0);
+  }
+
   function recomputeTotalRow() {
-    const total = items.reduce((s, i) => s + (i.unitPrice || i.price || 0) * (i.quantity || 1), 0);
+    const total = workingTotal();
     const totalLi = listEl.querySelector('.edit-total');
     if (totalLi) totalLi.innerHTML = `<strong>New Total: RM ${total.toFixed(2)}</strong>`;
   }
 
   function renderEditItems() {
-    const total = items.reduce((s, i) => s + (i.unitPrice || i.price || 0) * (i.quantity || 1), 0);
+    const total = workingTotal();
     listEl.innerHTML = items.map((i, idx) => {
       const label = i.variant ? `${i.name} (${i.variant})` : i.name;
       const menuItem = lookupMenuItem(i.menuItemId);
@@ -416,12 +610,13 @@ function enterEditMode(order) {
       showError('Menu unavailable');
       return;
     }
+    const picks = pickableItems();
 
     const overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(61,43,31,.6);backdrop-filter:blur(4px);z-index:400;display:flex;align-items:center;justify-content:center;padding:16px';
     overlay.innerHTML = `<div style="background:#fff;border-radius:16px;width:100%;max-width:440px;max-height:80vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 8px 24px rgba(74,44,23,.15)">
       <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--cream-dark,#ddd)">
-        <h3 style="margin:0;color:var(--primary,#6B4226)">Add an item</h3>
+        <h3 style="margin:0;color:var(--primary,#6B4226)">${isPre ? 'Add a drink' : 'Add an item'}</h3>
         <button id="closePickerBtn" type="button" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--text-light,#7A6355);padding:4px 8px">✕</button>
       </div>
       <ul id="pickerItemsList" style="margin:0;padding:0;list-style:none;overflow-y:auto;flex:1"></ul>
@@ -429,19 +624,19 @@ function enterEditMode(order) {
     document.body.appendChild(overlay);
 
     const pickerListEl = overlay.querySelector('#pickerItemsList');
-    if (!menuCache.length) {
-      pickerListEl.innerHTML = '<li style="padding:20px;text-align:center;color:var(--text-light,#7A6355)">No items available</li>';
+    if (!picks.length) {
+      pickerListEl.innerHTML = `<li style="padding:20px;text-align:center;color:var(--text-light,#7A6355)">${isPre ? 'No other drinks are available on this pre-order link.' : 'No items available'}</li>`;
     } else {
-      pickerListEl.innerHTML = menuCache.map((m, idx) => `
+      pickerListEl.innerHTML = picks.map((m, idx) => `
         <li data-pick-idx="${idx}" style="padding:14px 20px;border-bottom:1px solid var(--cream-dark,#eee);cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px">
           <div style="flex:1;min-width:0"><div style="font-weight:600;color:var(--text,#3D2B1F)">${m.name}</div>${m.category ? `<div style="font-size:.75rem;color:var(--text-light,#7A6355);margin-top:2px">${m.category === 'DRINK' ? '🥤 Drink' : '🍔 Food'}</div>` : ''}</div>
-          <span style="color:var(--primary,#6B4226);font-weight:700;white-space:nowrap">RM ${(m.basePrice || 0).toFixed(2)}</span>
+          <span style="color:var(--primary,#6B4226);font-weight:700;white-space:nowrap">${isPre ? 'Free' : `RM ${(m.basePrice || 0).toFixed(2)}`}</span>
         </li>
       `).join('');
 
       pickerListEl.querySelectorAll('li').forEach(li => {
         li.addEventListener('click', () => {
-          const m = menuCache[parseInt(li.dataset.pickIdx)];
+          const m = picks[parseInt(li.dataset.pickIdx)];
           // Add to working list with default variants (none). Backend
           // will revalidate and assign canonical variant labels on Save.
           items.push({
@@ -475,6 +670,16 @@ function enterEditMode(order) {
     const btn = document.getElementById('saveEditBtn');
     btn.disabled = true;
     btn.textContent = 'Saving...';
+    // Re-attach the machine-composed pre-order prefix so the collection time
+    // survives the edit. `modifyOrder` now owns the prefix itself — it strips
+    // whatever the client sends and re-prepends the one on the STORED record —
+    // so this is belt and braces, kept on purpose: it also keeps an OLD cached
+    // shell talking to the current API and a NEW shell talking to a not-yet-
+    // deployed API both correct. Sending the prefix is harmless either way.
+    const trimmedNotes = notes.trim();
+    const notesToSend = notesPrefix
+      ? (trimmedNotes ? `${notesPrefix} | ${trimmedNotes}` : notesPrefix)
+      : notes;
     try {
       const res = await fetch(`${API_BASE}/api/orders/${orderId}`, {
         method: 'PUT',
@@ -487,7 +692,7 @@ function enterEditMode(order) {
             quantity: i.quantity || 1,
             selectedVariants: i.selectedVariants || null,
           })),
-          notes,
+          notes: notesToSend,
         })
       });
       if (res.status === 409) {
@@ -497,8 +702,12 @@ function enterEditMode(order) {
         return;
       }
       if (!res.ok) {
-        const err = await res.json();
-        showError(err.error || 'Failed to update order');
+        // The backend refuses anything a pre-order link does not allow (non-drink,
+        // item not on the campaign's list, blocked option) with a 400 and a
+        // readable message. Surface it as-is; never guess a substitute.
+        let err = null;
+        try { err = await res.json(); } catch { /* empty or non-JSON body */ }
+        showError((err && err.error) || 'Failed to update order');
         btn.disabled = false;
         btn.textContent = '💾 Save Changes';
         return;
@@ -585,6 +794,20 @@ async function pollOrder() {
       }
     }
     prevStatus = order.status;
+    // The guard the comment above enterEditMode has always claimed but which was
+    // never actually here: `isEditing` was set and never read, so every 7s poll
+    // re-rendered trackApp and silently threw away the customer's in-progress
+    // edit. Left unfixed, T3's more prominent Edit prompt would just funnel more
+    // people into a form that resets under them.
+    //
+    // A status drift away from PENDING means the cashier has taken the order, so
+    // edit mode is dropped and the read view redrawn — the backend would answer
+    // 409 anyway.
+    if (isEditing) {
+      if (order.status === 'PENDING') return;
+      isEditing = false;
+      showError('The counter has started your order — it can no longer be edited.');
+    }
     renderOrder(order);
   } catch {
     showError('Connection error, retrying...');

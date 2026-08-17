@@ -33,6 +33,19 @@ let preorderCode = null;
 let preorderInfo = null;   // { name, serviceDate, opensAt, expiresAt } from validate endpoint
 let collectionTime = '';   // e.g. "9:15 AM" — required before submit in preorder mode
 
+// ─── Staff mode ─────────────────────────────────────────────────────
+// The same ?code= param is resolved against two namespaces: pre-order codes
+// first (unchanged behaviour), then staff codes. A valid staff code prices
+// DRINKs at the flat staff price and leaves FOOD alone — the rule itself lives
+// in CafePricing (mirror of backend/src/lib/pricing.ts), never inline here.
+//
+// Unlike a pre-order link, staff mode does NOT bypass the café-open check, does
+// NOT restrict the menu to drinks, and the order still lands PENDING for the
+// cashier to confirm.
+let staffMode = false;
+let staffCode = null;
+let staffInfo = null;      // { code, label } from the validate endpoint
+
 // 15-minute slots from 9:00 AM to 2:00 PM (inclusive), formatted 12-hour.
 function generateCollectionSlots() {
   const slots = [];
@@ -53,39 +66,20 @@ function generateCollectionSlots() {
 // drops emoji as a side-effect, so image lookups still work either way; this
 // helper is purely for display text.
 /**
- * Strip variant options a pre-order campaign excludes, e.g. no Oat Milk on a
- * ministry link (`excludedOptions: ["Milk:Oat Milk"]`).
+ * Strip variant options the active pre-order campaign excludes, e.g. no Oat Milk
+ * on a ministry link (`excludedOptions: ["Milk:Oat Milk"]`).
  *
- * Returns the item unchanged outside pre-order mode or when nothing is excluded,
- * so the normal customer flow is untouched and keeps its object identity.
- *
- * A group left with no options is dropped entirely rather than rendered empty.
- * This only hides choices — createOrder enforces the same rule server-side, so a
- * crafted payload is still refused.
+ * Returns the item unchanged outside pre-order mode. The filtering itself lives
+ * in RLCVariants (variants.js) because track.html's pre-order edit flow needs
+ * exactly the same rule — variant selection is a single source of truth, so this
+ * is only the "when", not the "how". Degrades to the unfiltered item if a stale
+ * cached variants.js predates the helper; the backend refuses the option either
+ * way.
  */
 function applyPreorderOptionExclusions(item) {
   if (!preorderMode) return item;
-  const excluded = Array.isArray(preorderInfo?.excludedOptions) ? preorderInfo.excludedOptions : [];
-  if (!excluded.length) return item;
-
-  const blocked = new Set(excluded.map(String));
-  const isBlocked = (group, option) => blocked.has(`${String(group ?? '').trim()}:${String(option ?? '').trim()}`);
-
-  const out = { ...item };
-
-  if (Array.isArray(item.variantGroups) && item.variantGroups.length) {
-    out.variantGroups = item.variantGroups
-      .map(g => ({ ...g, options: (g.options || []).filter(o => !isBlocked(g.group, o.name)) }))
-      .filter(g => g.options.length > 0);
-  }
-
-  // Legacy flat variants carry no group, so match on the option half.
-  if (Array.isArray(item.variants) && item.variants.length) {
-    const blockedNames = new Set([...blocked].map(b => b.slice(b.indexOf(':') + 1)));
-    out.variants = item.variants.filter(v => !blockedNames.has(String(v.name || v.id || v).trim()));
-  }
-
-  return out;
+  if (!window.RLCVariants || typeof RLCVariants.applyOptionExclusions !== 'function') return item;
+  return RLCVariants.applyOptionExclusions(item, preorderInfo?.excludedOptions);
 }
 
 function stripEmoji(name) {
@@ -143,6 +137,46 @@ function getAvailable(item) {
   return item.category === 'FOOD' ? (item.foodQuantityToday || 0) - (item.foodReserved || 0) : Infinity;
 }
 
+// ─── Staff-mode price display ───────────────────────────────────────
+// Every number below comes from window.CafePricing (the mirror of
+// backend/src/lib/pricing.ts). No discount arithmetic lives in this file: the
+// backend re-prices the order on submit and its number is the one charged.
+// If pricing.js is missing (stale cached shell), these degrade to gross prices
+// rather than throwing.
+function staffPricingOpts() {
+  return { customerClass: 'STAFF', celebrationMode, celebrationPrice };
+}
+
+/** Net + gross unit price for a menu item as listed (no variants selected). */
+function staffItemPrice(item) {
+  const gross = Number(item.basePrice) || 0;
+  if (!window.CafePricing) return { unitPrice: gross, grossUnitPrice: gross };
+  return CafePricing.priceCartLine({
+    price: gross,
+    category: item.category,
+    basePrice: gross,
+    celebrationEligible: item.celebrationEligible === true,
+  }, staffPricingOpts());
+}
+
+/**
+ * Shape a stored cart line for CafePricing, which wants the GROSS unit price.
+ * `price` on a cart line already has celebration pricing folded in, so
+ * `grossPrice` (written by bindItemEvents) is used when present. The live menu
+ * item wins for category/basePrice/eligibility; a line left over from an older
+ * shell may not carry them.
+ */
+function cartLineForPricing(c) {
+  const m = menu.find(i => i.id === c.id);
+  return {
+    price: Number(c.grossPrice != null ? c.grossPrice : c.price) || 0,
+    qty: c.qty,
+    category: (m && m.category) || c.category || 'DRINK',
+    basePrice: Number(m ? m.basePrice : (c.basePrice != null ? c.basePrice : c.price)) || 0,
+    celebrationEligible: m ? m.celebrationEligible === true : c.celebrationEligible === true,
+  };
+}
+
 function renderMenu() {
   const name = localStorage.getItem('customerName') || '';
 
@@ -178,6 +212,21 @@ function renderMenu() {
       shell += `<div class="preorder-banner" role="status" aria-live="polite">
         <span class="preorder-banner-icon">🎉</span>
         <div class="preorder-banner-text">${bannerBody}</div>
+      </div>`;
+    }
+    // Staff-link banner. States the deal plainly — drinks at the staff price,
+    // food unchanged — and that the cashier still confirms it, so nobody is
+    // surprised at the counter.
+    if (staffMode) {
+      const esc = s => String(s || '').replace(/[<>&]/g, ch => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[ch]));
+      const staffPrice = Number(window.CafePricing?.STAFF_DRINK_PRICE ?? 5);
+      const label = staffInfo?.label ? esc(staffInfo.label) : '';
+      shell += `<div class="staff-banner" role="status" aria-live="polite">
+        <span class="staff-banner-icon">🎫</span>
+        <div class="staff-banner-text">
+          <div><strong>Staff price</strong> — drinks RM ${staffPrice.toFixed(2)} each, food at full price</div>
+          <div class="staff-banner-sub">${label ? label + ' · ' : ''}The cashier confirms staff price when you pay.</div>
+        </div>
       </div>`;
     }
     if (customerProfile) {
@@ -284,6 +333,11 @@ function renderMenu() {
       if (preorderMode) {
         // Ministry pre-order: real price is struck through and a FREE badge sits next to it.
         priceHtml = `<s style="opacity:.5">RM ${item.basePrice.toFixed(2)}</s> <span class="free-badge">FREE</span>`;
+      } else if (staffMode) {
+        // Same strike-through pattern as celebration mode. FOOD comes back at
+        // gross from CafePricing, so it renders exactly as it does normally.
+        const sp = staffItemPrice(item);
+        priceHtml = `${sp.unitPrice < sp.grossUnitPrice ? '<s style="opacity:.5;font-size:.8em">RM '+sp.grossUnitPrice.toFixed(2)+'</s> ' : ''}RM ${sp.unitPrice.toFixed(2)}`;
       } else {
         priceHtml = `${celebrationMode && item.category === 'DRINK' && item.celebrationEligible === true ? '<s style="opacity:.5;font-size:.8em">RM '+item.basePrice.toFixed(2)+'</s> ' : ''}RM ${displayPrice.toFixed(2)}`;
       }
@@ -406,6 +460,11 @@ function bindItemEvents() {
         if (item.category === 'FOOD' && totalQty >= getAvailable(item)) return;
 
         let price, variantKey, variantLabel;
+        // Gross unit price (base + variant modifiers, celebration NOT applied) —
+        // what CafePricing needs as its incumbent candidate. Kept alongside
+        // `price` rather than replacing it, so the non-staff cart total is
+        // untouched.
+        let grossPrice;
         const selectedVariants = getSelectedVariants(id);
         if (selectedVariants.length) {
           // Bug 5 fix: paid variant modifiers apply on top of celebrationPrice.
@@ -413,6 +472,7 @@ function bindItemEvents() {
           const variantExtra = selectedVariants.reduce((s, v) => s + v.price, 0);
           const basePrice = (celebrationMode && item.category === 'DRINK' && item.celebrationEligible === true) ? celebrationPrice : item.basePrice;
           price = basePrice + variantExtra;
+          grossPrice = item.basePrice + variantExtra;
           variantKey = selectedVariants.map(v => v.option).join(',');
           variantLabel = selectedVariants.map(v => v.option).join(', ');
         } else {
@@ -420,13 +480,14 @@ function bindItemEvents() {
           const variantObj = item.variants?.find(v => v.id === variant);
           const basePrice = (celebrationMode && item.category === 'DRINK' && item.celebrationEligible === true) ? celebrationPrice : item.basePrice;
           price = basePrice + (variantObj?.priceModifier || 0);
+          grossPrice = item.basePrice + (variantObj?.priceModifier || 0);
           variantKey = variant;
           variantLabel = variantObj?.name || variant;
         }
 
         const existing = cart.find(c => c.id === id && c.variant === variantKey);
         if (existing) { existing.qty++; }
-        else { cart.push({ id, name: stripEmoji(item.name), variant: variantKey, variantName: variantLabel, selectedVariants: selectedVariants.length ? selectedVariants : undefined, price, qty: 1 }); }
+        else { cart.push({ id, name: stripEmoji(item.name), variant: variantKey, variantName: variantLabel, selectedVariants: selectedVariants.length ? selectedVariants : undefined, price, qty: 1, grossPrice, category: item.category, basePrice: item.basePrice, celebrationEligible: item.celebrationEligible === true }); }
         saveCart();
       } else {
         const selectedVariants = getSelectedVariants(id);
@@ -443,12 +504,20 @@ function bindItemEvents() {
 function updateCartBar() {
   const count = cart.reduce((s, c) => s + c.qty, 0);
   const total = cart.reduce((s, c) => s + c.qty * c.price, 0);
+  // Staff mode: the net comes from CafePricing so the cart matches what the
+  // backend will charge (drinks at the staff price, food untouched).
+  const staffPriced = staffMode && window.CafePricing
+    ? CafePricing.priceCart(cart.map(cartLineForPricing), staffPricingOpts())
+    : null;
+  const netTotal = staffPriced ? staffPriced.total : total;
   cartCount.textContent = `${count} item${count !== 1 ? 's' : ''}`;
   // Pre-order mode: total is always zero for the customer; show a hint.
-  cartTotal.textContent = preorderMode ? 'FREE' : `RM ${total.toFixed(2)}`;
+  cartTotal.textContent = preorderMode ? 'FREE' : `RM ${netTotal.toFixed(2)}`;
   cartTotalExpanded.textContent = preorderMode
     ? 'Total: RM 0.00 (Ministry Pre-Order)'
-    : `Total: RM ${total.toFixed(2)}`;
+    : staffPriced
+      ? `Total: RM ${netTotal.toFixed(2)} (Staff price)`
+      : `Total: RM ${total.toFixed(2)}`;
   const wasHidden = cartBar.classList.contains('hidden');
   cartBar.classList.toggle('hidden', count === 0);
   if (wasHidden && count > 0) {
@@ -561,6 +630,11 @@ cartSubmit.addEventListener('click', async () => {
       orderPayload.preorderCode = preorderCode;
       orderPayload.collectionTime = collectionTime;
     }
+    // Staff link: send the code only. No collection time, and never alongside
+    // preorderCode — the two modes are mutually exclusive by construction.
+    if (staffMode) {
+      orderPayload.staffCode = staffCode;
+    }
 
     const res = await fetch(`${API_BASE}/api/orders`, {
       method: 'POST',
@@ -598,21 +672,56 @@ async function loadMenu() {
   menu = (data.items || data).map(i => ({ ...i, id: i.menuItemId })).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
 }
 
+/**
+ * Ask one validate endpoint about a code without throwing.
+ *
+ * Both endpoints answer 400 with `{ valid:false, reason }` for a code they don't
+ * recognise, and apiFetch rejects on any non-2xx — which would lose the reason
+ * and (before staff links existed) made every staff code look like a dead
+ * pre-order link. Network failures come back as reason 'error'.
+ */
+async function validateLinkCode(path, code) {
+  try {
+    const res = await fetch(`${API_BASE}${path}?code=${encodeURIComponent(code)}`);
+    let data = {};
+    try { data = await res.json(); } catch (e) { /* empty/HTML body — treat as invalid */ }
+    if (res.ok && data && data.valid) return { valid: true, data };
+    return { valid: false, reason: (data && data.reason) || 'invalid' };
+  } catch (e) {
+    return { valid: false, reason: 'error' };
+  }
+}
+
 async function init() {
   try {
-    // Detect & validate pre-order code first. Invalid/expired codes just
-    // show a message and fall back to the normal customer flow.
+    // One ?code= param, two namespaces. Pre-order codes are checked first so
+    // existing links behave exactly as before; only a code the pre-order
+    // namespace does not recognise is tried as a staff code.
     if (_preorderCodeParam) {
-      try {
-        const validate = await apiFetch(`/api/preorder/validate?code=${encodeURIComponent(_preorderCodeParam)}`);
-        if (validate.valid) {
-          preorderMode = true;
-          preorderCode = _preorderCodeParam.trim().toUpperCase();
-          preorderInfo = validate;
-          menuCategory = 'DRINK';
-        }
-      } catch (e) {
+      const pre = await validateLinkCode('/api/preorder/validate', _preorderCodeParam);
+      if (pre.valid) {
+        preorderMode = true;
+        preorderCode = _preorderCodeParam.trim().toUpperCase();
+        preorderInfo = pre.data;
+        menuCategory = 'DRINK';
+      } else if (pre.reason === 'expired' || pre.reason === 'not_yet') {
+        // A real pre-order code, just outside its window — same message as before.
         showError('This pre-order link is no longer valid');
+      } else {
+        const st = await validateLinkCode('/api/staff-code/validate', _preorderCodeParam);
+        if (st.valid) {
+          staffMode = true;
+          // The endpoint returns the canonical uppercased code, so ?code=staff
+          // and ?code=STAFF both submit the same value.
+          staffCode = st.data.code || _preorderCodeParam.trim().toUpperCase();
+          staffInfo = st.data;
+        } else if (st.reason === 'not_yet') {
+          showError('This staff link is not active yet');
+        } else if (st.reason === 'expired') {
+          showError('This staff link has expired');
+        } else {
+          showError('This pre-order link is no longer valid');
+        }
       }
     }
 

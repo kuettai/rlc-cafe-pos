@@ -34,3 +34,6 @@ tmp/
 
 # Bug reports (local only)
 bug*.md
+
+# Design-hook config (machine-local)
+.impeccable/

@@ -39,7 +39,7 @@ const describeAuthed = hasAdminCreds ? describe : describe.skip;
  *   $env:RUN_LIVE_WRITE_TESTS="1"; npx jest tests/integration.test.ts
  *
  * Only do that against a non-production stack, or knowingly accept a real
- * order plus an email. `scripts/cleanup-test-orders.mjs` removes the orders.
+ * order plus an email. `scripts/cleanup-test-data.mjs` removes the orders.
  */
 const liveWritesEnabled = hasAdminCreds && process.env.RUN_LIVE_WRITE_TESTS === '1';
 const describeLiveWrites = liveWritesEnabled ? describe : describe.skip;

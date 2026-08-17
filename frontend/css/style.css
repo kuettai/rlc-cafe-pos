@@ -145,6 +145,25 @@ header h1{
 .preorder-banner-text{flex:1;line-height:1.35;font-size:.95rem}
 .preorder-banner-sub{font-size:.82rem;opacity:.92;margin-top:2px}
 
+/* === Staff-price banner === */
+/* Same shape as the pre-order banner, teal instead of indigo so a volunteer
+   can tell at a glance which of the two links they opened. Shown when a valid
+   staff code is present in ?code=. */
+.staff-banner{
+  background:linear-gradient(135deg,#0F766E 0%,#0D9488 60%,#14B8A6 100%);
+  color:#fff;
+  border-radius:var(--radius);
+  padding:14px 16px;
+  margin-bottom:16px;
+  display:flex;
+  align-items:flex-start;
+  gap:12px;
+  box-shadow:0 4px 12px rgba(13,148,136,.35);
+}
+.staff-banner-icon{font-size:1.6rem;line-height:1;flex-shrink:0}
+.staff-banner-text{flex:1;line-height:1.35;font-size:.95rem}
+.staff-banner-sub{font-size:.82rem;opacity:.92;margin-top:2px}
+
 /* Collection-time picker section */
 .collection-section{
   background:#F5F3FF;
@@ -722,6 +741,49 @@ header h1{
   color:var(--primary);
 }
 
+/* === T3: "you can still edit this order" prompt ===
+   Sits directly under the status indicator on a PENDING order. track.html is
+   the de-facto confirmation screen (app.js redirects straight here), and the
+   volunteers never found the Edit Order button below the item list. Modest —
+   dashed outline, no colour alarm — but unmissable at the top of the page. */
+.track-edit-nudge{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  flex-wrap:wrap;
+  text-align:left;
+  margin:-8px 0 20px;
+  padding:14px 16px;
+  background:var(--cream,#FFF8F0);
+  border:1px dashed var(--accent,#D4A574);
+  border-radius:var(--radius-lg);
+}
+.track-edit-nudge-text{
+  flex:1 1 180px;
+  font-size:.9rem;
+  line-height:1.35;
+  color:var(--text,#3D2B1F);
+}
+.track-edit-nudge-btn{
+  flex:0 0 auto;
+  padding:10px 18px;
+  font-size:.95rem;
+  background:#fff;
+}
+
+/* === Free ministry pre-order notice (replaces the payment block) === */
+.preorder-notice{
+  border-color:#C4B5FD;
+  background:#FAF8FF;
+}
+.preorder-notice h3{color:#5B21B6}
+.preorder-collect{
+  margin-top:10px;
+  font-size:.95rem;
+  color:var(--text,#3D2B1F);
+}
+
 /* === Payment section === */
 .payment-section{
   margin:24px 0;
@@ -1174,7 +1236,11 @@ header h1{
   font-size:.9rem;
   margin-bottom:0;
 }
-.pos-search{flex:1;max-width:320px}
+/* `flex:1` alone has a 0% basis, so the field still collapsed to a sliver before
+   the row wrapped — visible on a 768px-wide tablet in portrait once the bar
+   gained the pre-order release button. min-width forces the wrap the flex-wrap
+   above was there to provide. */
+.pos-search{flex:1 1 200px;min-width:200px;max-width:320px}
 /* Walk-up sits in the controls bar above the board as the primary action —
    solid fill so it reads as the one button a cashier reaches for mid-service,
    and a taller tap target than its neighbours since it is used on a tablet
@@ -1195,6 +1261,26 @@ header h1{
   border-color:#5A3620;
   color:#fff;
 }
+/* Bulk "release today's pre-orders". Same violet as the card ribbon so the
+   button and the cards it acts on are obviously the same thing. Sized like
+   Walk-up — it is a counter action, tapped with a thumb. */
+.pos-btn-preorder-release{
+  background:#7C3AED;
+  border-color:#7C3AED;
+  color:#fff;
+  font-weight:700;
+  min-height:40px;
+  padding:8px 16px;
+  white-space:nowrap;
+  flex:0 0 auto;
+}
+.pos-btn-preorder-release:hover,
+.pos-btn-preorder-release:focus-visible{
+  background:#6D28D9;
+  border-color:#6D28D9;
+  color:#fff;
+}
+.pos-btn-preorder-release[disabled]{opacity:.6;cursor:default}
 .pos-last-refresh{
   font-size:.72rem;
   color:#9CA3AF;
@@ -1315,6 +1401,46 @@ header h1{
   font-size:.68rem;
   opacity:.6;
   font-weight:500;
+}
+/* Staff-link orders. Not faded like the walk-up tag: the cashier has to notice
+   it before approving, because approving decides whether RM5 sticks. */
+.pos-card-tag-staff{
+  opacity:1;
+  font-weight:700;
+  font-size:.72rem;
+  color:#1E40AF;
+}
+/* Ministry pre-orders sit in the Pending tab from Wednesday to Sunday, and the
+   ribbon is the primary way a volunteer spots one. Deliberately loud: a
+   full-width violet band above the customer name, sized to be read at arm's
+   length on the counter iPad. A different SHAPE from the faded inline `walk-up`
+   chip and from the blue `staff price requested` text, so it cannot be confused
+   with an unpaid walk-in during the Sunday rush. The matching left border makes
+   the whole card identifiable even when it is scrolled half out of view. */
+.pos-card-preorder{
+  border-left-color:#7C3AED;
+}
+.pos-card-preorder-ribbon{
+  display:block;
+  /* Pulled out to the card's 14px/16px padding so the band spans the full card. */
+  margin:-14px -16px 12px;
+  padding:9px 12px;
+  border-top-left-radius:var(--radius);
+  border-top-right-radius:var(--radius);
+  background:#7C3AED;
+  color:#fff;
+  font-size:.95rem;
+  font-weight:800;
+  letter-spacing:.1em;
+  text-transform:uppercase;
+  text-align:center;
+  line-height:1.2;
+}
+/* Pre-order for a later service: same shape, quieter shade, and it carries the
+   date. Not part of the bulk release. */
+.pos-card-preorder-ribbon-later{
+  background:#C4B5FD;
+  color:#4C1D95;
 }
 .pos-card-items{
   font-size:.85rem;

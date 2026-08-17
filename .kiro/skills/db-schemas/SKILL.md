@@ -1,6 +1,6 @@
 ---
 name: db-schemas
-description: DynamoDB table schemas for RLC Café POS — orders, menu, ingredients, users, settings, customers, vouchers. Includes partition/sort keys, GSIs, TTL attributes, and the single-table record types stored in the settings table. Use when reading or writing DynamoDB records, adding attributes, or designing queries.
+description: DynamoDB table schemas for RLC Café POS — orders, menu, ingredients, users, settings, customers, vouchers. Includes partition/sort keys, GSIs, TTL attributes, and the single-table record types stored in the settings table (pre-order codes, staff codes, checklists, slides). Use when reading or writing DynamoDB records, adding attributes, or designing queries.
 ---
 
 # DynamoDB Table Schemas
@@ -9,25 +9,32 @@ description: DynamoDB table schemas for RLC Café POS — orders, menu, ingredie
 - PK: string, SK: string
 - GSI: `status-createdAt-index` (partition: status, sort: createdAt)
 - GSI: `customerId-createdAt-index` (partition: customerId, sort: createdAt)
-- TTL: `expiresAt` (epoch seconds)
+- TTL: `expiresAt` (epoch seconds) — **numeric values only.** A pre-order stores
+  an ISO **string** here on purpose, which TTL ignores; see `isPreOrder` below.
 
 | Attribute | Type | Description |
 |-----------|------|-------------|
 | orderId | string (UUID) | Unique order ID |
 | customerName | string | Customer display name |
-| items | list | [{menuItemId, name, variant, quantity, unitPrice, category}] |
-| totalAmount | number | Total in MYR |
+| items | list | [{menuItemId, name, variant, quantity, unitPrice, category, grossUnitPrice?, baseUnitPrice?}]. `unitPrice` is NET as stored; `grossUnitPrice` is the undiscounted unit price, persisted so the approve path can reprice without re-reading the menu. `baseUnitPrice` is the net the line would have had with **no** customer class (celebration-or-full) and is written **only** by the staff-link path — it is what `revertRequestedClassPricing` falls back to when the cashier declines a self-requested staff price, so declining does not also discard a legitimate celebration discount |
+| totalAmount | number | **NET** total in MYR (what is collected) — 0 on a ministry pre-order |
+| grossAmount | number | Undiscounted total. `discountOffset = grossAmount - totalAmount` |
 | status | string | PENDING / PREPARING / READY / ARCHIVED / EXPIRED / CANCELLED |
-| discountType | string | NONE / NEWCOMER / STAFF / PASTOR / CELEBRATION |
+| discountType | string | NONE / NEWCOMER / STAFF / PASTOR / CELEBRATION / MINISTRY_PREORDER / VOUCHER. Never `PREORDER` — that is a *customerClass* value only, and every report switches on this field against a fixed list that has no `PREORDER` in it |
 | discountOffset | number | Amount discounted |
 | createdAt | string | ISO timestamp |
 | updatedAt | string | ISO timestamp |
-| expiresAt | number | TTL epoch seconds |
+| expiresAt | number \| string | **number** = live DynamoDB TTL (epoch seconds), PENDING orders only. **string** = a pre-order's ISO `serviceEndTime` — see `isPreOrder` below |
+| notes | string | Customer note. On a pre-order it is prefixed `[PRE-ORDER: <CODE>] Collect: <time>` — the **only** record of the collection time (there is no `collectionTime` attribute), and backend-owned on edit |
+| modifiedAt | string | ISO timestamp of the last customer edit (`PUT /api/orders/{id}`) |
 | approvedBy | string | Volunteer name who approved |
 | isWalkUp | boolean | Walk-up order created by cashier |
 | flaggedItems | list | Items flagged as unavailable |
 | customerId | string | Phone number for customer-linked orders |
-| preorderCode | string | Pre-order code if from pre-order |
+| isPreOrder | boolean | `true` = ministry pre-order placed through a pre-order link. Created **PENDING** since v1.71 (previously PREPARING) so the customer can still edit it; the cashier's release to PREPARING is the lock. Its `expiresAt` is an **ISO string**, so it is inert as a TTL and survives for days — the 1-hour PENDING sweep and `closeCafe` both skip these records, and only `expirePreOrders()` in `expiry.ts` expires them. **Never write a numeric `expiresAt` on one:** that arms a real TTL and DynamoDB deletes the order silently |
+| preorderCode | string | Pre-order code if from pre-order. Also the key back to the `PREORDER_CODE#` settings record, which supplies the restrictions on edit and the `serviceEndTime` fallback in `expirePreOrders()` |
+| staffCode | string | Staff code the customer ordered through (staff link). Present = the STAFF price was **requested**, not granted; the POS keys its confirmation prompt off this, and `approveOrder` reverts the price unless the cashier passes `discountType: 'STAFF'` |
+| customerClass | string | STAFF / PASTOR / NEWCOMER / CELEBRATION / PREORDER — normally written by the cashier at approve. Two paths set it at **create** time: the staff link (`'STAFF'`, a request rather than an approval) and a ministry pre-order (`'PREORDER'`, assigned by the server and never accepted from a request body — `parseCustomerClass` refuses it) |
 | remark | string | Customer remark / special instructions |
 | readyAt | string | ISO timestamp when marked ready |
 
@@ -104,7 +111,14 @@ This table stores multiple record types using a single-table design pattern:
 ### Record Type 2: Checklist Config
 - PK=`CHECKLIST_CONFIG`, SK=`META`
 
-Stores the list of checklist items for daily open/close procedures.
+Stores the list of checklist items for daily open/close procedures, as three
+arrays (`open` / `close` / `handover`).
+
+**Array position IS the display order** — there is no `sortOrder` attribute. Admin
+reorders items by array position (v1.71.0) and the POS renders the same arrays, so
+a change that sorts, filters-and-rebuilds, or re-keys these arrays silently
+destroys an ordering a volunteer set deliberately. The save is a whole-array
+`PutCommand`, which is what makes the order round-trip.
 
 ### Record Type 3: Checklist Logs
 - PK=`CHECKLIST_LOG#{date}`, SK=`{phase}`
@@ -189,6 +203,38 @@ Audit log of featured drink changes (who changed, previous/new selection).
 - PK=`ACTIVITY_LOG#{date}`, SK=`{timestamp}`
 
 Activity log entries tracking café open/close events and significant actions.
+
+### Record Type 14: Staff Codes
+- PK=`STAFF_CODE#{code}`, SK=`META`
+
+Backs the customer-facing staff link (`?code=<CODE>`): drinks at the staff rate
+(RM5), food at full price. **Single entry by design** — the admin UI edits one
+code, so `PUT /api/admin/staff-code` is an upsert that deletes every other
+`STAFF_CODE#` record after writing, leaving exactly one behind.
+
+Deliberately **not** a `PREORDER_CODE#` record: the two disagree on price,
+status, café-open check, food eligibility and expiry.
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| code | string | Uppercased on both write and lookup. Alphabet `ABCDEFGHJKMNPQRSTUVWXYZ23456789` (no 0/O/1/I/L — the code is typed by hand off a printed link), 3–16 chars |
+| label | string | Admin-facing note, max 60 chars |
+| isActive | boolean | `false` validates as `reason:'invalid'` |
+| startDate | string | `YYYY-MM-DD`, **inclusive**. Empty string = unbounded. Before it → `reason:'not_yet'` |
+| endDate | string | `YYYY-MM-DD`, **inclusive**. Empty string = unbounded. After it → `reason:'expired'` |
+| createdAt | string | ISO timestamp. Preserved across upserts when the code itself is unchanged |
+| createdBy | string | Admin who created it; preserved on the same condition |
+| updatedAt | string | ISO timestamp of the last save; also the tiebreak if a partial write ever left two records |
+
+Both dates are compared against **today in Malaysia time (UTC+8)**, not UTC —
+`malaysiaToday()` in `backend/src/routes/staffcode.ts`. A code ending "today"
+must stay valid until local midnight.
+
+This record carries **no `expiresAt`**, so the settings-table TTL cannot reach
+it. That is intentional (the link is long-lived and date-gated instead) — do not
+"tidy up" by adding one, and note the accepted consequence: the code is
+permanent and guessable, with the cashier's approve-time confirmation as the
+only real control.
 
 ## Customers Table (rlc-cafe-customers)
 - PK: `CUSTOMER#{phone}` (string), SK: `META` (string)

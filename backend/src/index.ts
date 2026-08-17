@@ -12,6 +12,7 @@ import { handlePlanogram } from './routes/planogram';
 import { handleCustomers } from './routes/customers';
 import { handleVouchers } from './routes/vouchers';
 import { handleAdminPreorder, handleValidatePreorder } from './routes/preorder';
+import { handleAdminStaffCode, handleValidateStaffCode } from './routes/staffcode';
 import { handlePush } from './routes/push';
 import { handleDisplay } from './routes/display';
 import { handleVerses } from './routes/verses';
@@ -85,6 +86,13 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
     res.headers = { ...CORS_HEADERS, ...res.headers };
     return res;
   }
+  if (path.startsWith('/api/staff-code')) {
+    // Public — the staff link hits /api/staff-code/validate?code=... with no
+    // auth, exactly like the pre-order validate above.
+    const res = await handleValidateStaffCode(event);
+    res.headers = { ...CORS_HEADERS, ...res.headers };
+    return res;
+  }
   if (path.startsWith('/api/orders')) {
     const res = await handleOrders(event);
     res.headers = { ...CORS_HEADERS, ...res.headers };
@@ -140,6 +148,14 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
   if (path.startsWith('/api/admin/preorder-codes')) {
     if (user.role !== 'ADMIN') return respond(403, { error: 'Forbidden' });
     const res = await handleAdminPreorder(event, user.name);
+    res.headers = { ...CORS_HEADERS, ...res.headers };
+    return res;
+  }
+
+  // Must stay ABOVE the generic /api/admin catch-all below.
+  if (path.startsWith('/api/admin/staff-code')) {
+    if (user.role !== 'ADMIN') return respond(403, { error: 'Forbidden' });
+    const res = await handleAdminStaffCode(event, user.name);
     res.headers = { ...CORS_HEADERS, ...res.headers };
     return res;
   }

@@ -570,9 +570,15 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
     if (method === 'GET' && path.endsWith('/admin/reports/daily')) {
       const today = event.queryStringParameters?.date || new Date().toISOString().split('T')[0];
       // Union of (orders created today, any status) + (all currently active
-      // orders regardless of date). The second bucket catches ministry
-      // pre-orders that were created before today for today's service and
-      // would otherwise be invisible in the dashboard's "Today's Stats".
+      // orders regardless of date) + (all PENDING PRE-ORDERS regardless of
+      // date). The second bucket catches ministry pre-orders that were created
+      // before today for today's service and would otherwise be invisible in
+      // the dashboard's "Today's Stats"; the third exists because since v1.71
+      // pre-orders are created PENDING rather than PREPARING (so the customer
+      // can edit them), which put them outside both of the first two buckets.
+      // Filtered to `isPreOrder` so stale ordinary PENDING orders from previous
+      // days do not start appearing here. Mirrors `getShiftSummary` in pos.ts —
+      // the two dashboards must agree.
       // Dedupe by orderId so a today-created PREPARING order counts once.
       const todayResult = await docClient.send(new ScanCommand({
         TableName: ORDERS_TABLE,
@@ -593,6 +599,20 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
           ExpressionAttributeValues: { ':s': status },
         }));
         for (const o of activeResult.Items || []) {
+          const key = String(o.orderId || o.PK);
+          if (!byId.has(key)) byId.set(key, o);
+        }
+      }
+      {
+        const pendingResult = await docClient.send(new QueryCommand({
+          TableName: ORDERS_TABLE,
+          IndexName: 'status-createdAt-index',
+          KeyConditionExpression: '#s = :s',
+          ExpressionAttributeNames: { '#s': 'status' },
+          ExpressionAttributeValues: { ':s': 'PENDING' },
+        }));
+        for (const o of pendingResult.Items || []) {
+          if (o.isPreOrder !== true) continue;
           const key = String(o.orderId || o.PK);
           if (!byId.has(key)) byId.set(key, o);
         }

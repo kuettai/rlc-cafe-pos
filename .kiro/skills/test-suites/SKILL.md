@@ -26,6 +26,11 @@ npm run version:check                                          # six markers + S
 | `auth.test.ts`, `login-blocklist.test.ts` | JWT, PIN, login blocking |
 | `phone.test.ts` | phone normalisation |
 | `planogram.test.ts` | planogram routes |
+| `daily-summary.test.ts` | `summarizeDailyRevenue` — the end-of-day figures |
+| `preorder-excluded-options.test.ts` | `optionKey` / `normalizeExcludedOptions`, and `createOrder` refusing an excluded pre-order option |
+| `staff-code.test.ts` | the staff link — code validation/date gate, and that a requested STAFF price reverts on approve unless the cashier confirms |
+| `preorder-pending.test.ts` | ministry pre-orders as PENDING — free release (single and bulk), the preserved ISO `expiresAt`, the create/edit restriction parity, the backend-owned notes prefix, `closeCafe` skipping pre-orders, and the `expirePreOrders` recovery path |
+| `preorder-pending-gaps.test.ts` | the coverage holes a mutation audit found in the suite above — the 1-hour PENDING sweep **skipping** pre-orders (previously staged with an empty result, so untested), the `409` on a stale status for the single-order release, `getOrder`'s five pre-order response fields, and the admin daily-report pre-order bucket in both directions (its only prior coverage was the live integration suite) |
 | `test-markers.test.ts` | the test-data marker contract (below) |
 
 These mock DynamoDB. They touch nothing real.
@@ -160,3 +165,7 @@ sent. The script prints this list every run — read it.
 - Cover the invariants that have bitten: `expiresAt` removed on transitions out
   of PENDING, discounts not stacking, net vs gross totals, food counters
   balancing across ready/undo.
+- A guard is only tested if a fixture **reaches** it, and a multi-query handler
+  needs each query's fixture staged distinctly — see **Test teeth** in the
+  `invariants` skill. A suite that stages `{ Items: [] }` for the query a guard
+  sits on passes whether the guard is there or not.

@@ -4,10 +4,14 @@ import { docClient, ORDERS_TABLE, MENU_TABLE, SETTINGS_TABLE, INGREDIENTS_TABLE,
 import { sendEndOfDaySummary } from '../lib/email';
 import { logOrder, summarizeItems } from '../lib/audit';
 import { sendOrderPush } from '../lib/push';
+// Malaysia-time (UTC+8) date helper. Reused rather than reimplemented — the
+// bulk pre-order release compares service-end dates in the café's timezone.
+import { malaysiaToday } from './staffcode';
 import {
   priceLine,
   summarizeOrderDiscount,
   repriceStoredItems,
+  revertRequestedClassPricing,
   resolveQuantity,
   toOrderItem,
   parseCustomerClass,
@@ -108,11 +112,19 @@ async function unconsumeFoodOnUndo(items: any[]) {
 
 async function getShiftSummary(): Promise<APIGatewayProxyResult> {
   const today = new Date().toISOString().slice(0, 10);
-  // "Today's stats" spans two buckets:
+  // "Today's stats" spans three buckets:
   //   1. Orders created today across any status (normal customer + walk-up flow).
   //   2. Every currently-active order (PREPARING/READY) regardless of date —
-  //      catches ministry pre-orders that were created yesterday for today's
-  //      service and would otherwise be invisible in the dashboard.
+  //      catches ministry pre-orders created before today for today's service
+  //      that would otherwise be invisible in the dashboard.
+  //   3. Every PENDING PRE-ORDER regardless of date. Since v1.71 pre-orders are
+  //      created PENDING rather than PREPARING (so the customer can still edit
+  //      them), so a Wednesday pre-order for Sunday's service is no longer
+  //      caught by bucket 2, and bucket 1's `createdAt >= today` bound misses it
+  //      too — it would be invisible on the Sunday dashboard the volunteers
+  //      actually use. Filtered to `isPreOrder` so this does NOT start surfacing
+  //      stale ordinary PENDING orders from previous days: those are the 1-hour
+  //      cron's business and their absence here is deliberate.
   // Deduped by orderId so a today-created PREPARING order counts once.
   const todayStatuses  = ['PENDING', 'ARCHIVED'];
   const activeStatuses = ['PREPARING', 'READY'];
@@ -140,6 +152,21 @@ async function getShiftSummary(): Promise<APIGatewayProxyResult> {
       ExpressionAttributeValues: { ':s': status },
     }));
     for (const o of r.Items || []) {
+      const key = String(o.orderId || o.PK);
+      if (!byId.has(key)) byId.set(key, o);
+    }
+  }
+  // Bucket 3 — unbounded PENDING, pre-orders only (see the note above).
+  {
+    const r = await docClient.send(new QueryCommand({
+      TableName: ORDERS_TABLE,
+      IndexName: 'status-createdAt-index',
+      KeyConditionExpression: '#s = :s',
+      ExpressionAttributeNames: { '#s': 'status' },
+      ExpressionAttributeValues: { ':s': 'PENDING' },
+    }));
+    for (const o of r.Items || []) {
+      if (o.isPreOrder !== true) continue;
       const key = String(o.orderId || o.PK);
       if (!byId.has(key)) byId.set(key, o);
     }
@@ -240,6 +267,104 @@ async function listOrders(event: APIGatewayProxyEvent): Promise<APIGatewayProxyR
   return res(200, { orders: allOrders });
 }
 
+/**
+ * Release ONE ministry pre-order from PENDING to PREPARING — the cashier's lock.
+ *
+ * ⚠ This is the ONLY place a pre-order is released. Both the per-order
+ * `PUT /api/pos/orders/{id}/approve` and the bulk
+ * `PUT /api/pos/preorders/release-all` call it, so "release four individually"
+ * and "release all four" cannot diverge. Duplicating the update expression
+ * across the two paths is the most likely way this ships a bug — do not.
+ *
+ * Pricing: a pre-order is free by construction, but the cashier's dropdown has
+ * no PREORDER entry and `parseCustomerClass` refuses one from a request body, so
+ * the class has to be forced from the record. With a null class
+ * `repriceStoredItems` would keep the stored unitPrice as the incumbent
+ * candidate — and pre-order items store the FULL unit price — so the order would
+ * be BILLED: totalAmount = full gross, discountType NONE, MINISTRY_PREORDER gone.
+ *
+ * ⚠ `expiresAt` is PRESERVED, deliberately, and this function never removes it.
+ * The general invariant "every transition out of PENDING must REMOVE expiresAt"
+ * exists to kill a NUMERIC live DynamoDB TTL: left on a PREPARING order it
+ * deletes a real, in-service order — silently, with no error and no log. A
+ * pre-order's `expiresAt` is an ISO STRING instead, and DynamoDB TTL evaluates
+ * ONLY numeric attributes (unix seconds), ignoring a string outright, so the
+ * value is inert as a TTL and risks no deletion — and it is the ONLY input to
+ * `expirePreOrders()` in expiry.ts, the sole thing that ever expires a pre-order.
+ * Strip it and an approved-but-never-collected pre-order sits in PREPARING
+ * forever with nothing able to expire it.
+ * The one exception: a pre-order carrying a NUMERIC `expiresAt` (which should be
+ * impossible) IS stripped, because that value is a real armed TTL.
+ * Never write a numeric `expiresAt` here for any reason.
+ *
+ * Returns `released: false` when the `#s = :pending` guard failed — the customer
+ * cancelled or the order moved under us. The caller decides whether that is a
+ * 409 (single) or a skipped row (bulk); it is never an error.
+ */
+async function releasePreOrderToPreparing(
+  order: any,
+  approvedBy: string,
+): Promise<{ released: boolean; totalAmount: number; grossAmount: number; discountOffset: number; discountType: string }> {
+  const id = String(order.orderId);
+  const { items: repricedItems, summary } = repriceStoredItems(order.items, 'PREORDER');
+
+  const keepIsoExpiry = typeof order.expiresAt === 'string';
+  const updateExpr = 'SET #s = :s, approvedBy = :a, discountType = :dt, discountOffset = :do, totalAmount = :t, #items = :items, grossAmount = :ga, customerClass = :cc, updatedAt = :u'
+    + (keepIsoExpiry ? '' : ' REMOVE expiresAt');
+
+  try {
+    await docClient.send(new UpdateCommand({
+      TableName: ORDERS_TABLE,
+      Key: { PK: `ORDER#${id}`, SK: 'META' },
+      // `items` and `status` are DynamoDB RESERVED KEYWORDS and must be aliased.
+      UpdateExpression: updateExpr,
+      ExpressionAttributeNames: { '#s': 'status', '#items': 'items' },
+      ExpressionAttributeValues: {
+        ':s': 'PREPARING', ':a': approvedBy, ':dt': summary.discountType,
+        ':do': summary.discountOffset, ':t': summary.totalAmount, ':items': repricedItems,
+        ':ga': summary.grossAmount, ':cc': summary.customerClass,
+        ':u': new Date().toISOString(), ':pending': 'PENDING',
+      },
+      ConditionExpression: '#s = :pending',
+    }));
+  } catch (e: any) {
+    if (e.name === 'ConditionalCheckFailedException') {
+      return {
+        released: false,
+        totalAmount: summary.totalAmount, grossAmount: summary.grossAmount,
+        discountOffset: summary.discountOffset, discountType: summary.discountType,
+      };
+    }
+    throw e;
+  }
+
+  // Same order of side effects as the general approve path: deduct, audit, push.
+  // Keeping them inside the helper is what stops the bulk route from quietly
+  // skipping any of them.
+  await deductIngredients(order.items);
+
+  logOrder('APPROVE', id, {
+    customer: order.customerName,
+    by: approvedBy,
+    discount: summary.discountType,
+    offset: summary.discountOffset,
+    total: summary.totalAmount,
+    status: 'PREPARING',
+    // Which ministry link a free order came from. Pre-orders reach approve for
+    // the first time in v1.71 (they used to be born PREPARING), so this is the
+    // only record of who locked one.
+    preorderCode: order.preorderCode || undefined,
+  });
+
+  await sendOrderPush(id, '☕ Order Confirmed', 'Your order is being prepared!');
+
+  return {
+    released: true,
+    totalAmount: summary.totalAmount, grossAmount: summary.grossAmount,
+    discountOffset: summary.discountOffset, discountType: summary.discountType,
+  };
+}
+
 async function approveOrder(event: APIGatewayProxyEvent, actor: string = ''): Promise<APIGatewayProxyResult> {
   const id = event.pathParameters?.id;
   if (!id) return res(400, { error: 'Missing order id' });
@@ -250,15 +375,57 @@ async function approveOrder(event: APIGatewayProxyEvent, actor: string = ''): Pr
 
   const order = r.Item;
 
+  // ─── Ministry pre-orders take the shared release path ────────────────
+  // Everything below (cashier class, staff-link revert, the unconditional
+  // `REMOVE expiresAt`) is for orders that involve money. A pre-order involves
+  // none, needs the PREORDER class forced from the record, and must keep its ISO
+  // `expiresAt` — so it delegates to the one helper the bulk route also uses.
+  //
+  // The staff-link branches below could not fire for it anyway: createOrder
+  // refuses a request carrying both a staff and a pre-order code, so a pre-order
+  // never has `staffCode`.
+  if (order.isPreOrder === true) {
+    const out = await releasePreOrderToPreparing(order, body.approvedBy);
+    if (!out.released) {
+      return res(409, { error: 'Order was just cancelled or modified by the customer' });
+    }
+    return res(200, {
+      orderId: id, status: 'PREPARING',
+      totalAmount: out.totalAmount, discountOffset: out.discountOffset,
+    });
+  }
+
   // Re-apply pricing with the cashier's customer class. The stored unitPrice
   // already encodes any celebration discount, so repriceStoredItems treats it
   // as the incumbent candidate and charges the cheaper of the two — a
   // newcomer stays free on a celebration day instead of being charged RM5.
   const customerClass = parseCustomerClass(body.discountType);
-  const { items: repricedItems, summary } = repriceStoredItems(order.items, customerClass);
+
+  // A staff-link order arrives ALREADY priced at the customer's own request
+  // (RM5 drinks) and is flagged with `staffCode`. That is a request, not an
+  // approval: unless the cashier explicitly confirms STAFF here, strip the
+  // requested price back to celebration-or-full first. Without this,
+  // repriceStoredItems would treat the RM5 as the incumbent candidate, keep it
+  // (it is the cheaper of the two) and label the order CELEBRATION — a
+  // self-granted discount with nobody accountable in `approvedBy`.
+  const staffPriceGranted = !!order.staffCode && customerClass === 'STAFF';
+  const itemsToReprice = order.staffCode && customerClass !== 'STAFF'
+    ? revertRequestedClassPricing(order.items)
+    : order.items;
+
+  // Pre-orders never reach this point — they return early above. Their forced
+  // PREORDER pricing class and their preserved ISO `expiresAt` are handled in
+  // `releasePreOrderToPreparing`; do not add a pre-order case here.
+  const { items: repricedItems, summary } = repriceStoredItems(itemsToReprice, customerClass);
   const totalAmount = summary.totalAmount;
   const discountType = summary.discountType;
   const discountOffset = summary.discountOffset;
+
+  // `REMOVE expiresAt` is unconditional, as it is for every money-path
+  // transition out of PENDING: a NUMERIC `expiresAt` is a live DynamoDB TTL, and
+  // left on a PREPARING order it deletes a real, in-service order — silently,
+  // with no error and no log. Never write a numeric `expiresAt` in this handler.
+  const updateExpr = 'SET #s = :s, approvedBy = :a, discountType = :dt, discountOffset = :do, totalAmount = :t, #items = :items, grossAmount = :ga, customerClass = :cc, updatedAt = :u REMOVE expiresAt';
 
   try {
     await docClient.send(new UpdateCommand({
@@ -268,7 +435,7 @@ async function approveOrder(event: APIGatewayProxyEvent, actor: string = ''): Pr
       // unaliased `items = :items` fails the whole request with
       // ValidationException, which surfaced as a 502 and made it impossible to
       // approve any order. Same for `status` (#s).
-      UpdateExpression: 'SET #s = :s, approvedBy = :a, discountType = :dt, discountOffset = :do, totalAmount = :t, #items = :items, grossAmount = :ga, customerClass = :cc, updatedAt = :u REMOVE expiresAt',
+      UpdateExpression: updateExpr,
       ExpressionAttributeNames: { '#s': 'status', '#items': 'items' },
       ExpressionAttributeValues: {
         ':s': 'PREPARING', ':a': body.approvedBy, ':dt': discountType, ':do': discountOffset,
@@ -294,11 +461,116 @@ async function approveOrder(event: APIGatewayProxyEvent, actor: string = ''): Pr
     offset: discountOffset,
     total: totalAmount,
     status: 'PREPARING',
+    // Audit trail for the self-requested staff price: which link asked, and
+    // whether the cashier actually granted it.
+    staffCode: order.staffCode || undefined,
+    staffPriceGranted: order.staffCode ? staffPriceGranted : undefined,
+    // Which ministry link a free order came from. Pre-orders reach approve for
+    // the first time in v1.71 (they used to be born PREPARING), so this is the
+    // only record of who locked one.
+    preorderCode: order.preorderCode || undefined,
   });
 
   await sendOrderPush(id, '☕ Order Confirmed', 'Your order is being prepared!');
 
   return res(200, { orderId: id, status: 'PREPARING', totalAmount, discountOffset });
+}
+
+/**
+ * PUT /api/pos/preorders/release-all — bulk "release today's pre-orders to the
+ * barista". Cashier-TRIGGERED only.
+ *
+ * There is deliberately NO scheduled/EventBridge equivalent. The user chose an
+ * explicit cashier lock over a time gate: an automatic release would close the
+ * customer's edit window behind their back. Do not add one.
+ *
+ * Two independent safety filters, both load-bearing:
+ *
+ *  1. `isPreOrder === true`. This route walks every PENDING order, and the
+ *     PENDING bucket is full of ordinary UNPAID customer orders awaiting the
+ *     cashier's payment check. A filter bug here mass-approves them — marking
+ *     unpaid orders as paid and sending them to the barista. Non-pre-orders are
+ *     not merely skipped, they are not part of the batch at all and are not
+ *     counted.
+ *  2. Service-end date is TODAY in Malaysia time (UTC+8). A pre-order link can
+ *     stay open across more than one service, so the PENDING set on Sunday can
+ *     hold orders for a LATER service date. Releasing those would close the edit
+ *     window for customers who ordered for next week — precisely the harm the
+ *     user rejected when they refused a time-based auto-release. The order's ISO
+ *     `expiresAt` IS its `serviceEndTime`, so its MYT date part is compared with
+ *     today's using the existing `malaysiaToday` helper for both sides (no new
+ *     date math). An order with no usable `expiresAt` is SKIPPED, never guessed
+ *     at — guessing here means releasing someone's future order.
+ *
+ * Per-order failures never fail the batch: a `ConditionalCheckFailedException`
+ * (the customer cancelled or edited mid-batch) skips that one order and counts
+ * it as skipped, so the cashier gets a truthful tally instead of a 500.
+ *
+ * `total` is the size of the pre-order batch considered, so
+ * `released + skipped === total` always holds.
+ */
+async function releaseAllPreOrders(event: APIGatewayProxyEvent, actor: string = ''): Promise<APIGatewayProxyResult> {
+  const body = JSON.parse(event.body || '{}');
+  // Prefer the JWT identity over anything in the body — this writes `approvedBy`
+  // on every order in the batch, so it is the accountability record.
+  const approvedBy = actor || body.approvedBy || '';
+
+  const today = malaysiaToday();
+
+  // Paginated. A single Query returns at most 1MB, and silent truncation in a
+  // MUTATING batch is worse than in a report: the cashier would be told
+  // "released 40" and reasonably believe the queue was empty, leaving real
+  // pre-orders stranded in PENDING. Same ExclusiveStartKey pattern as the admin
+  // reports query.
+  const candidates: any[] = [];
+  let lastKey: Record<string, any> | undefined = undefined;
+  do {
+    const page: any = await docClient.send(new QueryCommand({
+      TableName: ORDERS_TABLE,
+      IndexName: 'status-createdAt-index',
+      KeyConditionExpression: '#s = :s',
+      ExpressionAttributeNames: { '#s': 'status' },
+      ExpressionAttributeValues: { ':s': 'PENDING' },
+      ExclusiveStartKey: lastKey,
+    }));
+    candidates.push(...(page.Items || []));
+    lastKey = page.LastEvaluatedKey;
+  } while (lastKey);
+
+  let released = 0;
+  let skipped = 0;
+
+  for (const order of candidates) {
+    // SAFETY FILTER 1 — pre-orders only. See the note above; this one prevents
+    // mass-approving unpaid walk-in orders.
+    if (order.isPreOrder !== true) continue;
+
+    // SAFETY FILTER 2 — today's service only.
+    const serviceEnd = typeof order.expiresAt === 'string' && order.expiresAt ? order.expiresAt : null;
+    const serviceEndMs = serviceEnd ? Date.parse(serviceEnd) : NaN;
+    if (!serviceEnd || !Number.isFinite(serviceEndMs)) {
+      console.warn(
+        '[release-all] pre-order %s has no usable ISO expiresAt — skipped rather than released',
+        order.orderId,
+      );
+      skipped++;
+      continue;
+    }
+    if (malaysiaToday(new Date(serviceEndMs)) !== today) {
+      // A later (or earlier) service date. Leave the customer's edit window open.
+      skipped++;
+      continue;
+    }
+
+    // Shared with the per-order approve path — same guard, same pricing, same
+    // preserved ISO expiresAt, same per-order audit line, same push, same
+    // ingredient deduction. See `releasePreOrderToPreparing`.
+    const out = await releasePreOrderToPreparing(order, approvedBy);
+    if (out.released) released++;
+    else skipped++;
+  }
+
+  return res(200, { released, skipped, total: released + skipped });
 }
 
 function normalizeVariantKey(label: string): string {
@@ -724,9 +996,17 @@ async function closeCafe(): Promise<APIGatewayProxyResult> {
   const now = new Date().toISOString();
 
   // Expire PENDING orders — the cashier never approved them, so no sale
-  // occurred. Pre-orders skip PENDING entirely so this doesn't affect them.
-  // Guarded with a status precondition so a cashier approving mid-close
-  // doesn't get their order silently flipped to EXPIRED.
+  // occurred. Guarded with a status precondition so a cashier approving
+  // mid-close doesn't get their order silently flipped to EXPIRED.
+  //
+  // ⚠ PRE-ORDERS ARE SKIPPED. This query is unbounded by date, and since v1.71
+  // ministry pre-orders are created PENDING (they used to be born PREPARING,
+  // which is why this loop had no guard and its old comment claimed pre-orders
+  // "skip PENDING entirely"). A pre-order is placed days ahead for a future
+  // service, so closing the café tonight must not expire next Sunday's orders —
+  // without this `continue`, closing once would EXPIRE every outstanding
+  // pre-order. Pre-orders have their own expiry: `expirePreOrders()` in
+  // expiry.ts, keyed on the ISO service-end time.
   let expired = 0;
   const pendingResult = await docClient.send(new QueryCommand({
     TableName: ORDERS_TABLE,
@@ -736,6 +1016,7 @@ async function closeCafe(): Promise<APIGatewayProxyResult> {
     ExpressionAttributeValues: { ':s': 'PENDING' },
   }));
   for (const order of pendingResult.Items || []) {
+    if (order.isPreOrder === true) continue;
     try {
       await docClient.send(new UpdateCommand({
         TableName: ORDERS_TABLE,
@@ -1241,6 +1522,15 @@ export async function handlePos(event: APIGatewayProxyEvent, actor: string = '')
     const id = extractSegment(path, /\/api\/pos\/orders\/([^/]+)\/cancel-completed/, 1);
     if (id) { event.pathParameters = { id }; return cancelCompletedOrder(event, actor); }
   }
+  // Collection route, EXACT match, deliberately outside the
+  // `/api/pos/orders/{id}/<verb>` family above. Those are `path.endsWith(verb)`
+  // guarded by UNANCHORED regexes, so a collection path living under
+  // `/api/pos/orders/` would be safe only by accident — it survives today merely
+  // by not ending in one of the current verbs, which is a trap for whoever adds
+  // the next verb. Under `/api/pos/preorders/` nothing can capture it, and it
+  // cannot shadow a per-id route. Takes NO path parameter, so assigns nothing to
+  // `event.pathParameters`.
+  if (method === 'PUT' && path === '/api/pos/preorders/release-all') return releaseAllPreOrders(event, actor);
   if (method === 'PUT' && path === '/api/pos/cafe/open') return openCafe();
   if (method === 'PUT' && path === '/api/pos/cafe/close') return closeCafe();
   if (method === 'PUT' && path === '/api/pos/cafe/celebration') return toggleCelebration(event);

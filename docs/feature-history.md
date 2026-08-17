@@ -3,7 +3,7 @@
 Sprint-by-sprint completion log, moved out of `.kiro/steering.md` so it does not
 consume context on every turn. See `docs/update-YYYYMMDD.md` for session detail.
 
-## Current Status (as of 2026-07-19)
+## Current Status (as of 2026-08-17)
 ### Completed (Foundation)
 - ✅ All backend routes (auth, cafe, menu, orders, pos, admin)
 - ✅ Customer ordering PWA (menu, cart, order submission)
@@ -75,6 +75,20 @@ consume context on every turn. See `docs/update-YYYYMMDD.md` for session detail.
 - ✅ Backend compiles clean, all 33 tests passing
 
 
+### Completed (2026-08-17 Sprint — v1.71.0)
+From the WhatsApp thread with RLC CG, 2026-08-16. Spec and dependency graph:
+`docs/graph-spec-20260817.md`; session detail: `docs/update-20260817.md`.
+- ✅ T2 Staff ordering link (`?code=<CODE>`) — staff self-order at the staff rate (drinks RM5, food full price) instead of queueing for a cashier-built walk-up. New `STAFF_CODE#` settings record, new `backend/src/routes/staffcode.ts`, new Admin > Staff Link tab (`frontend/js/admin-stafflink.js`, single-entry upsert, enable toggle + inclusive start/end date gate in MYT). The customer only **requests** the price: the order is stored priced but the cashier is prompted at approve, and declining reverts to celebration-or-full via the new `baseUnitPrice` item field. `approvedBy` + `staffPriceGranted` on the APPROVE audit line either way
+- ✅ T4 Ministry pre-orders are editable — created **PENDING** instead of PREPARING, so the existing customer Edit Order flow and its race-safe `#s = :pending` gate apply unchanged. Previously a pre-order was uneditable from the moment it was placed and volunteers deleted it in the POS to make the customer re-order
+- ✅ Pre-order "release to barista" is the lock — the ordinary approve, renamed in the POS, plus a new bulk `PUT /api/pos/preorders/release-all` (today's pre-orders only, `isPreOrder`-filtered, paginated, shares the single-order helper). No scheduled auto-release, by design
+- ✅ New system-only `PREORDER` pricing class (`discountType: 'MINISTRY_PREORDER'`) keeps pre-orders free through both the edit and the release paths; `parseCustomerClass` refuses it from a request body
+- ✅ Create/edit parity for pre-orders — `modifyOrder` now re-enforces drinks-only, `eligibleItems` and `excludedOptions`, which `createOrder` enforced and the edit endpoint did not (an uncapped-cost bypass on a free order)
+- ✅ Fix: closing the café no longer expires every outstanding pre-order (`closeCafe` queried PENDING unbounded by date and had no `isPreOrder` guard)
+- ✅ Fix: `track.js` set `isEditing` but never read it, so the 7s poll silently discarded a customer's in-progress edit — affected all customer edits, not just pre-orders
+- ✅ T3 Edit Order affordance surfaced on the order confirmation screen, not only `track.html` (the feature already existed; this was discoverability)
+- ✅ T1 Admin > Checklist reordering — drag the ⠿ handle (pointer events, not HTML5 drag, which is unreliable on the counter iPad) or use ▲▼, within a phase only. Frontend-only: order is array position, and the whole-array `PutCommand` round-trips it
+- ✅ Test coverage from a mutation audit — `staff-code.test.ts`, `preorder-pending.test.ts`, `preorder-pending-gaps.test.ts`; offline suites 187 → 276 tests
+
 ### TODO — Remaining
 - [ ] Email notifications (low stock alert, end-of-day summary to admin)
 - ✅ Customer order modify UI (change items while order is still PENDING) — Tier 1 (race-safe + cashier indicators), Tier 2 (add items + notes), Tier 3 (variant editing via shared variants.js)
@@ -87,6 +101,7 @@ consume context on every turn. See `docs/update-YYYYMMDD.md` for session detail.
 - Church café operates Sundays only: 10:15-11:30 and 12:45-13:30
 - ~2-3 volunteers per shift (1 cashier, 1-2 baristas)
 - Payment: Maybank QR (DuitNow), manually verified by cashier
-- Special pricing: Celebration (all drinks RM5), Newcomer (free), Staff/Pastor (walk-up only)
+- Special pricing: Celebration (all drinks RM5), Newcomer (free), Pastor (walk-up only),
+  Staff (walk-up, or self-requested via the staff link `?code=<CODE>` and confirmed by the cashier at approval)
 - Inventory: recipe-based estimation, cashier manual override
 - Menu: ~10 drinks (variant groups: Temperature hot/iced, Milk oat milk, Flavor for tea/soda) + food (subject to availability)

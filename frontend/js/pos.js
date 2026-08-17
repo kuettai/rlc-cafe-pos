@@ -36,6 +36,77 @@ async function api(method, path, body){
 
 function showError(msg){ const b=$('#errorBanner'); b.textContent=msg; b.classList.add('show'); setTimeout(()=>b.classList.remove('show'),3000); }
 
+// --- Pre-orders ---
+// A ministry pre-order is placed days ahead (Wed–Sat) and is free (RM0). It
+// arrives PENDING and the cashier's approve is the "release to barista" lock,
+// which is also what stops the customer editing it further. `isPreOrder` comes
+// straight off the DynamoDB record via /api/pos/orders, so an older cached
+// shell reading a newer record still gets it. Anything that is not literally
+// `true` is treated as a normal order.
+function isPreOrder(o){ return !!o && o.isPreOrder === true; }
+
+// Label for the PENDING→PREPARING action. A pre-order has nothing to pay, so
+// "Payment Confirmed" / "Approve" would be nonsense to a volunteer.
+function approveLabel(o){ return isPreOrder(o) ? 'Release to barista' : '✓ Approve'; }
+
+// Malaysia is UTC+8 with no DST, so shifting the instant by 8h and taking the
+// date part of the ISO string gives the MYT calendar date. Returns '' for a
+// missing or unparseable value rather than guessing at today.
+const MYT_OFFSET_MS = 8 * 60 * 60 * 1000;
+function mytDate(value){
+  if(!value) return '';
+  const t = new Date(value).getTime();
+  if(!Number.isFinite(t)) return '';
+  return new Date(t + MYT_OFFSET_MS).toISOString().slice(0,10);
+}
+
+// "23 Aug" from an ISO instant, via the MYT calendar date so a tablet set to
+// another timezone still shows the day the café means. Empty when unparseable.
+const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function mytDateShort(value){
+  const d = mytDate(value);
+  if(!d) return '';
+  const parts = d.split('-');
+  return `${Number(parts[2])} ${MONTHS_SHORT[Number(parts[1]) - 1] || ''}`.trim();
+}
+
+// "Sun 24 Aug" — same MYT calendar date as mytDateShort, plus the weekday, for
+// the one place a volunteer has to judge *which service* they are about to
+// release: the not-due-today confirmation. Services are Sundays, so the weekday
+// is what makes "not today" land; a bare "24 Aug" reads as a number.
+// The weekday is read off the already-derived MYT date string at explicit UTC
+// midnight, so the tablet's own timezone cannot shift it. No new "today" maths —
+// due-today is decided only by releasablePreOrders().
+const DAYS_SHORT = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+function mytDateLong(value){
+  const d = mytDate(value);
+  if(!d) return '';
+  const dow = new Date(`${d}T00:00:00Z`).getUTCDay();
+  const day = DAYS_SHORT[dow];
+  const short = mytDateShort(value);
+  return day ? `${day} ${short}` : short;
+}
+
+// Pre-orders the bulk release will actually act on: PENDING, and due TODAY.
+// A pre-order's `expiresAt` is the ISO service-end time (deliberately a string,
+// never a numeric TTL), which is the only per-order signal for which service it
+// belongs to. The backend releases only today's, so the count in the confirmation
+// dialog has to match — otherwise it promises 6 and the result reports 4. An
+// order with no usable expiresAt is left out rather than counted optimistically.
+function releasablePreOrders(){
+  const today = mytDate(Date.now());
+  return orders.filter(o => o.status === 'PENDING' && isPreOrder(o) && mytDate(o.expiresAt) === today);
+}
+
+// Is THIS order one the bulk release would have taken? Asked by membership of
+// releasablePreOrders() rather than by re-testing expiresAt, so the per-order
+// and bulk paths physically cannot disagree about what "today" is. A pre-order
+// with a missing or unparseable expiresAt is not a member, so it falls to the
+// cautious side and gets confirmed.
+function isPreOrderDueToday(id){
+  return releasablePreOrders().some(o => (o.orderId||o.id) === id);
+}
+
 // --- Login ---
 function renderLogin(){
   stopPolling();
@@ -129,6 +200,11 @@ function renderMain(){
          shortcut and the training tour still find it. -->
     <button id="btnWalkup" class="pos-btn pos-btn-sm pos-btn-walkup">➕ Walk-up</button>
     <input id="orderSearch" class="pos-input pos-search" placeholder="Search customer...">
+    <!-- Bulk release for today's ministry pre-orders. Hidden entirely when there
+         are none due today (which is most of the week), so it never sits there
+         inviting a tap that would do nothing. renderStats keeps the count fresh
+         on every poll. -->
+    <button id="btnReleasePreorders" class="pos-btn pos-btn-sm pos-btn-preorder-release" hidden></button>
     <button id="btnFeatured" class="pos-btn pos-btn-sm pos-btn-outline pos-btn-featured${featuredDrink?' pos-btn-featured-active':''}">⭐ ${featuredDrink?featuredDrink.name:'Set Featured'}</button>
     <button id="btnView" class="pos-btn pos-btn-sm pos-btn-outline">${viewMode==='kanban'?'📋 List':'📊 Kanban'}</button>
     <span id="lastRefresh" class="pos-last-refresh"></span>
@@ -150,6 +226,7 @@ function renderMain(){
     } catch(e){ celebrationMode=!celebrationMode; showError('Failed to toggle celebration'); }
   };
   $('#btnWalkup').onclick = openWalkup;
+  $('#btnReleasePreorders').onclick = releaseAllPreorders;
   $('#btnVoucher').onclick = openVoucherFlow;
   $('#btnMenu').onclick = openMenuToggle;
   $('#btnPrep').onclick = openPrepView;
@@ -277,7 +354,11 @@ async function fetchOrders(){
     if(receiptCount > prevReceiptCount && prevReceiptCount > 0) playReceiptSound();
     prevReceiptCount = receiptCount;
     prevOrderCount = list.length;
-    const urgentIds = list.filter(o=>o.status==='PENDING'&&(Date.now()-new Date(o.createdAt))>600000).map(o=>o.orderId||o.id);
+    // Urgent = an unapproved walk-in customer waiting at the counter. Ministry
+    // pre-orders are placed days ahead and sit PENDING until the cashier
+    // releases them on Sunday, so they are never "late" — including them would
+    // fire the urgent chime on every poll from Wednesday onwards.
+    const urgentIds = list.filter(o=>o.status==='PENDING'&&!isPreOrder(o)&&(Date.now()-new Date(o.createdAt))>600000).map(o=>o.orderId||o.id);
     const newUrgent = urgentIds.filter(id=>!prevUrgentIds.includes(id));
     if(newUrgent.length) playUrgentSound();
     prevUrgentIds = urgentIds;
@@ -458,6 +539,9 @@ function showNameFlash(name){
 function filtered(){ return searchFilter ? orders.filter(o=>(o.customerName||'').toLowerCase().includes(searchFilter)) : orders; }
 
 function renderStats(){
+  // Pending INCLUDES ministry pre-orders, deliberately. The badge must equal the
+  // number of rows visible in the Pending tab — if it says 5 and the volunteer
+  // counts 7 cards, they will think the list is broken.
   const pending = orders.filter(o=>o.status==='PENDING').length;
   const preparing = orders.filter(o=>o.status==='PREPARING').length;
   const ready = orders.filter(o=>o.status==='READY').length;
@@ -469,7 +553,12 @@ function renderStats(){
   const completed = shiftSummary?.completedOrders ?? 0;
   const revenue = shiftSummary?.totalRevenue ??
     orders.reduce((s,o)=>s+(o.total||o.totalAmount||0),0);
-  const drinkItems = orders.filter(o=>o.status==='PREPARING'||o.status==='PENDING').reduce((s,o)=>s+(o.items||[]).filter(i=>i.category==='DRINK').reduce((ss,i)=>ss+(i.quantity||i.qty||1),0),0);
+  // "Drinks" is what the baristas read to know what they have to make now, so it
+  // EXCLUDES PENDING pre-orders: a pre-order placed on Wednesday is not being
+  // made yet. The moment the cashier releases it, it becomes PREPARING and
+  // starts counting here. Inflating this number days early would send the bar
+  // chasing drinks nobody has asked for yet.
+  const drinkItems = orders.filter(o=>o.status==='PREPARING'||(o.status==='PENDING'&&!isPreOrder(o))).reduce((s,o)=>s+(o.items||[]).filter(i=>i.category==='DRINK').reduce((ss,i)=>ss+(i.quantity||i.qty||1),0),0);
   const statsEl = $('#posStats');
   if(statsEl) statsEl.innerHTML = `<div class="pos-stat"><span class="pos-stat-num">${pending}</span><span class="pos-stat-lbl">Pending</span></div>
     <div class="pos-stat"><span class="pos-stat-num">${preparing}</span><span class="pos-stat-lbl">Making</span></div>
@@ -480,6 +569,17 @@ function renderStats(){
     <div class="pos-stat"><span class="pos-stat-num">${drinkItems}</span><span class="pos-stat-lbl">Drinks</span></div>
     <div class="pos-stat pos-stat-btn" id="btnIngUsed" style="cursor:pointer"><span class="pos-stat-num">📦</span><span class="pos-stat-lbl">Usage</span></div>`;
   $('#btnIngUsed')?.addEventListener('click', showIngredientUsage);
+  updateReleaseAllButton();
+}
+
+// Show/hide the bulk-release button and keep its count honest. Called from
+// renderStats, so it refreshes on every poll and after every board render.
+function updateReleaseAllButton(){
+  const btn = $('#btnReleasePreorders');
+  if(!btn) return;
+  const n = releasablePreOrders().length;
+  btn.hidden = n === 0;
+  btn.textContent = `🎉 Release ${n} pre-order${n === 1 ? '' : 's'}`;
 }
 
 async function getRecipesAndIngredients(){
@@ -646,10 +746,14 @@ function discountBadgeHtml(discountType) {
 function cardHtml(o){
   const items = (o.items||[]).map(i=>`<div>${i.quantity||i.qty||1}x ${i.name}${i.variant?' ('+i.variant+')':''}</div>`).join('');
   const mins = Math.floor((Date.now()-new Date(o.createdAt))/60000);
-  const urgent = mins > 10 && o.status === 'PENDING';
+  const preOrder = isPreOrder(o);
+  // Pre-orders are exempt from the urgent timer: they are legitimately days old.
+  const urgent = mins > 10 && o.status === 'PENDING' && !preOrder;
   const hasReceipt = !!o.receiptUrl;
   let quickAction = '';
-  if(o.status==='PENDING') quickAction = `<div class="pos-card-actions"><button class="pos-btn pos-btn-sm pos-btn-primary pos-card-quick-approve" data-quick-id="${o.id||o.orderId}" onclick="event.stopPropagation()">✓ Approve</button></div>`;
+  // data-approve-label so the click handler can restore the right caption after
+  // a failed approve without having to re-derive it from the order list.
+  if(o.status==='PENDING') quickAction = `<div class="pos-card-actions"><button class="pos-btn pos-btn-sm pos-btn-primary pos-card-quick-approve" data-quick-id="${o.id||o.orderId}" data-approve-label="${approveLabel(o)}" onclick="event.stopPropagation()">${approveLabel(o)}</button></div>`;
   else if(o.status==='PREPARING') quickAction = `<div class="pos-card-actions"><button class="pos-btn pos-btn-sm pos-btn-primary pos-card-quick-ready" data-quick-id="${o.id||o.orderId}" onclick="event.stopPropagation()">✓ Ready</button></div>`;
 
   // Price display: when a discount is applied show the gross (strikethrough)
@@ -661,17 +765,244 @@ function cardHtml(o){
     ? `<s style="color:#999">RM ${gross.toFixed(2)}</s> RM ${net.toFixed(2)}`
     : `RM ${net.toFixed(2)}`;
 
-  return `<div class="pos-card pos-card-${o.status.toLowerCase()} ${urgent?'pos-card-urgent':''} ${hasReceipt?'pos-card-receipt':''}" data-id="${o.id||o.orderId}" data-status="${o.status}">
-    ${hasReceipt ? `<div class="pos-receipt-badge${Math.abs((o.receiptAmount||0)-(o.total||o.totalAmount||0))>0.01?' pos-receipt-mismatch':''}">💰 Receipt: RM${(o.receiptAmount||0).toFixed(2)}${Math.abs((o.receiptAmount||0)-(o.total||o.totalAmount||0))>0.01?' ⚠️ expected RM'+(o.total||o.totalAmount||0).toFixed(2):''}</div>` : ''}
+  // The name already carries a PRE-ORDER pill, so the MINISTRY_PREORDER discount
+  // pill underneath would say the same thing twice on a card the cashier scans in
+  // a rush. Every other discount badge is unaffected.
+  const showDiscountBadge = !!o.discountType && o.discountType !== 'NONE'
+    && !(preOrder && o.discountType === 'MINISTRY_PREORDER');
+
+  // Receipt badge. The mismatch warning compares the receipt against the order
+  // total, which on a pre-order is RM0 — so ANY attached screenshot would show a
+  // permanent "⚠️ expected RM0.00" that the cashier can do nothing about. A
+  // pre-order has nothing to pay, so the amount is not a discrepancy: show the
+  // badge plainly, no warning. (The backend also refuses receipt uploads on
+  // pre-orders, and track.js no longer offers the upload UI for them, so this is
+  // belt-and-braces for a record that already carries one.)
+  const receiptMismatch = !preOrder && Math.abs((o.receiptAmount||0)-(o.total||o.totalAmount||0)) > 0.01;
+
+  // The pre-order ribbon is the PRIMARY way a volunteer spots a pre-order in the
+  // Pending tab, so it is a full-width band at the top of the card rather than an
+  // inline chip: legible at arm's length on the counter iPad, and a different
+  // SHAPE from both the faded `walk-up` chip and T2's blue staff tag, not just a
+  // different colour. It sits above the receipt badge and the "✏️ modified" pill,
+  // which remain their own stacked blocks, so nothing overlaps.
+  //
+  // A pre-order for a LATER service sits in the same Pending tab and is
+  // deliberately left out of the bulk release, so its ribbon carries the service
+  // date and a quieter shade. The loudest treatment is reserved for what the
+  // volunteer has to act on today, and nobody hands next week's music team their
+  // drinks by mistake.
+  const preDueToday = preOrder && mytDate(o.expiresAt) === mytDate(Date.now());
+  const preLaterDate = preOrder && !preDueToday ? mytDateShort(o.expiresAt) : '';
+  const preRibbon = preOrder
+    ? `<div class="pos-card-preorder-ribbon${preDueToday ? '' : ' pos-card-preorder-ribbon-later'}">🎉 PRE-ORDER${o.preorderCode ? ` · ${escapeHtmlPos(o.preorderCode)}` : ''}${preLaterDate ? ` · ${preLaterDate}` : ''}</div>`
+    : '';
+
+  return `<div class="pos-card pos-card-${o.status.toLowerCase()} ${preOrder?'pos-card-preorder':''} ${urgent?'pos-card-urgent':''} ${hasReceipt?'pos-card-receipt':''}" data-id="${o.id||o.orderId}" data-status="${o.status}">
+    ${preRibbon}
+    ${hasReceipt ? `<div class="pos-receipt-badge${receiptMismatch?' pos-receipt-mismatch':''}">💰 Receipt: RM${(o.receiptAmount||0).toFixed(2)}${receiptMismatch?' ⚠️ expected RM'+(o.total||o.totalAmount||0).toFixed(2):''}</div>` : ''}
     ${o.status==='PENDING' && o.modifiedAt ? '<div class="pos-card-modified">✏️ modified</div>' : ''}
-    <div class="pos-card-name">${o.customerName||'Guest'}${o.isWalkUp?' <span class="pos-card-tag">walk-up</span>':''}</div>
+    <div class="pos-card-name">${o.customerName||'Guest'}${o.isWalkUp?' <span class="pos-card-tag">walk-up</span>':''}${o.staffCode?' <span class="pos-card-tag pos-card-tag-staff">🎫 staff price requested</span>':''}</div>
     <div class="pos-card-items">${items||'—'}</div>
     ${o.notes ? '<div class="pos-card-note">📝 '+o.notes+'</div>' : ''}
     ${archiveHint(o)}
-    <div class="pos-card-footer"><span>${priceHtml}</span><span>${urgent?'⚠️ ':''}${timeAgo(o.createdAt)}</span></div>
-    ${o.discountType && o.discountType !== 'NONE' ? `<div class="pos-card-discount">${discountBadgeHtml(o.discountType)}</div>` : ''}
+    <div class="pos-card-footer"><span>${priceHtml}</span><span>${preOrder?'':`${urgent?'⚠️ ':''}${timeAgo(o.createdAt)}`}</span></div>
+    ${showDiscountBadge ? `<div class="pos-card-discount">${discountBadgeHtml(o.discountType)}</div>` : ''}
     ${quickAction}
   </div>`;
+}
+
+// --- Approve (single path) ---
+// Every implicit approve goes through here — the quick-approve button on the
+// card, swipe-right, and the detail modal's "Payment Confirmed" — so a
+// staff-price request cannot be approved without the cashier being asked, and a
+// pre-order for a LATER service cannot be released on one stray tap.
+// #btnNewcomer is deliberately NOT routed here: choosing Newcomer is already an
+// explicit decision about the discount.
+//
+// Resolves true when the order was approved, false when the cashier dismissed
+// either prompt (the order is left PENDING and untouched). Rejects on API
+// failure, like the calls it replaces.
+async function approveOrder(id){
+  const o = orders.find(x => (x.orderId||x.id) === id);
+
+  // Releasing a pre-order is what closes the customer's edit window, and it is
+  // deliberately a human decision — there is no timer anywhere. The BULK release
+  // is today-only, but this per-order path is not, so without this ask a
+  // volunteer could release next week's pre-order on a mis-tap and silently
+  // close that customer's window days early. The dated ribbon warns; only this
+  // stops it. A pre-order due TODAY — the common case — is untouched and still
+  // releases in one tap, and ordinary orders never reach this branch at all.
+  if(isPreOrder(o) && !isPreOrderDueToday(id)){
+    if(!await confirmReleaseNotToday(o)) return false;
+  }
+
+  const staffCode = o && o.staffCode ? String(o.staffCode) : '';
+  if(!staffCode){
+    await api('PUT',`/api/pos/orders/${id}/approve`,{approvedBy:currentUser});
+    return true;
+  }
+  const choice = await askStaffPrice(o);
+  if(!choice) return false;
+  // Either way approvedBy records who decided. 'NONE' tells the backend to
+  // reprice at full price — the backend is authoritative on the number.
+  await api('PUT',`/api/pos/orders/${id}/approve`,{approvedBy:currentUser,discountType:choice});
+  return true;
+}
+
+// Resolves 'STAFF' (keep RM5), 'NONE' (reprice at full price), or null when the
+// cashier dismisses the dialog. window.confirm is unusable on the counter iPad,
+// hence the modal.
+function askStaffPrice(o){
+  return new Promise(resolve => {
+    const net   = Number(o.total || o.totalAmount || 0);
+    const gross = Number(o.totalAmount || 0) + Number(o.discountOffset || 0);
+    const overlay = document.createElement('div');
+    overlay.className = 'pos-modal-overlay';
+    overlay.style.zIndex = '650';   // above the order-detail modal
+    overlay.innerHTML = `<div class="pos-modal" style="max-width:440px">
+      <button class="pos-modal-close">✕</button>
+      <h3>Staff price (RM${(window.CafePricing && CafePricing.STAFF_DRINK_PRICE) || 5}) requested — confirm this is staff?</h3>
+      <p style="font-size:.9rem;color:var(--text-light,#7A6355);margin:10px 0 4px">
+        ${escapeHtmlPos(o.customerName||'Guest')} used the staff link
+        (code <strong style="font-family:monospace">${escapeHtmlPos(o.staffCode)}</strong>).
+      </p>
+      <div class="pos-detail-total" style="margin:10px 0">Staff price: RM ${net.toFixed(2)}${gross > net ? ` <s style="color:#999;font-weight:400">RM ${gross.toFixed(2)}</s>` : ''}</div>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:16px">
+        <button class="pos-btn pos-btn-primary pos-btn-lg" id="spYes" style="width:100%">✓ Yes, staff price — RM ${net.toFixed(2)}</button>
+        <button class="pos-btn pos-btn-lg" id="spNo" style="width:100%">Not staff — charge full price${gross > net ? ` (RM ${gross.toFixed(2)})` : ''}</button>
+      </div>
+      <p style="font-size:.8rem;color:var(--text-light,#7A6355);margin-top:12px">
+        Closing this leaves the order pending. Your name is recorded either way.
+      </p>
+    </div>`;
+    let settled = false;
+    const done = value => { if(settled) return; settled = true; overlay.remove(); resolve(value); };
+    overlay.querySelector('#spYes').onclick = () => done('STAFF');
+    overlay.querySelector('#spNo').onclick  = () => done('NONE');
+    overlay.querySelector('.pos-modal-close').onclick = () => done(null);
+    overlay.onclick = e => { if(e.target === overlay) done(null); };
+    document.body.appendChild(overlay);
+  });
+}
+
+/**
+ * Bulk release of today's ministry pre-orders (PENDING → PREPARING for each).
+ *
+ * `PUT /api/pos/preorders/release-all` takes no body — the acting cashier comes
+ * from the JWT — and answers `{ released, skipped, total }`. `skipped` is normal,
+ * not an error: a customer may have cancelled or edited in the meantime, another
+ * volunteer may have released it first, or the order belongs to a later service.
+ * So the result is reported as-is instead of being rounded up to "done".
+ *
+ * There is deliberately NO timer and no automatic release anywhere in this file:
+ * the cashier's explicit action is what closes the customer's edit window, and
+ * doing it on a clock would close it behind their back.
+ */
+async function releaseAllPreorders(){
+  const due = releasablePreOrders();
+  if(!due.length){ showError('No pre-orders due today'); return; }
+  if(!await confirmReleaseAll(due)) return;
+
+  const btn = $('#btnReleasePreorders');
+  const prevLabel = btn ? btn.textContent : '';
+  if(btn){ btn.disabled = true; btn.textContent = 'Releasing…'; }
+  try{
+    const r = await api('PUT','/api/pos/preorders/release-all');
+    const released = Number(r?.released ?? 0);
+    const skipped  = Number(r?.skipped ?? 0);
+    const total    = Number(r?.total ?? (released + skipped));
+    if(skipped > 0){
+      // Honest partial result. Never dress this up as a full success.
+      showError(`Released ${released} of ${total} — ${skipped} skipped (changed by a customer, already released, or not for today)`);
+    } else if(released > 0){
+      showSuccessToast(`Released ${released} pre-order${released === 1 ? '' : 's'} to the barista`);
+    } else {
+      showError('Nothing was released — the board may already be up to date');
+    }
+  } catch(e){
+    if(e.message !== 'Unauthorized') showError('Release failed');
+  } finally {
+    if(btn){ btn.disabled = false; btn.textContent = prevLabel; }
+    // Refetch either way so the board shows what actually happened.
+    fetchOrders();
+  }
+}
+
+// Count-first confirmation, using the existing .pos-modal-overlay pattern —
+// window.confirm is unusable on the counter iPad (see askStaffPrice).
+function confirmReleaseAll(due){
+  return new Promise(resolve => {
+    const n = due.length;
+    const names = due.map(o => escapeHtmlPos(o.customerName || 'Guest'));
+    const overlay = document.createElement('div');
+    overlay.className = 'pos-modal-overlay';
+    overlay.innerHTML = `<div class="pos-modal" style="max-width:420px">
+      <button class="pos-modal-close">✕</button>
+      <h3>Release ${n} pre-order${n === 1 ? '' : 's'} to the barista?</h3>
+      <p style="font-size:.9rem;color:var(--text-light,#7A6355);margin:10px 0 4px">
+        Only pre-orders for today's service are released. The customer can no longer
+        edit an order once it is released.
+      </p>
+      <ul style="margin:10px 0 0;padding-left:18px;font-size:.9rem;max-height:34vh;overflow-y:auto">
+        ${names.map(nm => `<li>${nm}</li>`).join('')}
+      </ul>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:18px">
+        <button class="pos-btn pos-btn-primary pos-btn-lg" id="raYes" style="width:100%">🎉 Release ${n} to barista</button>
+        <button class="pos-btn pos-btn-lg" id="raNo" style="width:100%">Cancel</button>
+      </div>
+    </div>`;
+    let settled = false;
+    const done = v => { if(settled) return; settled = true; overlay.remove(); resolve(v); };
+    overlay.querySelector('#raYes').onclick = () => done(true);
+    overlay.querySelector('#raNo').onclick  = () => done(false);
+    overlay.querySelector('.pos-modal-close').onclick = () => done(false);
+    overlay.onclick = e => { if(e.target === overlay) done(false); };
+    document.body.appendChild(overlay);
+  });
+}
+
+// Per-order guard for a pre-order that is NOT due today. Same dialog shape as
+// confirmReleaseAll above (and askStaffPrice) rather than a third style, and for
+// the same reason: window.confirm is unusable on the counter iPad. Dismissing —
+// ✕, Cancel, or the backdrop — resolves false and the order stays PENDING, so
+// the caller's existing failure path restores the card as-is.
+//
+// zIndex matches askStaffPrice so this also sits above an open order-detail
+// modal when the release was started from there.
+function confirmReleaseNotToday(o){
+  return new Promise(resolve => {
+    const when = mytDateLong(o && o.expiresAt);
+    const name = escapeHtmlPos((o && o.customerName) || 'Guest');
+    // Older records (or a shell reading a record with no usable expiresAt) get
+    // the same warning without inventing a date to name.
+    const heading = when
+      ? `This pre-order is for ${when}. Release it to the barista now?`
+      : `This pre-order is not for today's service. Release it to the barista now?`;
+    const overlay = document.createElement('div');
+    overlay.className = 'pos-modal-overlay';
+    overlay.style.zIndex = '650';   // above the order-detail modal
+    overlay.innerHTML = `<div class="pos-modal" style="max-width:420px">
+      <button class="pos-modal-close">✕</button>
+      <h3>${heading}</h3>
+      <p style="font-size:.9rem;color:var(--text-light,#7A6355);margin:10px 0 4px">
+        ${name}'s order is not for today, so it is left out of "Release today's
+        pre-orders". Releasing it now sends it to the barista and the customer can
+        no longer edit it.
+      </p>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:18px">
+        <button class="pos-btn pos-btn-primary pos-btn-lg" id="rntYes" style="width:100%">🎉 Release${when ? ` ${when}` : ''} to barista</button>
+        <button class="pos-btn pos-btn-lg" id="rntNo" style="width:100%">Cancel — leave it pending</button>
+      </div>
+    </div>`;
+    let settled = false;
+    const done = v => { if(settled) return; settled = true; overlay.remove(); resolve(v); };
+    overlay.querySelector('#rntYes').onclick = () => done(true);
+    overlay.querySelector('#rntNo').onclick  = () => done(false);
+    overlay.querySelector('.pos-modal-close').onclick = () => done(false);
+    overlay.onclick = e => { if(e.target === overlay) done(false); };
+    document.body.appendChild(overlay);
+  });
 }
 
 function bindCards(){
@@ -682,9 +1013,16 @@ function bindCards(){
   document.querySelectorAll('.pos-card-quick-approve').forEach(btn=>btn.onclick=async(e)=>{
     e.stopPropagation();
     if(!approveGuardOk(btn.dataset.quickId)) return;
+    // Restore the caption this card was rendered with — "✓ Approve" for a
+    // walk-in, "Release to barista" for a pre-order.
+    const label = btn.dataset.approveLabel || '✓ Approve';
     btn.disabled=true; btn.textContent='...';
-    try{ await api('PUT',`/api/pos/orders/${btn.dataset.quickId}/approve`,{approvedBy:currentUser}); fetchOrders(); }
-    catch(err){ btn.disabled=false; btn.textContent='✓ Approve'; showError('Approve failed'); }
+    try{
+      const ok = await approveOrder(btn.dataset.quickId);
+      if(!ok){ btn.disabled=false; btn.textContent=label; return; }
+      fetchOrders();
+    }
+    catch(err){ btn.disabled=false; btn.textContent=label; showError('Approve failed'); }
   });
   document.querySelectorAll('.pos-card-quick-ready').forEach(btn=>btn.onclick=async(e)=>{
     e.stopPropagation();
@@ -730,7 +1068,9 @@ function initSwipe(card){
     if(dx>threshold){
       // Swipe right: advance state
       if(status==='PENDING'){
-        try{ await api('PUT',`/api/pos/orders/${id}/approve`,{approvedBy:currentUser}); fetchOrders(); }catch(e){ showError('Approve failed'); }
+        // approveOrder prompts first on a staff-code order; a dismissed prompt
+        // resolves false and the card simply stays where it is.
+        try{ const ok = await approveOrder(id); if(ok) fetchOrders(); }catch(e){ showError('Approve failed'); }
       } else if(status==='PREPARING'){
         try{ await api('PUT',`/api/pos/orders/${id}/ready`); fetchOrders(); }catch(e){ showError('Ready failed'); }
       }
@@ -748,9 +1088,21 @@ function initSwipe(card){
 function openDetail(id){
   const o = orders.find(x=>(x.id||x.orderId)===id);
   if(!o) return;
-  const items = (o.items||[]).map(i=>`<li>${i.quantity||i.qty||1}x ${i.name}${i.variant?' ('+i.variant+')':''} <span style="color:var(--text-light,#7A6355);float:right">RM${((i.price||i.unitPrice||0)*(i.quantity||i.qty||1)).toFixed(2)}</span></li>`).join('');
+  // Per-line price. On a pre-order the stored `unitPrice` is NOT stable across
+  // the release boundary — create/edit store the full price and the approve-time
+  // reprice rewrites it to 0 — so the same card would read RM8.00 while PENDING
+  // and RM0.00 once released. Read `grossUnitPrice` for pre-orders so the number
+  // stays put and the volunteer can see what was given away; the order-level
+  // total below still shows RM0.00 via discountOffset. A field choice, not
+  // arithmetic. Legacy records predating grossUnitPrice fall back to unitPrice.
+  const linePrice = i => isPreOrder(o)
+    ? Number(i.grossUnitPrice != null ? i.grossUnitPrice : (i.price || i.unitPrice || 0))
+    : Number(i.price || i.unitPrice || 0);
+  const items = (o.items||[]).map(i=>`<li>${i.quantity||i.qty||1}x ${i.name}${i.variant?' ('+i.variant+')':''} <span style="color:var(--text-light,#7A6355);float:right">RM${(linePrice(i)*(i.quantity||i.qty||1)).toFixed(2)}</span></li>`).join('');
   let actions = '';
-  if(o.status==='PENDING') actions=`<button class="pos-btn pos-btn-primary pos-btn-lg" id="btnApprove">✓ Payment Confirmed</button>
+  // A pre-order is RM0 — there is no payment to confirm, the cashier is simply
+  // releasing it to the barista on the day.
+  if(o.status==='PENDING') actions=`<button class="pos-btn pos-btn-primary pos-btn-lg" id="btnApprove">${isPreOrder(o) ? 'Release to barista' : '✓ Payment Confirmed'}</button>
     <button class="pos-btn pos-btn-lg" id="btnNewcomer" style="background:#8b5cf6;color:#fff">🎁 Newcomer</button>
     <button class="pos-btn pos-btn-danger pos-btn-lg" id="btnReject">✗ Reject</button>`;
   else if(o.status==='PREPARING') actions=`<button class="pos-btn pos-btn-primary pos-btn-lg" id="btnReady">✓ Ready</button>
@@ -771,13 +1123,15 @@ function openDetail(id){
     ${o.notes ? `<div style="background:var(--cream,#f9f5f0);padding:10px 12px;border-radius:8px;font-size:.85rem;margin-bottom:10px">📝 ${o.notes}</div>` : ''}
     <div class="pos-detail-total">Total: RM ${(o.total||o.totalAmount||0).toFixed(2)}</div>
     ${o.discountType && o.discountType!=='NONE' ? `<div style="font-size:.85rem;color:#7C3AED;margin-bottom:8px">Discount: ${o.discountType}</div>` : ''}
+    ${isPreOrder(o) ? `<div style="background:#EDE9FE;color:#5B21B6;padding:10px 12px;border-radius:8px;font-size:.85rem;margin-bottom:10px">🎉 <strong>Ministry pre-order</strong>${o.preorderCode ? ` · <span style="font-family:monospace">${escapeHtmlPos(o.preorderCode)}</span>` : ''} — free, no payment due.${o.status==='PENDING' ? ' Release it to the barista when it should be made.' : ''}</div>` : ''}
+    ${o.staffCode ? `<div style="background:#DBEAFE;color:#1E40AF;padding:10px 12px;border-radius:8px;font-size:.85rem;margin-bottom:10px">🎫 <strong>Staff price requested</strong> via link <span style="font-family:monospace">${escapeHtmlPos(o.staffCode)}</span> — you will be asked to confirm on approve.</div>` : ''}
     <div class="pos-detail-actions">${actions}</div></div>`;
   document.body.appendChild(modal);
   modal.querySelector('.pos-modal-close').onclick=()=>modal.remove();
   modal.onclick=e=>{ if(e.target===modal) modal.remove(); };
 
   if(o.status==='PENDING'){
-    modal.querySelector('#btnApprove').onclick=async()=>{ if(!approveGuardOk(id)) return; await api('PUT',`/api/pos/orders/${id}/approve`,{approvedBy:currentUser}); modal.remove(); fetchOrders(); };
+    modal.querySelector('#btnApprove').onclick=async()=>{ if(!approveGuardOk(id)) return; const ok = await approveOrder(id); if(!ok) return; modal.remove(); fetchOrders(); };
     modal.querySelector('#btnNewcomer').onclick=async()=>{ if(!approveGuardOk(id)) return; await api('PUT',`/api/pos/orders/${id}/approve`,{approvedBy:currentUser,discountType:'NEWCOMER'}); modal.remove(); fetchOrders(); };
     modal.querySelector('#btnReject').onclick=()=>showRejectDialog(id, modal);
   } else if(o.status==='PREPARING'){

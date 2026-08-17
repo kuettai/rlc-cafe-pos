@@ -1,6 +1,6 @@
 ---
 name: db-schemas
-description: DynamoDB table schemas for RLC Café POS — orders, menu, ingredients, users, settings, customers, vouchers. Partition/sort keys, GSIs, TTL attributes, and the record types stored in the settings table. Use when reading or writing DynamoDB records, adding attributes, or designing queries.
+description: DynamoDB table schemas for RLC Café POS — orders, menu, ingredients, users, settings, customers, vouchers. Partition/sort keys, GSIs, TTL attributes, and the record types stored in the settings table (pre-order codes, staff codes, checklists, slides). Use when reading or writing DynamoDB records, adding attributes, or designing queries.
 ---
 
 # DynamoDB Table Schemas
