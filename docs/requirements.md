@@ -34,9 +34,15 @@ A Progressive Web App (PWA) replacing the current Loyverse POS for the church ca
 - Customer can modify/cancel own order while still in Pending (unpaid)
 
 ### 3.3 Payment
-- After submitting, customer sees total amount + Maybank QR code to scan
+- **QR only — no cash, no card**, and the QR is **physical: a Maybank DuitNow QR
+  printed on the café tables.** The app does not render a QR of its own and must
+  never tell the customer to pay at the counter — there is no till transaction
+- After submitting, customer sees the total amount and is told to scan the
+  DuitNow QR on their table
 - Customer pays via DuitNow/TnG/bank (all supported by Maybank QR)
-- Customer shows payment proof to cashier at counter
+- Then **one method, two proofs** (equally weighted): upload the payment
+  screenshot for Bedrock verification, or show the payment to the cashier at the
+  counter, who confirms it in the POS
 
 ### 3.4 Queue Awareness
 - Customer sees prompt: "There are X drinks ahead of you, expect slight delay"

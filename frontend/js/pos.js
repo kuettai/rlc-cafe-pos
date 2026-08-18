@@ -1201,7 +1201,10 @@ function cardHtml(o){
   const footerLeft = isReady
     ? `<span class="pos-card-name">order ${escapeHtmlPos(String(o.id||o.orderId||'').slice(-6))}</span>`
     : `<span class="pos-card-name">for ${who}</span>`;
-  const tags = (o.isWalkUp?'<span class="pos-card-tag">🚶 walk-up · cash at counter</span>':'')
+  // "cash at counter" was removed here: payment is QR-only (the DuitNow QR is
+  // printed on the café tables), so there is no cash to collect on a walk-up
+  // either. The tag now says only where the order came from.
+  const tags = (o.isWalkUp?'<span class="pos-card-tag">🚶 walk-up</span>':'')
     + (o.staffCode?'<span class="pos-card-tag pos-card-tag-staff">🎫 staff price requested — you decide</span>':'');
 
   return `<div class="pos-card pos-card-${o.status.toLowerCase()} ${preOrder?'pos-card-preorder':''} ${urgent?'pos-card-urgent':''} ${hasReceipt?'pos-card-receipt':''}" data-id="${o.id||o.orderId}" data-status="${o.status}">

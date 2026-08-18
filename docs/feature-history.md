@@ -155,6 +155,18 @@ Session detail: `docs/update-20260817.md`. Audit that motivated the POS half:
 - ✅ `.pos-cl-fill` (the new progress bar) animates `transform:scaleX()` from a left origin with the JS setting a `--cl-progress` custom property, not `width` — a layout property relayouting every frame janks on the counter iPad. Plus a `prefers-reduced-motion` escape, and `role="progressbar"` with proper values on the track
 - ⚠️ **Process failure in this sprint — a verification probe wrote to PRODUCTION.** `page.route()` in Playwright does **not** intercept requests issued by a service worker, and every page here registers one, so a harness that "blocked all non-GET" silently passed writes through. It flipped `latte-001` (☕ Latte) to `isActive:false`, taking it **off the customer menu**. Restored. The fix is `newContext({ serviceWorkers: 'block' })` **plus** a positive control that fails loudly — see the `test-suites` skill
 
+### Completed (2026-08-18 Sprint — v1.75.1)
+Third release of 2026-08-18, on top of v1.75.0 (**already pushed and deployed**).
+Frontend only: **no `backend/src/` file changed.** A copy correction, not a
+feature. Session detail: `docs/update-20260817.md`.
+- ✅ **The domain fact was wrong, and the app had encoded it in three places: payment is QR-ONLY — no card, no cash — and the DuitNow QR is PHYSICAL, printed on the café tabletops.** The app had been telling customers to *pay at the counter*, which is not a thing that can happen: there is no till transaction to perform. A first-time congregant had no way to learn that a tabletop QR exists
+- ✅ **Tracking page (`track.js`) restructured from "two ways to pay" into one method, two peer proofs**: scan the tabletop QR, then either upload the screenshot or show the payment at the counter. The two proofs are now equally weighted controls (measured identical at 348×56) instead of a filled button beside an underlined text link — the choice is about how you tell the cashier, not about how you pay
+- ✅ **Fix: the cart footer told ministry pre-orders to pay.** `app.js` rendered `🏪 Pay at the counter after ordering` **unconditionally** on the screen where the customer commits, so a volunteer on an RM 0 `MINISTRY_PREORDER` was instructed to pay for a free order. It is now gated on `preorderMode` and reads `🎉 Free — nothing to pay`; otherwise it names the tabletop QR
+- ✅ **POS walk-up tag no longer claims cash.** Every walk-up card had read `🚶 walk-up · cash at counter`; the tag now says only where the order came from, with a code comment recording why so it is not reinstated
+- ✅ Dead code removed: a 15-line commented-out in-app QR block (placeholder image, dummy account numbers), six superseded/dead CSS rules (`.qr-container`, `.qr-image`, `.qr-amount`, `.qr-hint`, `.receipt-upload-area` and its `p`), and `frontend/img/qr-payment.svg`, which never rendered and was never in the `sw.js` `SHELL` array
+- ✅ `frontend/img/README.md` had instructed the next person to *"Place `qr-payment.png` here"* — the same pending-feature trap in a second location, aimed at whoever came next. Rewritten to describe the `menu/` photos it actually governs, plus a line stating the QR is physical
+- ✅ **Verified and deliberately kept, so it is not "corrected" later:** *"Instant AI verification — cashier gets notified automatically"* is accurate. `backend/src/routes/receipt.ts` really invokes Bedrock to extract amount/date/reference and rejects a mismatch, and the cashier really is alerted in-app — `pos.js` plays a receipt sound on a rising receipt count, renders a pulsing `💰 Receipt: RM…` badge, and v1.75.0's receipt-first sort tier lifts the order to the top of Pending
+
 ### TODO — Remaining
 - ✅ Email notifications — low stock alert (Sunday last run + Wednesday midweek) and end-of-day summary to admin (expiry cron, gated + exactly-once as of v1.72.0)
 - ✅ Customer order modify UI (change items while order is still PENDING) — Tier 1 (race-safe + cashier indicators), Tier 2 (add items + notes), Tier 3 (variant editing via shared variants.js)
@@ -166,7 +178,9 @@ Session detail: `docs/update-20260817.md`. Audit that motivated the POS half:
 ## Important Context
 - Church café operates Sundays only: 10:15-11:30 and 12:45-13:30
 - ~2-3 volunteers per shift (1 cashier, 1-2 baristas)
-- Payment: Maybank QR (DuitNow), manually verified by cashier
+- Payment: **QR only — no cash, no card.** A Maybank DuitNow QR **printed on the
+  café tables**; the app never renders one. The customer scans it, then either
+  uploads the screenshot (parsed by Bedrock) or shows the payment to the cashier
 - Special pricing: Celebration (all drinks RM5), Newcomer (free), Pastor (walk-up only),
   Staff (walk-up, or self-requested via the staff link `?code=<CODE>` and confirmed by the cashier at approval)
 - Inventory: recipe-based estimation, cashier manual override

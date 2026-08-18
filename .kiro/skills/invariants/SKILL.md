@@ -1,6 +1,6 @@
 ---
 name: invariants
-description: Reviewable invariants for RLC Café POS — the do-not-duplicate list (including Malaysia-time date conversion and dead code left behind by an early return), storage conventions, who may authorise a discount (cashier-selected vs customer-requested vs system-only), the pre-order ISO expiresAt exception, create/edit parity (a restriction enforced on create must be re-enforced on edit), bulk mutating routes and collection-route dispatch, API response shape, path-parameter handling, no un-awaited work after a handler returns (Lambda freezes the sandbox) and date-keyed markers for at-most-once cron side effects, no silently-skipped feature when its config is missing (config in SSM, never a wipeable Lambda env default), auth and release rules, frontend HTML escaping (a customer-controlled string is escaped at every innerHTML render site, not just the newest one — and a textContent sink must not be escaped; `escapeHtml`/`escapeAttr` in `admin.js` are canonical for the whole admin bundle, `mfEsc` is gone), frontend state and motion rules (a failure state must not render identically to an empty success state, two distinct persisted flags must not share one visual language, a `[disabled]` control must look disabled, animate transform/opacity and never a layout property), Malaysia-time dates on the admin frontend via `mytToday()`, and test teeth (a guard is untested unless a fixture reaches it; a test that depends on the machine timezone is not a test). Each is a checkable assertion with the production bug it prevents. Use when reviewing a diff, writing or judging tests, before deploying, or when adding code that touches money, discounts, order status, expiry, pre-orders, collection times, item notes, emails, background or scheduled work, timezones, versions, routing, or the rendering of customer-supplied text into the DOM.
+description: Reviewable invariants for RLC Café POS — the do-not-duplicate list (including Malaysia-time date conversion and dead code left behind by an early return), storage conventions, who may authorise a discount (cashier-selected vs customer-requested vs system-only), the pre-order ISO expiresAt exception, create/edit parity (a restriction enforced on create must be re-enforced on edit), bulk mutating routes and collection-route dispatch, API response shape, path-parameter handling, no un-awaited work after a handler returns (Lambda freezes the sandbox) and date-keyed markers for at-most-once cron side effects, no silently-skipped feature when its config is missing (config in SSM, never a wipeable Lambda env default), auth and release rules, frontend HTML escaping (a customer-controlled string is escaped at every innerHTML render site, not just the newest one — and a textContent sink must not be escaped; `escapeHtml`/`escapeAttr` in `admin.js` are canonical for the whole admin bundle, `mfEsc` is gone), frontend state and motion rules (a failure state must not render identically to an empty success state, two distinct persisted flags must not share one visual language, a `[disabled]` control must look disabled, animate transform/opacity and never a layout property), user-visible copy rules (copy asserting a domain fact is gated on the state that makes it true; the house payment fact — payment is QR-ONLY, no cash and no card, and the DuitNow QR is physical and printed on the café tables, so no surface may say "pay at the counter"; a pending feature is deleted rather than commented out, placeholder assets and READMEs included), Malaysia-time dates on the admin frontend via `mytToday()`, and test teeth (a guard is untested unless a fixture reaches it; a test that depends on the machine timezone is not a test). Each is a checkable assertion with the production bug it prevents. Use when reviewing a diff, writing or judging tests, before deploying, or when adding code that touches money, discounts, order status, expiry, pre-orders, collection times, item notes, emails, background or scheduled work, timezones, versions, routing, customer-facing payment copy, or the rendering of customer-supplied text into the DOM.
 ---
 
 # Invariants
@@ -335,6 +335,37 @@ or into an excluded paid option.
   `[disabled]` rule (`.pos-btn-preorder-release`), so every other disabled primary
   rendered as a full brown gradient with `cursor:pointer` — indistinguishable from
   enabled, and tapped repeatedly. Style `:disabled` generically, not per button.
+- ☐ **Copy that asserts a domain fact is gated on the state that makes it true.**
+  A payment instruction rendered unconditionally is a false statement in every
+  state that does not require payment. Found in v1.75.1: `app.js` rendered
+  `🏪 Pay at the counter after ordering` in the cart footer with **no
+  `preorderMode` check**, so a ministry volunteer on an RM 0 `MINISTRY_PREORDER`
+  was told to go and pay — on the screen where they commit to the order. Same
+  shape as the failure-vs-empty-success rule above: the render site knew nothing
+  about the state it was describing. When adding a line that states a fact, ask
+  which states it is false in, and branch.
+- ☐ **The house payment fact: QR only — no cash, no card — and the DuitNow QR is
+  PHYSICAL, printed on the café tables.** The app has never rendered a QR of its
+  own. So no surface may say "pay at the counter" or "cash": there is no till
+  transaction to perform, and a first-time congregant cannot guess that a tabletop
+  QR exists unless the copy says so. What the counter *is* for is **proving**
+  payment — one method, two peer proofs (upload the screenshot, or show the
+  payment to the cashier). Collection copy (`Collect your order at the counter`)
+  is about collection, not payment, and is correct. Why it matters: v1.75.1 had to
+  correct this in **three** shipped places at once — `track.js`, the `app.js` cart
+  footer, and a user-visible POS tag reading `🚶 walk-up · cash at counter` — plus
+  two docs that instructed the next person to reinstate it.
+- ☐ **A pending or disabled feature is deleted, not commented out — and its
+  placeholder assets and READMEs go with it.** A commented-out block is a claim
+  that outlives its accuracy and nobody re-reads it. Found in v1.75.1: a 15-line
+  commented-out in-app QR block in `track.js` held a placeholder image and dummy
+  account numbers behind a "re-enable once real payment details are in place"
+  note — for a feature that must **never** exist — while `frontend/img/README.md`
+  independently told the next person to *"Place `qr-payment.png` here"*, and
+  `frontend/img/qr-payment.svg` sat in the tree never rendered by anything (and
+  never in the `SHELL` array, so not even precached). Three separate invitations
+  to build the wrong thing. Delete the code; record the decision in the session
+  notes and, if it is a rule, here.
 - ☐ **Animate `transform` / `opacity`, never a layout property.** `width`,
   `margin-left` and friends relayout every frame and jank on the counter iPad. The
   v1.75.0 checklist progress bar scales an always-full-width fill via

@@ -585,7 +585,19 @@ function renderCartPanel() {
         placeholder="Note for this drink (e.g. less sugar)"
         aria-label="Note for ${escHtml(displayName)}" value="${escHtml(c.note || '')}">
     </div>`;
-  }).join('') + `<label for="orderNotes" style="display:block;font-size:.85rem;font-weight:600;color:var(--text-light,#7A6355);margin-top:16px">Anything else about the whole order?</label><textarea id="orderNotes" placeholder="e.g. collecting for a group, please bag them together" style="width:100%;margin-top:6px;padding:10px;border:1px solid var(--cream-dark,#ddd);border-radius:8px;font-size:.9rem;resize:none;font-family:inherit;box-sizing:border-box" rows="2">${escHtml(localStorage.getItem('orderNotes') || '')}</textarea><p style="font-size:.82rem;color:var(--text-light,#7A6355);margin-top:12px;text-align:center">🏪 Pay at the counter after ordering</p>`;
+  }).join('') + `<label for="orderNotes" style="display:block;font-size:.85rem;font-weight:600;color:var(--text-light,#7A6355);margin-top:16px">Anything else about the whole order?</label><textarea id="orderNotes" placeholder="e.g. collecting for a group, please bag them together" style="width:100%;margin-top:6px;padding:10px;border:1px solid var(--cream-dark,#ddd);border-radius:8px;font-size:.9rem;resize:none;font-family:inherit;box-sizing:border-box" rows="2">${escHtml(localStorage.getItem('orderNotes') || '')}</textarea>${
+    // The only way to pay is the DuitNow QR printed on the café tables — no cash,
+    // no card, and no in-app QR. This line is the first place the customer is told
+    // that, so it must not promise a counter transaction that cannot happen.
+    // A ministry pre-order is genuinely RM 0, so it gets "nothing to pay" instead.
+    // This footer used to be rendered UNCONDITIONALLY, which is why the music team
+    // was told to go and pay at the counter for an RM 0 order. Keep it gated on
+    // preorderMode: a payment instruction is only true in the state that requires
+    // payment.
+    preorderMode
+      ? `<p style="font-size:.82rem;color:var(--text-light,#7A6355);margin-top:12px;text-align:center">🎉 Free — nothing to pay</p>`
+      : `<p style="font-size:.82rem;color:var(--text-light,#7A6355);margin-top:12px;text-align:center">📱 Pay by scanning the DuitNow QR on your table</p>`
+  }`;
 
   cartItems.querySelectorAll('button[data-cart-action]').forEach(btn => {
     btn.addEventListener('click', () => {

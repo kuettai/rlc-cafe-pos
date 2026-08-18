@@ -224,8 +224,10 @@ function renderOrder(order) {
     </div>`;
   }
 
-  // Free ministry pre-order: no payment, no receipt upload. "Pay at the counter
-  // — RM 0.00" would just confuse the music team.
+  // Free ministry pre-order: no payment, no receipt upload, and deliberately NO
+  // QR instructions — a pre-order is genuinely RM 0 (MINISTRY_PREORDER), so there
+  // is nothing to scan and nothing to prove. Showing a payment amount here would
+  // just confuse the music team.
   if (order.status === 'PENDING' && isPre) {
     html += `<div class="payment-section preorder-notice">
       <h3>🎉 Ministry Pre-Order</h3>
@@ -235,43 +237,46 @@ function renderOrder(order) {
   }
 
   // Payment section when PENDING (never for a pre-order — see above)
+  //
+  // There is exactly ONE way to pay: the DuitNow QR *printed on the café tables*.
+  // No cash, no card, and no in-app QR — the app never renders one, which is why
+  // the copy has to say where the physical one is. A first-time congregant has no
+  // way to know a tabletop QR exists.
+  //
+  // So this is one method with two ways to PROVE it, and the two are peers by
+  // construction: identical button-plus-caption shape, no underlined-link
+  // afterthought. Do not reintroduce a "pay at the counter" option — there is
+  // nothing to hand over at the counter.
+  //
+  // Once a receipt is on file the order has been paid: receipt.ts only writes
+  // receiptUrl after Bedrock has matched the amount to the order total, so a
+  // mismatch never lands here. Repeating the payment instructions in that state
+  // would contradict the confirmation right above it.
   if (order.status === 'PENDING' && !isPre) {
     const hasReceipt = !!order.receiptUrl;
     html += `<div class="payment-section">
-      <h3>💳 Payment</h3>
-      <div class="pay-at-counter" style="background:var(--cream,#f9f5f0);border:1px solid var(--cream-dark,#e8e0d8);border-radius:12px;padding:20px;text-align:center">
-        <div style="font-size:1.6rem;margin-bottom:6px">🏪</div>
-        <p style="font-weight:700;color:var(--primary,#6B4226);font-size:1.05rem;margin-bottom:4px">Pay at the counter</p>
-        <p style="color:var(--text,#3D2B1F);font-size:1.15rem;font-weight:700;margin:8px 0">RM ${total.toFixed(2)}</p>
-        <p style="font-size:.82rem;color:var(--text-light,#7A6355)">Please show this order to the cashier when paying.</p>
-      </div>
-      <!--
-        QR / bank-transfer flow disabled until real DuitNow details are wired up.
-        The image below is a placeholder and the account numbers are dummy values.
-        Re-enable once real payment details are in place.
-
-        <div class="qr-container">
-          <img src="img/qr-payment.svg" alt="DuitNow QR" class="qr-image" onerror="this.style.display='none'">
-          <p class="qr-amount">Pay <strong>RM ${total.toFixed(2)}</strong></p>
-          <p class="qr-hint">Scan with any banking app (DuitNow, TnG, etc.)</p>
-          <div style="margin-top:12px;padding:10px;background:var(--cream,#f9f5f0);border-radius:8px;font-size:.82rem;color:var(--text-light,#7A6355)">
-            <strong>RLC Café</strong><br>
-            <span style="display:inline-flex;align-items:center;gap:6px;margin-top:6px">DuitNow: <code>...</code></span>
-          </div>
-        </div>
-      -->
-      ${hasReceipt ? `<div class="receipt-uploaded">
+      <h3>💳 Payment</h3>`;
+    if (hasReceipt) {
+      html += `<div class="receipt-uploaded">
         <span>✅ Receipt uploaded (RM ${order.receiptAmount?.toFixed(2) || '?'})</span>
         <p style="font-size:.8rem;color:var(--text-light,#7A6355);margin-top:4px">Waiting for cashier to verify</p>
-      </div>` : `<div class="receipt-upload-area">
-        <p style="margin-bottom:14px;font-weight:600;color:var(--text,#3D2B1F)">Paid online instead? Upload your receipt:</p>
-        <label class="upload-btn" for="receiptInput" style="display:block;text-align:center;width:100%;padding:16px;font-size:1.05rem">📷 Upload Payment Screenshot</label>
-        <p style="font-size:.8rem;color:var(--text-light,#7A6355);margin-top:8px;text-align:center">Instant AI verification — cashier gets notified automatically</p>
-        <input type="file" id="receiptInput" accept="image/*" style="display:none">
-        <button id="btnShowCounter" style="display:block;margin:20px auto 0;background:none;border:none;color:var(--text-light,#7A6355);font-size:.85rem;cursor:pointer;text-decoration:underline;padding:8px">Or show payment to cashier at counter →</button>
-        <div id="uploadStatus"></div>
-      </div>`}
-    </div>`;
+      </div>`;
+    } else {
+      html += `<p class="pay-method">📱 Scan the DuitNow QR on your table</p>
+      <p class="pay-method-note">Any banking app will do — pay RM ${total.toFixed(2)}.</p>
+      <p class="pay-proof-lede">Then let the cashier know you've paid — either way works:</p>
+      <div class="pay-proof">
+        <label class="upload-btn pay-upload-btn" for="receiptInput">📷 Upload Payment Screenshot</label>
+        <p class="pay-proof-note">Instant AI verification — cashier gets notified automatically</p>
+      </div>
+      <input type="file" id="receiptInput" accept="image/*" style="display:none">
+      <div class="pay-proof">
+        <button id="btnShowCounter" class="pay-counter-btn" type="button">🙋 Show Payment at the Counter</button>
+        <p class="pay-proof-note">The cashier will confirm it on their screen.</p>
+      </div>
+      <div id="uploadStatus"></div>`;
+    }
+    html += `</div>`;
   }
 
   // Inline bible verse — fetched and rendered below payment section
@@ -817,7 +822,7 @@ async function handleReceiptUpload(e) {
         statusEl.innerHTML = `<p class="upload-error">❌ ${data.error || 'Upload failed'}</p>
           <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
             <button class="upload-btn" id="retryUpload">📷 Try Again</button>
-            <button class="upload-btn" id="showCashierFallback">🙋 Show to Cashier Instead</button>
+            <button class="upload-btn" id="showCashierFallback">🙋 Show Payment at the Counter</button>
           </div>
           <p style="font-size:.8rem;color:var(--text-light,#7A6355);margin-top:8px">Paid a different amount? Just show your payment screen to the cashier.</p>`;
         statusEl.querySelector('#retryUpload').onclick = () => {

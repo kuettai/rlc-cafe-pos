@@ -49,7 +49,11 @@ docs/            requirements, architecture, deployment, update-YYYYMMDD.md
 ## Operating context
 - Sundays only: 10:15–11:30 (S1) and 12:45–13:30 (S2)
 - 2–3 volunteers per shift (1 cashier, 1–2 baristas)
-- Payment: Maybank QR (DuitNow), verified by cashier; receipts parsed by Bedrock
+- Payment: **QR only — no cash, no card.** The Maybank DuitNow QR is **physical,
+  printed on the café tables**; the app has never rendered one and must not claim
+  a counter transaction. The customer scans it, then proves it either by
+  uploading the screenshot (parsed by Bedrock) or by showing the payment to the
+  cashier, who confirms it in the POS
 - Menu: ~10 drinks with variant groups (Temperature / Milk / Flavor) + food
 - Pricing rules (celebration, staff, pastor, newcomer) live in ONE place:
   `backend/src/lib/pricing.ts`, mirrored for display only in
