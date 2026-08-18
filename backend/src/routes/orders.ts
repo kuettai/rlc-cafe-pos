@@ -3,7 +3,7 @@ import { v4 as uuid } from 'uuid';
 import { docClient, ORDERS_TABLE, MENU_TABLE, SETTINGS_TABLE, GetCommand, PutCommand, UpdateCommand, ScanCommand } from '../lib/db';
 import { linkOrderToCustomer } from './customers';
 import { normalizePhone } from '../lib/phone';
-import { validatePreorderCode, getPreorderCode, optionKey } from './preorder';
+import { validatePreorderCode, getPreorderCode, optionKey, DEFAULT_COLLECTION_OPTIONS } from './preorder';
 import { validateStaffCode } from './staffcode';
 import { logOrder, summarizeItems } from '../lib/audit';
 import {
@@ -40,6 +40,57 @@ async function releaseFood(items: { menuItemId: string; quantity: number; catego
       }));
     }
   }
+}
+
+// ─── Per-item special requests ───────────────────────────────────────
+//
+// `notes` is a single per-ORDER string, so a customer ordering three drinks had
+// no way to say "less sugar" for just one of them — they had to write it into the
+// order note and hope the barista could work out which cup it meant. Each entry
+// of `items` may now carry its own `note`; the per-order `notes` string is
+// unchanged and still carries order-wide requests.
+//
+// 80 rather than the per-order 200: an item note is rendered one-per-line on the
+// barista prep card and the POS queue card, and a four-drink order at 80 each
+// keeps the total free text in the same order of magnitude as one order note.
+
+export const ITEM_NOTE_MAX_LENGTH = 80;
+
+/**
+ * Validate one item's `note`. Returns the trimmed note, or an error message.
+ *
+ * ONE helper for both `createOrder` and `modifyOrder` — the create/edit parity
+ * rule (see the `invariants` skill): a restriction enforced only on create makes
+ * the edit endpoint a bypass of it. `preorderItemRejection()` below is the same
+ * pattern for the pre-order restrictions.
+ *
+ * The length is measured on the TRIMMED value, so trailing whitespace from a
+ * textarea cannot push an otherwise-legal note over the cap.
+ */
+export function validateItemNote(raw: unknown): { note: string } | { error: string } {
+  // Absent is fine — most items have no note.
+  if (raw === undefined || raw === null) return { note: '' };
+  if (typeof raw !== 'string') return { error: 'Item note must be a string' };
+  const trimmed = raw.trim();
+  if (trimmed.length > ITEM_NOTE_MAX_LENGTH) {
+    return { error: `Item note cannot exceed ${ITEM_NOTE_MAX_LENGTH} characters` };
+  }
+  return { note: trimmed };
+}
+
+/**
+ * Attach a validated note to a stored order item, **only when non-empty**, so a
+ * record for an order with no item notes is byte-identical to what shipped
+ * before — no migration, no `note: ''` on every historical-looking item.
+ *
+ * Same conditional-spread shape `toOrderItem` uses for `baseUnitPrice`, but done
+ * HERE and deliberately not inside `pricing.ts`: a note is not a price, and
+ * `pricing.ts` is the pricing single source of truth. A note must never reach
+ * `priceLine`, `summarizeOrderDiscount`, `totalAmount`, `grossAmount` or
+ * `discountOffset`.
+ */
+function withItemNote<T extends object>(item: T, note: string): T | (T & { note: string }) {
+  return note ? { ...item, note } : item;
 }
 
 // ─── Pre-order notes prefix ──────────────────────────────────────────
@@ -80,7 +131,9 @@ export function composePreorderNotes(prefix: string, customerNotes: string): str
  *
  * `prefix` is null when there is no `[PRE-ORDER: …] Collect:` marker — which is
  * the case for a pre-order placed with no collection time, and for pre-orders
- * predating the convention. Callers must NOT invent a prefix for those.
+ * predating the convention. A caller may only build a prefix for those from a
+ * collection time the LINK offers (`resolveCollectionTime`) plus the code off the
+ * stored order; it may never invent one from a client-supplied string.
  *
  * The split is on the FIRST separator, so a customer note that itself contains
  * " | " survives intact in `rest`. That ambiguity is inherent to storing two
@@ -93,6 +146,74 @@ export function splitPreorderNotes(notes: unknown): { prefix: string | null; res
   const sep = s.indexOf(PREORDER_NOTES_SEPARATOR);
   if (sep === -1) return { prefix: s.trim(), rest: '' };
   return { prefix: s.slice(0, sep).trim(), rest: s.slice(sep + PREORDER_NOTES_SEPARATOR.length) };
+}
+
+/**
+ * Read the collection time back out of a stored `notes` string.
+ *
+ * `''` when there is no `[PRE-ORDER: …] Collect:` prefix. Built on
+ * `splitPreorderNotes` + `PREORDER_NOTES_MARKER` so the format still lives in
+ * exactly one place — `track.html` needs the current value to preselect its
+ * picker, and a second copy of the pattern here would drift out of step with
+ * `preorderNotesPrefix` the first time either changed.
+ */
+export function parsePreorderCollectionTime(notes: unknown): string {
+  const { prefix } = splitPreorderNotes(notes);
+  if (!prefix) return '';
+  return prefix.replace(PREORDER_NOTES_MARKER, '').trim();
+}
+
+/**
+ * The collection times a link permits: its own `collectionOptions` when that is a
+ * non-empty array of strings, otherwise the server defaults.
+ *
+ * One place, because both `resolveCollectionTime` (which enforces the list) and
+ * `getOrder` (which ships it to `track.html` so the picker can render) need the
+ * same answer — a picker offering an option the validator rejects is a 400 the
+ * customer cannot act on.
+ */
+function collectionOptionsFor(
+  preorderRecord: { collectionOptions?: unknown } | null | undefined,
+): string[] {
+  const raw = preorderRecord?.collectionOptions;
+  if (Array.isArray(raw) && raw.length > 0 && raw.every((x) => typeof x === 'string')) {
+    return raw as string[];
+  }
+  return DEFAULT_COLLECTION_OPTIONS;
+}
+
+/**
+ * Resolve a client-supplied collection time against the link's allowed options.
+ *
+ * Shared by create and edit. Until now `createOrder` accepted an **arbitrary**
+ * string here, so restricting only the edit path would have been pointless — a
+ * crafted create would just set the arbitrary value up front. Create/edit parity
+ * happens to fall in that direction for this rule.
+ *
+ * `preorderRecord` may be null (the link was hard-deleted after the order was
+ * placed). The consequence is deliberate and fail-closed: the allowed list falls
+ * back to `DEFAULT_COLLECTION_OPTIONS`, so the customer can still change their
+ * time but only to a default slot — never to free text of their own.
+ *
+ * Exact match after trimming both sides. No case folding and no fuzzy match: the
+ * value is echoed verbatim into the notes prefix the cashier reads off the queue
+ * card, so "after 1st service" must not become a second spelling of a slot.
+ */
+export function resolveCollectionTime(
+  preorderRecord: { collectionOptions?: unknown } | null | undefined,
+  raw: unknown,
+): { time: string } | { error: string } {
+  // Not supplied — the caller keeps whatever is already stored.
+  if (raw === undefined || raw === null || raw === '') return { time: '' };
+  if (typeof raw !== 'string') return { error: 'collectionTime must be a string' };
+  const trimmed = raw.trim();
+  if (!trimmed) return { time: '' };
+
+  const allowed = collectionOptionsFor(preorderRecord);
+  if (!allowed.some((opt) => opt.trim() === trimmed)) {
+    return { error: 'Invalid collection time' };
+  }
+  return { time: trimmed };
 }
 
 /**
@@ -204,6 +325,23 @@ async function createOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
     }
   }
 
+  // The collection time is only meaningful on a pre-order — it is stored inside
+  // the pre-order notes prefix and there is nowhere to put it otherwise, which is
+  // why an ordinary order has always ignored the field. `modifyOrder` ignores it
+  // on a non-pre-order for the same reason.
+  //
+  // Validated against the link's own `collectionOptions` (defaults when it has
+  // none). This path used to take any string the client sent, so a crafted
+  // request could stamp arbitrary text onto the card the cashier collects
+  // against; the legitimate customer page only ever submits a value from this
+  // same list, so nothing they can do changes.
+  let resolvedCollectionTime = '';
+  if (preorderRecord) {
+    const ct = resolveCollectionTime(preorderRecord, collectionTime);
+    if ('error' in ct) return res(400, { error: ct.error });
+    resolvedCollectionTime = ct.time;
+  }
+
   // The ONLY customer-selectable class. A staff-code order is priced at the
   // staff rate up front so the customer sees what they will pay, but it is a
   // REQUEST: approveOrder reverts it unless the cashier confirms.
@@ -231,6 +369,12 @@ async function createOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
       if (rejection) return res(400, { error: rejection });
     }
 
+    // Per-item note, same helper the edit path uses. Validated here — inside the
+    // validate-everything-first loop and so before the food reservation writes
+    // below — because a rejected note must not leave `foodReserved` moved.
+    const noteCheck = validateItemNote(item.note);
+    if ('error' in noteCheck) return res(400, { error: noteCheck.error });
+
     const quantity = resolveQuantity(item);
 
     if (menu.category === 'FOOD') {
@@ -254,16 +398,16 @@ async function createOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
       // Two `priceLine` calls, no new arithmetic — the same pattern the
       // staff-link path uses for `baseUnitPrice`.
       const fullLine = priceLine(menu, item, settings, null);
-      orderItems.push(toOrderItem(fullLine));
+      orderItems.push(withItemNote(toOrderItem(fullLine), noteCheck.note));
     } else if (requestedClass) {
       // What this line would cost with NO class — celebration-or-full. Stored
       // so declining the staff price falls back to the correct number instead
       // of throwing away a legitimate celebration discount. Same `priceLine`,
       // no new arithmetic.
       const baseLine = priceLine(menu, item, settings, null);
-      orderItems.push(toOrderItem(line, { baseUnitPrice: baseLine.unitPrice }));
+      orderItems.push(withItemNote(toOrderItem(line, { baseUnitPrice: baseLine.unitPrice }), noteCheck.note));
     } else {
-      orderItems.push(toOrderItem(line));
+      orderItems.push(withItemNote(toOrderItem(line), noteCheck.note));
     }
   }
 
@@ -294,8 +438,8 @@ async function createOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
   // exactly this shape on an edit — see the block comment above
   // `preorderNotesPrefix`.
   const trimmedNotes = typeof notes === 'string' ? notes : '';
-  const composedNotes = preorderRecord && collectionTime
-    ? composePreorderNotes(preorderNotesPrefix(preorderRecord.code, collectionTime), trimmedNotes)
+  const composedNotes = preorderRecord && resolvedCollectionTime
+    ? composePreorderNotes(preorderNotesPrefix(preorderRecord.code, resolvedCollectionTime), trimmedNotes)
     : trimmedNotes;
 
   const orderItem: any = preorderRecord
@@ -376,7 +520,7 @@ async function createOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
     status: orderItem.status,
     preorderCode: preorderRecord?.code,
     staffCode: staffCodeRecord?.code,
-    collectionTime: collectionTime || undefined,
+    collectionTime: resolvedCollectionTime || undefined,
   });
 
   if (normalizedCustomerId) {
@@ -399,7 +543,7 @@ async function getOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxyRes
   if (!r.Item) return res(404, { error: 'Order not found' });
 
   const o = r.Item;
-  return res(200, {
+  const payload: Record<string, any> = {
     orderId: o.orderId, customerName: o.customerName, items: o.items,
     totalAmount: o.totalAmount, status: o.status, notes: o.notes || '',
     flaggedItems: o.flaggedItems, createdAt: o.createdAt, updatedAt: o.updatedAt,
@@ -414,7 +558,26 @@ async function getOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxyRes
     discountType: o.discountType,
     discountOffset: o.discountOffset,
     grossAmount: o.grossAmount,
-  });
+  };
+
+  // Pre-order collection-time picker for track.html. Deliberately served from
+  // HERE and not from `GET /api/preorder/validate`: that endpoint enforces the
+  // link's own ordering window, so it would refuse to describe a link whose
+  // window has closed — and the edit window is the ORDER's PENDING status, not
+  // the link's, so a legitimate edit would lose its picker.
+  //
+  // Guarded on `isPreOrder` because this handler is polled every 7s by
+  // track.html; an ordinary order must not pay for a second DynamoDB read. A
+  // missing code record (hard-deleted link) falls back to the defaults rather
+  // than failing the poll — the same fail-closed list `resolveCollectionTime`
+  // will validate the customer's choice against.
+  if (o.isPreOrder === true) {
+    const codeRecord = o.preorderCode ? await getPreorderCode(String(o.preorderCode)) : null;
+    payload.collectionTime = parsePreorderCollectionTime(o.notes);
+    payload.collectionOptions = collectionOptionsFor(codeRecord);
+  }
+
+  return res(200, payload);
 }
 
 async function modifyOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
@@ -496,6 +659,22 @@ async function modifyOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
       ? await getPreorderCode(String(order.preorderCode))
       : null;
 
+    // ─── Collection time ──────────────────────────────────────────────
+    // A pre-order customer may now CHANGE their collection time, but only to an
+    // option the link actually offers — checked against the record already loaded
+    // above, so this adds no second read. Anything else is a 400, so a client
+    // cannot stamp free text onto the card the cashier collects against, and the
+    // code always comes from the stored order rather than the request body.
+    //
+    // Ignored entirely on a non-pre-order, matching `createOrder`, which composes
+    // the prefix only when `preorderRecord && collectionTime`.
+    let appliedCollectionTime = '';
+    if (isPreOrder) {
+      const ct = resolveCollectionTime(preorderRecord, body.collectionTime);
+      if ('error' in ct) return res(400, { error: ct.error });
+      appliedCollectionTime = ct.time;
+    }
+
     // A PENDING staff-link order edited from track.html must keep the staff
     // price it was placed at; repricing with a null class would silently jump
     // the customer back to full price mid-edit. Still only a REQUEST — the
@@ -521,6 +700,12 @@ async function modifyOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
         if (rejection) return res(400, { error: rejection });
       }
 
+      // Same per-item note rule and same message as create — create/edit parity.
+      // Every item is validated before the update and the `foodReserved`
+      // adjustments below, so a rejected note leaves no half-applied edit.
+      const noteCheck = validateItemNote(item.note);
+      if ('error' in noteCheck) return res(400, { error: noteCheck.error });
+
       const quantity = resolveQuantity(item);
 
       if (menu.category === 'FOOD') {
@@ -537,12 +722,12 @@ async function modifyOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
         // stores them — the free-ness stays at order level. Same two-priceLine
         // pattern, no new arithmetic.
         const fullLine = priceLine(menu, item, settings, null);
-        newItems.push(toOrderItem(fullLine));
+        newItems.push(withItemNote(toOrderItem(fullLine), noteCheck.note));
       } else if (requestedClass) {
         const baseLine = priceLine(menu, item, settings, null);
-        newItems.push(toOrderItem(line, { baseUnitPrice: baseLine.unitPrice }));
+        newItems.push(withItemNote(toOrderItem(line, { baseUnitPrice: baseLine.unitPrice }), noteCheck.note));
       } else {
-        newItems.push(toOrderItem(line));
+        newItems.push(withItemNote(toOrderItem(line), noteCheck.note));
       }
     }
 
@@ -570,26 +755,44 @@ async function modifyOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
     // is the ISO service-end string that `expirePreOrders()` needs — removing or
     // renumbering it here would leave the order with nothing to expire it.
     let updateExpr = 'SET #items = :items, totalAmount = :t, updatedAt = :u, modifiedAt = :u, discountType = :dt, discountOffset = :do, grossAmount = :ga';
-    if (body.notes !== undefined) {
+
+    // `notes` is written when the client sent notes OR when a validated
+    // collection time applies. It used to be emitted only for
+    // `body.notes !== undefined`, which became wrong the moment the collection
+    // time was editable: a client may change nothing but the time, and the time
+    // lives inside `notes`, so that request would have written nothing at all.
+    if (body.notes !== undefined || appliedCollectionTime) {
       updateExpr += ', notes = :n';
-      // The collection-time prefix is BACKEND-OWNED. Take it from the STORED
-      // record, strip whatever prefix the client sent (preserved, forged or
-      // absent), and re-prepend the stored one. Consequences, all intended:
+      // The collection-time prefix is BACKEND-OWNED. The code always comes from
+      // the STORED order record; the time is either the stored one or a value the
+      // link explicitly offers (`resolveCollectionTime` above). Whatever prefix
+      // the client sent — preserved, forged or absent — is stripped first.
+      // Consequences, all intended:
       //   - a client that forgets to re-attach the prefix can no longer delete
       //     the collection time, which is stored nowhere else on the order;
       //   - a client that DOES re-attach it (the current frontend does) is
       //     harmless, because the duplicate is stripped before re-composing;
-      //   - a client cannot forge a different code or collection time.
-      // If the stored order has no prefix — a pre-order placed with no collection
-      // time, or one predating this convention — none is invented; the customer's
-      // text is stored alone.
+      //   - a client cannot forge a code, nor an arbitrary collection time.
+      // A validated `collectionTime` REPLACES the stored time, and creates the
+      // prefix outright when the stored order has none — a pre-order placed with
+      // no collection time, or one predating this convention, can now be given
+      // one. Without a `collectionTime` nothing is invented: the stored prefix is
+      // preserved as-is, or the customer's text is stored alone.
       if (isPreOrder) {
-        const storedPrefix = splitPreorderNotes(order.notes).prefix;
-        const customerPortion = splitPreorderNotes(body.notes).rest;
-        exprValues[':n'] = storedPrefix
-          ? composePreorderNotes(storedPrefix, customerPortion)
+        const customerPortion = body.notes !== undefined
+          ? splitPreorderNotes(body.notes).rest
+          // No notes in this request — keep the customer's stored text verbatim
+          // rather than blanking it while rewriting the prefix around it.
+          : splitPreorderNotes(order.notes).rest;
+        const prefix = appliedCollectionTime
+          ? preorderNotesPrefix(order.preorderCode, appliedCollectionTime)
+          : splitPreorderNotes(order.notes).prefix;
+        exprValues[':n'] = prefix
+          ? composePreorderNotes(prefix, customerPortion)
           : customerPortion;
       } else {
+        // Unreachable unless `body.notes` was supplied: `appliedCollectionTime`
+        // is only ever set on a pre-order.
         exprValues[':n'] = body.notes;
       }
     }
@@ -640,6 +843,10 @@ async function modifyOrder(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
       // Pre-order edits are new as of v1.71; record which link so an edited
       // ministry order is traceable to its campaign.
       preorderCode: order.preorderCode || undefined,
+      // Only when the customer actually changed it — the collection time is the
+      // one operational field on a pre-order, so a change to it needs to be
+      // answerable after the fact from the audit trail alone.
+      collectionTime: appliedCollectionTime || undefined,
     });
     return res(200, { orderId: id, totalAmount, status: 'PENDING', modifiedAt: now });
   }

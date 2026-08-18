@@ -16,7 +16,7 @@ description: DynamoDB table schemas for RLC Café POS — orders, menu, ingredie
 |-----------|------|-------------|
 | orderId | string (UUID) | Unique order ID |
 | customerName | string | Customer display name |
-| items | list | [{menuItemId, name, variant, quantity, unitPrice, category, grossUnitPrice?, baseUnitPrice?}]. `unitPrice` is NET as stored; `grossUnitPrice` is the undiscounted unit price, persisted so the approve path can reprice without re-reading the menu. `baseUnitPrice` is the net the line would have had with **no** customer class (celebration-or-full) and is written **only** by the staff-link path — it is what `revertRequestedClassPricing` falls back to when the cashier declines a self-requested staff price, so declining does not also discard a legitimate celebration discount |
+| items | list | [{menuItemId, name, variant, quantity, unitPrice, category, grossUnitPrice?, baseUnitPrice?, note?}]. `unitPrice` is NET as stored; `grossUnitPrice` is the undiscounted unit price, persisted so the approve path can reprice without re-reading the menu. `baseUnitPrice` is the net the line would have had with **no** customer class (celebration-or-full) and is written **only** by the staff-link path — it is what `revertRequestedClassPricing` falls back to when the cashier declines a self-requested staff price, so declining does not also discard a legitimate celebration discount. **`note`** is the per-item special request (max **80 chars, measured trimmed** — `ITEM_NOTE_MAX_LENGTH` in `routes/orders.ts`, deliberately below the per-order `notes` budget of 200 because an item note renders one-per-line on the barista prep card and the POS queue card). Written by `withItemNote()` **only when non-empty**, so a record for an order with no item notes is byte-identical to what shipped before — **nothing needs backfilling** and there is no `note: ''` on historical items. A note carries no money: it never reaches `priceLine`, `totalAmount`, `grossAmount` or `discountOffset`, and nothing about it lives in `lib/pricing.ts` |
 | totalAmount | number | **NET** total in MYR (what is collected) — 0 on a ministry pre-order |
 | grossAmount | number | Undiscounted total. `discountOffset = grossAmount - totalAmount` |
 | status | string | PENDING / PREPARING / READY / ARCHIVED / EXPIRED / CANCELLED |
@@ -25,7 +25,7 @@ description: DynamoDB table schemas for RLC Café POS — orders, menu, ingredie
 | createdAt | string | ISO timestamp |
 | updatedAt | string | ISO timestamp |
 | expiresAt | number \| string | **number** = live DynamoDB TTL (epoch seconds), PENDING orders only. **string** = a pre-order's ISO `serviceEndTime` — see `isPreOrder` below |
-| notes | string | Customer note. On a pre-order it is prefixed `[PRE-ORDER: <CODE>] Collect: <time>` — the **only** record of the collection time (there is no `collectionTime` attribute), and backend-owned on edit |
+| notes | string | Customer note, order-wide (per-item requests live in `items[].note`). On a pre-order it is prefixed `[PRE-ORDER: <CODE>] Collect: <time>` — the **only** record of the collection time (there is still no `collectionTime` attribute; that was decided against), and backend-owned on edit. The time is nonetheless **customer-changeable** on `PUT /api/orders/{id}`, but only to a value in the link's own `collectionOptions` (defaults when it has none) — `resolveCollectionTime()`; off-list is a 400. The **code** always comes from the stored order record, never the request body. A validated time replaces the stored one and will **create** the prefix on a pre-order that had none. Read back with `parsePreorderCollectionTime()`, which is built on `splitPreorderNotes` so the format still lives in one place |
 | modifiedAt | string | ISO timestamp of the last customer edit (`PUT /api/orders/{id}`) |
 | approvedBy | string | Volunteer name who approved |
 | isWalkUp | boolean | Walk-up order created by cashier |
@@ -173,7 +173,7 @@ Stock count snapshots submitted by cashier during close procedure.
 | bannerMessage | string | Banner shown to customers |
 | eligibleItems | list | Menu items available for pre-order. **Empty/absent = ALL active drinks**, not none |
 | excludedOptions | list | Variant options this link may not use, as `"Group:Option"` (e.g. `"Milk:Oat Milk"`). Empty/absent = nothing excluded. Enforced in `orders.ts` createOrder, mirrored by the customer page |
-| collectionOptions | list | Available collection time slots |
+| collectionOptions | list | Available collection time slots. **Not just a UI list — it is the validation allowlist** for `collectionTime` on both `POST /api/orders` and `PUT /api/orders/{id}` (`resolveCollectionTime()` in `routes/orders.ts`), and it is shipped to `track.html` by `GET /api/orders/{id}` so the picker offers exactly what the validator accepts. Empty/absent → `DEFAULT_COLLECTION_OPTIONS` from `routes/preorder.ts`. A hard-deleted link also falls back to those defaults, which is fail-closed: the customer can still change slot, never to free text. Matching is exact after trimming — no case folding, because the value is echoed verbatim into the notes prefix the cashier collects against |
 
 ### Record Type 10: Pre-order Templates
 - PK=`SETTINGS#PREORDER_TEMPLATES`, SK=`META`

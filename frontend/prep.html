@@ -18,6 +18,10 @@ body{background:#1a1a2e;color:#fff;font-family:var(--font)}
 .prep-card-items span{display:block}
 .prep-card-time{font-size:.8rem;color:#64748b;margin-top:10px}
 .prep-card-note{font-size:.9rem;color:#a78bfa;margin-top:6px}
+/* Per-ITEM note. Indented under its own drink with a left rule so the barista
+   can see it belongs to that line and not to the whole order (which is
+   .prep-card-note, below the list). */
+.prep-item-note{display:block;margin:2px 0 6px 22px;padding-left:10px;border-left:3px solid #a78bfa;font-size:1rem;font-weight:700;color:#ddd6fe;overflow-wrap:anywhere}
 .prep-empty{text-align:center;padding:80px 20px;color:#64748b;font-size:1.2rem}
 .prep-ready-btn{margin-top:12px;padding:12px 24px;background:#2D8A4E;color:#fff;border:none;border-radius:12px;font-size:1rem;font-weight:700;cursor:pointer;min-height:48px;width:100%;transition:all .2s}
 .prep-ready-btn:hover{background:#25a55a}
@@ -37,6 +41,18 @@ body{background:#1a1a2e;color:#fff;font-family:var(--font)}
 let token = sessionStorage.getItem('pos_token');
 if(!token){ window.location.href = 'pos.html'; }
 
+// Escape all five HTML-significant characters. EVERY order/item/customer string
+// below goes through this: the order-level `notes` and the new per-item `note`
+// are customer-typed free text interpolated into innerHTML, so an unescaped
+// render here is an injection path on the barista's screen. Inline because this
+// page has a self-contained script and loads only js/config.js — a shared helper
+// would mean a new file in the sw.js SHELL array.
+function esc(s){
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
 async function fetchPrep(){
   try{
     const res = await fetch(`${API_BASE}/api/pos/orders`,{headers:{Authorization:`Bearer ${token}`}});
@@ -54,14 +70,21 @@ function render(orders){
     return;
   }
   document.getElementById('prepList').innerHTML = orders.map(o=>{
-    const items = (o.items||[]).map(i=>`<span>• ${i.quantity||i.qty||1}x <strong>${i.name}</strong>${i.variant?' ('+i.variant+')':''}</span>`).join('');
+    const items = (o.items||[]).map(i=>{
+      // Per-item note — the barista is who acts on "less sugar", so this is the
+      // whole point of showing it. Absent on orders placed before the feature.
+      const note = typeof i.note === 'string' ? i.note.trim() : '';
+      return `<span>• ${i.quantity||i.qty||1}x <strong>${esc(i.name)}</strong>${i.variant?' ('+esc(i.variant)+')':''}`
+        + (note?`<span class="prep-item-note">📝 ${esc(note)}</span>`:'')
+        + `</span>`;
+    }).join('');
     const mins = Math.floor((Date.now()-new Date(o.createdAt))/60000);
     return `<div class="prep-card">
-      <div class="prep-card-name">${o.customerName||'Guest'}</div>
+      <div class="prep-card-name">${esc(o.customerName||'Guest')}</div>
       <div class="prep-card-items">${items}</div>
-      ${o.notes?'<div class="prep-card-note">📝 '+o.notes+'</div>':''}
+      ${o.notes?'<div class="prep-card-note">📝 Order note: '+esc(o.notes)+'</div>':''}
       <div class="prep-card-time">${mins}m ago</div>
-      <button class="prep-ready-btn" data-id="${o.id||o.orderId}">✓ Mark Ready</button>
+      <button class="prep-ready-btn" data-id="${esc(o.id||o.orderId)}">✓ Mark Ready</button>
     </div>`;
   }).join('');
 

@@ -54,6 +54,37 @@ async function api(method, path, body){
 
 function showError(msg){ const b=$('#errorBanner'); b.textContent=msg; b.classList.add('show'); setTimeout(()=>b.classList.remove('show'),4000); }
 
+/**
+ * HTML escaping — the ONE escaper for every admin module.
+ *
+ * It lives here because admin.js is the first admin script on the page, so any
+ * admin-*.js can call it at render time without depending on script order. It
+ * replaced three identical copies: `escapeHtml` / `escapeAttr` in
+ * admin-vouchers.js — which loads AFTER most of the modules that called it, so
+ * every one of those calls was relying on cross-file function hoisting — and
+ * `mfEsc` in admin-menu.js, which existed only to work around that ordering.
+ *
+ * ONE function is correct for both places admin-entered text lands, because it
+ * escapes all five characters:
+ *   - a TEXT NODE needs `&` `<` `>`;
+ *   - an ATTRIBUTE VALUE needs `"` and `'` as well, and that is the bug this
+ *     actually guards. A checklist label of `5" cup` in `value="${label}"`
+ *     closes the attribute early and mangles the rest of the row's markup —
+ *     which the v1.71.0 checklist reordering made easy to hit, since a reorder
+ *     rerenders every row.
+ *
+ * The attribute must still be QUOTED at the call site; nothing here can rescue
+ * an unquoted one.
+ */
+function escapeHtml(s){
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+/** Same escaping as escapeHtml — a name that reads correctly at an attribute. */
+function escapeAttr(s){ return escapeHtml(s); }
+
 // --- Login ---
 function renderLogin(){
   app.innerHTML = `<div class="admin-login">
@@ -86,7 +117,7 @@ function logout(){ token=null; localStorage.removeItem('pos_token'); localStorag
 function renderApp(){
   app.innerHTML = `<aside class="admin-sidebar" id="adminSidebar">
   <div class="sidebar-header"><span>☕ Admin</span><button class="sidebar-close" id="sidebarClose">✕</button></div>
-  <div class="sidebar-user">👤 ${currentUser}</div>
+  <div class="sidebar-user">👤 ${escapeHtml(currentUser)}</div>
   <nav class="sidebar-nav">
     <button data-tab="dashboard" class="active">📊 Dashboard</button>
     <button data-tab="menu">🍽️ Menu</button>
@@ -213,14 +244,14 @@ function renderUsersSection(container, users, filter='ALL'){
       html += `<div class="admin-card">
         <div class="admin-card-header">
           <div>
-            <div class="admin-card-title">${u.name||u.userId}</div>
+            <div class="admin-card-title">${escapeHtml(u.name||u.userId)}</div>
             <div class="admin-card-subtitle">${u.lastLoginAt ? 'Last login: '+new Date(u.lastLoginAt).toLocaleString() : 'Never logged in'}</div>
           </div>
           <div class="admin-card-actions">
-            <span class="admin-card-badge ${badge}">${u.role}</span>
+            <span class="admin-card-badge ${badge}">${escapeHtml(u.role)}</span>
             <span class="admin-card-badge ${u.isActive!==false?'badge-active':'badge-inactive'}">${u.isActive!==false?'Active':'Inactive'}</span>
-            <button class="pos-btn pos-btn-sm" data-edit-user="${u.userId}">Edit</button>
-            <button class="pos-btn pos-btn-sm pos-btn-danger" data-del-user="${u.userId}">Delete</button>
+            <button class="pos-btn pos-btn-sm" data-edit-user="${escapeAttr(u.userId)}">Edit</button>
+            <button class="pos-btn pos-btn-sm pos-btn-danger" data-del-user="${escapeAttr(u.userId)}">Delete</button>
           </div>
         </div>
       </div>`;
@@ -250,7 +281,7 @@ function openUserForm(container, user){
   form.className = 'admin-form';
   form.innerHTML = `<h3>${isEdit?'Edit':'Add'} Volunteer</h3>
     <div class="admin-form-row">
-      <div class="admin-form-group"><label>Name</label><input id="ufName" class="pos-input" value="${user?.name||''}"></div>
+      <div class="admin-form-group"><label>Name</label><input id="ufName" class="pos-input" value="${escapeAttr(user?.name||'')}"></div>
       <div class="admin-form-group"><label>Role</label><select id="ufRole" class="pos-input"><option value="CASHIER" ${user?.role==='CASHIER'?'selected':''}>Cashier</option><option value="ADMIN" ${user?.role==='ADMIN'?'selected':''}>Admin</option></select></div>
     </div>
     <div class="admin-form-row">
@@ -331,7 +362,10 @@ async function loadPlanogram(container){
 async function loadRefPreview(location, el){
   try{
     const data = await api('GET',`/api/pos/planogram/reference/${location}`);
-    if(data.url) el.innerHTML = `<img src="${data.url}" style="max-width:100%;max-height:200px;border-radius:var(--radius);border:1px solid var(--cream-dark)"><p style="font-size:.75rem;color:var(--text-light);margin-top:4px">Uploaded: ${new Date(data.uploadedAt).toLocaleDateString()}</p>`;
+    // escapeAttr matters here for a mundane reason as well as safety: a
+    // presigned S3 URL is full of `&`, and an unescaped one in an attribute is
+    // an ambiguous ampersand the parser may decode as an entity.
+    if(data.url) el.innerHTML = `<img src="${escapeAttr(data.url)}" style="max-width:100%;max-height:200px;border-radius:var(--radius);border:1px solid var(--cream-dark)"><p style="font-size:.75rem;color:var(--text-light);margin-top:4px">Uploaded: ${new Date(data.uploadedAt).toLocaleDateString()}</p>`;
   } catch(e){ el.innerHTML = '<p style="color:var(--text-light);font-size:.85rem">No reference photo yet</p>'; }
 }
 

@@ -1,6 +1,6 @@
 ---
 name: invariants
-description: Reviewable invariants for RLC Café POS — the do-not-duplicate list (including Malaysia-time date conversion and dead code left behind by an early return), storage conventions, who may authorise a discount (cashier-selected vs customer-requested vs system-only), the pre-order ISO expiresAt exception, create/edit parity (a restriction enforced on create must be re-enforced on edit), bulk mutating routes and collection-route dispatch, API response shape, path-parameter handling, no un-awaited work after a handler returns (Lambda freezes the sandbox) and date-keyed markers for at-most-once cron side effects, no silently-skipped feature when its config is missing (config in SSM, never a wipeable Lambda env default), auth and release rules, and test teeth (a guard is untested unless a fixture reaches it; a test that depends on the machine timezone is not a test). Each is a checkable assertion with the production bug it prevents. Use when reviewing a diff, writing or judging tests, before deploying, or when adding code that touches money, discounts, order status, expiry, pre-orders, emails, background or scheduled work, timezones, versions, or routing.
+description: Reviewable invariants for RLC Café POS — the do-not-duplicate list (including Malaysia-time date conversion and dead code left behind by an early return), storage conventions, who may authorise a discount (cashier-selected vs customer-requested vs system-only), the pre-order ISO expiresAt exception, create/edit parity (a restriction enforced on create must be re-enforced on edit), bulk mutating routes and collection-route dispatch, API response shape, path-parameter handling, no un-awaited work after a handler returns (Lambda freezes the sandbox) and date-keyed markers for at-most-once cron side effects, no silently-skipped feature when its config is missing (config in SSM, never a wipeable Lambda env default), auth and release rules, frontend HTML escaping (a customer-controlled string is escaped at every innerHTML render site, not just the newest one — and a textContent sink must not be escaped), and test teeth (a guard is untested unless a fixture reaches it; a test that depends on the machine timezone is not a test). Each is a checkable assertion with the production bug it prevents. Use when reviewing a diff, writing or judging tests, before deploying, or when adding code that touches money, discounts, order status, expiry, pre-orders, collection times, item notes, emails, background or scheduled work, timezones, versions, routing, or the rendering of customer-supplied text into the DOM.
 ---
 
 # Invariants
@@ -29,6 +29,12 @@ add a second.
 
 `frontend/js/pricing.js` is a **display mirror only**. It may not be the basis of
 any persisted number.
+
+**One accepted exception:** the HTML escapers are per-page-bundle
+(`escapeHtmlPos`, `escHtml`, `prep.html`'s inline `esc()`, `admin`'s `mfEsc()`)
+because there is no shared frontend util module and adding one costs a new `SHELL`
+entry plus a script tag on every page. See **Frontend** below for the rules that
+make the duplication survivable.
 
 - ☐ **When a handler gains an early-return branch, the code it supersedes is
   deleted in the SAME change.** Found in v1.71 by an independent audit:
@@ -134,6 +140,14 @@ or into an excluded paid option.
 - ☐ The shared rules live in ONE helper called by both paths —
   `preorderItemRejection()` in `backend/src/routes/orders.ts`. Do not copy the
   checks to a third site; the copies drift and the messages stop matching.
+  Two more helpers now follow the same pattern in that file:
+  **`validateItemNote()`** (the 80-char per-item note cap, identical messages on
+  both paths) and **`resolveCollectionTime()`** (the allowed-list check for a
+  pre-order's collection time). The latter shows the parity rule can bite in the
+  **other** direction: `createOrder` had accepted an arbitrary `collectionTime`
+  string, so hardening only the edit path would have been pointless — a crafted
+  *create* would just set the arbitrary value up front. When adding a restriction
+  to an edit path, check whether the create path ever had one.
 - ☐ The edit path re-reads the *restrictions* without re-applying the *ordering
   window*: `modifyOrder` uses `getPreorderCode()`, not `validatePreorderCode()`.
   The editable window is the order's own PENDING status, not the link's
@@ -150,6 +164,22 @@ or into an excluded paid option.
   the client sent and re-prepends the **stored** one
   (`splitPreorderNotes` / `preorderNotesPrefix` / `composePreorderNotes`), which
   also stops a client forging a different code or time.
+
+  **Backend-owned does not have to mean immutable.** The collection time is now
+  deliberately customer-changeable on edit, and the distinction is what keeps the
+  invariant intact: the **code** still comes only from the stored order record,
+  and the **time** only from a value the link itself offers
+  (`resolveCollectionTime` against `collectionOptions`, defaults as a fail-closed
+  fallback when the link was hard-deleted) — never from free text in the body. A
+  validated time replaces the stored one and may create a prefix that did not
+  exist. Preserving an operational field is the server's job; *choosing* among a
+  server-defined set of values may still be the customer's.
+
+  One consequence worth stating, because it is easy to get wrong: once a field
+  lives inside a composed string, the clause that writes that string must be
+  emitted whenever **either** part changes. `modifyOrder` emitted `notes = :n`
+  only for `body.notes !== undefined`, so a request changing nothing but the time
+  would have written nothing at all.
 - ☐ A length budget on a composed field measures the **customer's** portion only.
   `createOrder` lets the composed `notes` exceed 200 chars because the prefix is
   the café's text; `modifyOrder` therefore validates
@@ -271,6 +301,45 @@ or into an excluded paid option.
   array in `frontend/sw.js`, or it is never precached. `npm run version:check`
   enforces this; `reports.js` and `reports.html` went unprecached for months.
 - ☐ POS-specific CSS prefixed `.pos-`.
+- ☐ **A customer-controlled string interpolated into `innerHTML` is escaped at
+  EVERY render site, not just the newest one.** Escaping is a property of the
+  *site*, not of the field: the same field being escaped somewhere else in the
+  file is not coverage, and "this page has an escaper" is not coverage either.
+  When adding a render site for a field, grep every existing interpolation of
+  that field on that page and fix the whole set.
+
+  Why it matters: found live in v1.73 while adding the per-item note render
+  sites. **`frontend/prep.html` escaped nothing at all** — `${i.name}`,
+  `${i.variant}`, `${o.customerName}` and `${o.notes}` went raw into
+  `innerHTML`, and the order-level `notes` is **customer-typed free text**, so
+  that was an open injection path onto the barista's screen. `frontend/js/pos.js`
+  had the same raw `customerName`, `items[].name`, `items[].variant` and `notes`
+  on the queue card, in the order detail and in the in-POS prep view — while
+  **already escaping `customerName` correctly in its own v1.71 dialogs**
+  (`askStaffPrice`, `confirmReleaseNotToday`) and not on the card behind them.
+  The newer code got it right; the v1.0 hot path was never revisited. This is
+  privilege-bearing, not cosmetic: the POS session holds a **CASHIER JWT in
+  `sessionStorage`**, so script injected there runs with till privileges.
+
+  Escape all five of `& < > " '`, so the same helper is safe inside a quoted
+  attribute as well as in text. `escapeHtmlPos` (`pos.js`) and `escHtml`
+  (`app.js`, `track.js`) already do; the new inline `esc()` in `prep.html` does.
+- ☐ **A `textContent` sink must NOT be escaped** — the counterpart rule, and the
+  one that stops the item above turning into over-correction. `textContent`
+  assigns a text node, so it is already safe; escaping first makes the cashier
+  read a literal `&quot;`. `showCancelToast` and `showNameFlash` in `pos.js` both
+  build their string from a raw `customerName` and assign `textContent`, and are
+  **correct as they stand** — a report flagging them was a false positive.
+  Judge the sink, not the field.
+- ☐ **The escapers are per-page-bundle by necessity.** `app.js`, `track.js`,
+  `pos.js` and `prep.html` each carry their own (`prep.html` inline, because its
+  script is self-contained and it loads only `js/config.js`); `admin*.js` uses
+  `mfEsc()` and is being consolidated separately. There is no shared frontend
+  util module, and adding one is not free: it means a **new file in the `sw.js`
+  `SHELL` array** plus a `<script>` tag on every page. So duplicated escapers are
+  an accepted exception to the do-not-duplicate list above — but each copy must
+  cover all five characters, and each page's sites must all use it. See
+  follow-up (e) in `docs/update-20260817.md` for the admin half.
 
 ## Release
 

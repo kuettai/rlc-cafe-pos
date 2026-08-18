@@ -1,5 +1,5 @@
 // admin-menu.js — Menu CRUD, filters, toggle
-// Depends on: admin.js (api, showError, showFormModal, $)
+// Depends on: admin.js (api, showError, showFormModal, $, escapeHtml, escapeAttr)
 
 // --- Menu Management ---
 async function loadMenu(container){
@@ -63,6 +63,9 @@ function renderMenuSection(container, items){
       // Summarise the live option groups, e.g. "Temperature: Hot/Iced".
       // This line previously read only the legacy flat `variants` array, so
       // every drink on the menu showed nothing — none of them use it.
+      // Both summaries stay PLAIN TEXT and are escaped once where they are
+      // interpolated below — so a group or option name containing < or " cannot
+      // reach innerHTML raw.
       const groupSummary = (item.variantGroups||[])
         .map(g => `${g.group}: ${(g.options||[]).map(o=>o.name).join('/')}`)
         .join(' · ');
@@ -73,19 +76,19 @@ function renderMenuSection(container, items){
       html += `<div class="admin-card ${isActive?'':'is-disabled'}">
         <div class="admin-card-header">
           <div>
-            <div class="admin-card-title">${item.name}</div>
-            <div class="admin-card-subtitle">RM ${(item.basePrice||0).toFixed(2)}${variants ? ' · '+variants : ''}</div>
+            <div class="admin-card-title">${escapeHtml(item.name)}</div>
+            <div class="admin-card-subtitle">RM ${(item.basePrice||0).toFixed(2)}${variants ? ' · '+escapeHtml(variants) : ''}</div>
           </div>
           <div class="admin-card-actions">
-            <span class="admin-card-badge ${badge}">${item.category}</span>
+            <span class="admin-card-badge ${badge}">${escapeHtml(item.category)}</span>
             ${item.category==='DRINK' ? `<span class="admin-card-badge ${item.celebrationEligible===true?'badge-active':'badge-inactive'}">${item.celebrationEligible===true?'🎉 RM5':'No 🎉'}</span>` : ''}
             ${isActive ? '' : '<span class="admin-card-badge badge-disabled">Disabled</span>'}
             <label class="toggle-switch" title="${isActive?'Click to disable':'Click to enable'}">
-              <input type="checkbox" data-toggle-menu="${id}" ${isActive?'checked':''}>
+              <input type="checkbox" data-toggle-menu="${escapeAttr(id)}" ${isActive?'checked':''}>
               <span class="toggle-slider"></span>
             </label>
-            <button class="pos-btn pos-btn-sm" data-edit-menu="${id}">Edit</button>
-            <button class="pos-btn pos-btn-sm pos-btn-danger" data-del-menu="${id}">Delete</button>
+            <button class="pos-btn pos-btn-sm" data-edit-menu="${escapeAttr(id)}">Edit</button>
+            <button class="pos-btn pos-btn-sm pos-btn-danger" data-del-menu="${escapeAttr(id)}">Delete</button>
           </div>
         </div>
       </div>`;
@@ -165,17 +168,9 @@ const VG_TYPES = [
   { value: 'multi',    label: 'Multi — pick any number' },
 ];
 
-/**
- * Local escaper. `escapeHtml` exists in admin-vouchers.js, but that file loads
- * AFTER this one — relying on hoisting across files breaks the moment script
- * order changes. Group and option names are admin-entered and land in
- * innerHTML, so they must be escaped.
- */
-function mfEsc(s){
-  return String(s == null ? '' : s)
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-}
+// The local `mfEsc` escaper is gone: `escapeHtml` / `escapeAttr` now live in
+// admin.js, which loads before this file, so there is no ordering problem left
+// to work around and one escaper to keep correct.
 
 function openMenuForm(container, item, allItems){
   const isEdit = !!item;
@@ -191,10 +186,10 @@ function openMenuForm(container, item, allItems){
   form.className = 'admin-form';
   form.innerHTML = `<h3>${isEdit?'Edit':'Add'} Menu Item</h3>
     <div class="admin-form-row">
-      <div class="admin-form-group"><label>Name</label><input id="mfName" class="pos-input" value="${item?.name||''}"></div>
+      <div class="admin-form-group"><label>Name</label><input id="mfName" class="pos-input" value="${escapeAttr(item?.name||'')}"></div>
       <div class="admin-form-group"><label>Category</label><select id="mfCategory" class="pos-input"><option value="DRINK" ${item?.category==='DRINK'?'selected':''}>Drink</option><option value="FOOD" ${item?.category==='FOOD'?'selected':''}>Food</option></select></div>
     </div>
-    <div class="admin-form-group"><label>Description</label><input id="mfDesc" class="pos-input" value="${item?.description||''}" placeholder="Short description (optional)"></div>
+    <div class="admin-form-group"><label>Description</label><input id="mfDesc" class="pos-input" value="${escapeAttr(item?.description||'')}" placeholder="Short description (optional)"></div>
     <div class="admin-form-row">
       <div class="admin-form-group"><label>Base Price (RM)</label><input id="mfPrice" type="number" step="0.5" class="pos-input" value="${item?.basePrice||''}"></div>
       <div class="admin-form-group"><label>Sort Order</label><input id="mfSort" type="number" class="pos-input" value="${item?.sortOrder||0}"></div>
@@ -207,7 +202,7 @@ function openMenuForm(container, item, allItems){
       <p class="admin-form-hint">What the customer chooses — e.g. a Temperature group with Hot and Iced (+RM1). Prices add to the base price.</p>
       <div id="vgList" class="vg-list"></div>
       <button class="pos-btn pos-btn-sm" id="btnAddGroup" style="margin-top:8px">+ Add Option Group</button>
-      ${legacyVariants.length ? `<p class="admin-form-hint" style="margin-top:8px">Note: this item also has ${legacyVariants.length} old-style variant(s) (${legacyVariants.map(v=>mfEsc(v.name||String(v))).join(', ')}). They are kept as-is; option groups above take precedence.</p>` : ''}
+      ${legacyVariants.length ? `<p class="admin-form-hint" style="margin-top:8px">Note: this item also has ${legacyVariants.length} old-style variant(s) (${legacyVariants.map(v=>escapeHtml(v.name||String(v))).join(', ')}). They are kept as-is; option groups above take precedence.</p>` : ''}
     </div>
     <div class="admin-form-actions">
       <button class="pos-btn pos-btn-primary" id="mfSubmit">${isEdit?'Save Changes':'Add Item'}</button>
@@ -235,14 +230,14 @@ function openMenuForm(container, item, allItems){
     list.innerHTML = currentGroups.map((g, gi) => {
       const opts = (g.options || []).map((o, oi) => `
         <div class="vg-option-row">
-          <input class="pos-input" placeholder="Option name (e.g. Iced)" value="${mfEsc(o.name)}" data-gi="${gi}" data-oi="${oi}" data-of="name">
+          <input class="pos-input" placeholder="Option name (e.g. Iced)" value="${escapeAttr(o.name)}" data-gi="${gi}" data-oi="${oi}" data-of="name">
           <input class="pos-input" type="number" step="0.5" placeholder="+RM" value="${Number(o.price || 0)}" data-gi="${gi}" data-oi="${oi}" data-of="price" aria-label="Extra price">
           <button class="remove-variant" data-rm-opt="${gi}:${oi}" aria-label="Remove option">✕</button>
         </div>`).join('');
 
       return `<div class="vg-group">
         <div class="vg-group-head">
-          <input class="pos-input" placeholder="Group name (e.g. Temperature)" value="${mfEsc(g.group)}" data-gi="${gi}" data-gf="group" aria-label="Group name">
+          <input class="pos-input" placeholder="Group name (e.g. Temperature)" value="${escapeAttr(g.group)}" data-gi="${gi}" data-gf="group" aria-label="Group name">
           <select class="pos-input" data-gi="${gi}" data-gf="type" aria-label="Selection type">
             ${VG_TYPES.map(t=>`<option value="${t.value}" ${(g.type||'single')===t.value?'selected':''}>${t.label}</option>`).join('')}
           </select>

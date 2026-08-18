@@ -11,9 +11,39 @@ const errorBanner = document.getElementById('errorBanner');
 
 
 
+// Escape all five HTML-significant characters. Free text the customer types
+// (per-item notes) is rendered back into the cart row, including into a quoted
+// value="…" attribute, so it must be escaped at every render site. Same
+// implementation as track.js and pos.js — there is no shared util module here
+// and adding one would mean a new file in the sw.js SHELL array.
+function escHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 let menu = [];
 let cart = JSON.parse(localStorage.getItem('cart') || '[]');
 function saveCart(){ localStorage.setItem('cart', JSON.stringify(cart)); }
+
+// One cart line per drink, always `qty: 1`, so every line can carry its own
+// per-item note ("less sugar" on the second of three lattes). Lines are no
+// longer merged by id + variant anywhere in this file.
+//
+// Carts restored from localStorage were written by an older shell that DID
+// merge, so they can hold lines with qty > 1. Expand them once, here at load,
+// rather than teaching every downstream site to handle both shapes. Legacy
+// lines carry no note by definition, so the copies are indistinguishable.
+(function expandLegacyMergedCartLines(){
+  if (!cart.some(c => (Number(c.qty) || 1) > 1)) return;
+  const expanded = [];
+  cart.forEach(c => {
+    const n = Math.max(1, Math.floor(Number(c.qty) || 1));
+    for (let i = 0; i < n; i++) expanded.push({ ...c, qty: 1 });
+  });
+  cart = expanded;
+  saveCart();
+})();
 let queueSize = 0;
 let celebrationMode = false;
 let celebrationPrice = 5;
@@ -485,15 +515,19 @@ function bindItemEvents() {
           variantLabel = variantObj?.name || variant;
         }
 
-        const existing = cart.find(c => c.id === id && c.variant === variantKey);
-        if (existing) { existing.qty++; }
-        else { cart.push({ id, name: stripEmoji(item.name), variant: variantKey, variantName: variantLabel, selectedVariants: selectedVariants.length ? selectedVariants : undefined, price, qty: 1, grossPrice, category: item.category, basePrice: item.basePrice, celebrationEligible: item.celebrationEligible === true }); }
+        // No merging: every add is its own line at qty 1 so it can hold its own
+        // note. The card's quantity badge sums qty across matching lines, which
+        // stays correct precisely because every line is 1.
+        cart.push({ id, name: stripEmoji(item.name), variant: variantKey, variantName: variantLabel, selectedVariants: selectedVariants.length ? selectedVariants : undefined, price, qty: 1, grossPrice, category: item.category, basePrice: item.basePrice, celebrationEligible: item.celebrationEligible === true });
         saveCart();
       } else {
         const selectedVariants = getSelectedVariants(id);
         const variantKey = selectedVariants.length ? selectedVariants.map(v => v.option).join(',') : getSelectedVariant(id);
-        const existing = cart.find(c => c.id === id && c.variant === variantKey);
-        if (existing) { existing.qty--; if (existing.qty <= 0) cart = cart.filter(c => c !== existing); }
+        // With one line per drink there is no qty to decrement — [−] removes the
+        // LAST line matching this id + variant (and with it that line's note).
+        for (let n = cart.length - 1; n >= 0; n--) {
+          if (cart[n].id === id && cart[n].variant === variantKey) { cart.splice(n, 1); break; }
+        }
         saveCart();
       }
       renderMenu();
@@ -529,30 +563,49 @@ function updateCartBar() {
 function renderCartPanel() {
   if (!cart.length) { cartItems.innerHTML = '<p>Cart is empty</p>'; cartSubmit.disabled = true; return; }
   cartSubmit.disabled = false;
+  // One row per drink: name, variant, an always-visible note input for THAT
+  // drink, and ✕ to remove it. There are deliberately no −/+ controls — every
+  // line is qty 1, so they could only ever show "1" and one of them would be a
+  // dead control. Adding a second latte is a second row.
+  //
+  // NOTE_MAX mirrors the server's 80-char per-item cap; the server is the
+  // authority and rejects anything longer with a 400.
+  const NOTE_MAX = 80;
   cartItems.innerHTML = cart.map((c, i) => {
     const variantLabel = c.variantName || c.variant || '';
+    const displayName = stripEmoji(c.name);
     return `<div class="cart-item">
-      <div class="cart-item-info"><div class="cart-item-name">${stripEmoji(c.name)}</div>${variantLabel ? `<div class="cart-item-variant">${variantLabel}</div>` : ''}</div>
-      <div class="cart-item-actions">
-        <button aria-label="Decrease" data-cart-idx="${i}" data-cart-action="dec">−</button>
-        <span>${c.qty}</span>
-        <button aria-label="Increase" data-cart-idx="${i}" data-cart-action="inc">+</button>
-        <button class="remove-btn" aria-label="Remove" data-cart-idx="${i}" data-cart-action="remove">✕</button>
+      <div class="cart-item-main">
+        <div class="cart-item-info"><div class="cart-item-name">${escHtml(displayName)}</div>${variantLabel ? `<div class="cart-item-variant">${escHtml(variantLabel)}</div>` : ''}</div>
+        <div class="cart-item-actions">
+          <button class="remove-btn" aria-label="Remove ${escHtml(displayName)}" data-cart-idx="${i}" data-cart-action="remove">✕</button>
+        </div>
       </div>
+      <input type="text" class="cart-item-note" maxlength="${NOTE_MAX}" data-cart-idx="${i}"
+        placeholder="Note for this drink (e.g. less sugar)"
+        aria-label="Note for ${escHtml(displayName)}" value="${escHtml(c.note || '')}">
     </div>`;
-  }).join('') + `<textarea id="orderNotes" placeholder="Special requests (e.g. less sugar, extra hot)" style="width:100%;margin-top:12px;padding:10px;border:1px solid var(--cream-dark,#ddd);border-radius:8px;font-size:.9rem;resize:none;font-family:inherit" rows="2">${localStorage.getItem('orderNotes') || ''}</textarea><p style="font-size:.82rem;color:var(--text-light,#7A6355);margin-top:12px;text-align:center">🏪 Pay at the counter after ordering</p>`;
+  }).join('') + `<label for="orderNotes" style="display:block;font-size:.85rem;font-weight:600;color:var(--text-light,#7A6355);margin-top:16px">Anything else about the whole order?</label><textarea id="orderNotes" placeholder="e.g. collecting for a group, please bag them together" style="width:100%;margin-top:6px;padding:10px;border:1px solid var(--cream-dark,#ddd);border-radius:8px;font-size:.9rem;resize:none;font-family:inherit;box-sizing:border-box" rows="2">${escHtml(localStorage.getItem('orderNotes') || '')}</textarea><p style="font-size:.82rem;color:var(--text-light,#7A6355);margin-top:12px;text-align:center">🏪 Pay at the counter after ordering</p>`;
 
-  cartItems.querySelectorAll('button').forEach(btn => {
+  cartItems.querySelectorAll('button[data-cart-action]').forEach(btn => {
     btn.addEventListener('click', () => {
       const idx = parseInt(btn.dataset.cartIdx);
-      const action = btn.dataset.cartAction;
-      if (action === 'inc') cart[idx].qty++;
-      else if (action === 'dec') { cart[idx].qty--; if (cart[idx].qty <= 0) cart.splice(idx, 1); }
-      else cart.splice(idx, 1);
+      cart.splice(idx, 1);
       saveCart();
       renderCartPanel();
       updateCartBar();
       renderMenu();
+    });
+  });
+  // Per-item note: update the model and persist on every keystroke, but never
+  // re-render the panel — a re-render would destroy the input mid-typing and
+  // lose focus and caret position. The panel is only rebuilt on add/remove.
+  cartItems.querySelectorAll('.cart-item-note').forEach(input => {
+    input.addEventListener('input', () => {
+      const line = cart[parseInt(input.dataset.cartIdx)];
+      if (!line) return;
+      line.note = input.value;
+      saveCart();
     });
   });
   document.getElementById('orderNotes')?.addEventListener('input', e => {
@@ -623,7 +676,9 @@ cartSubmit.addEventListener('click', async () => {
   cartSubmit.textContent = 'Placing order...';
 
   try {
-    const items = cart.map(c => ({ menuItemId: c.id, variant: c.variant, selectedVariants: c.selectedVariants || [], quantity: c.qty }));
+    // `note` is per ITEM and omitted when empty — the backend caps it at 80
+    // trimmed characters and 400s on anything longer, so it is never sent as ''.
+    const items = cart.map(c => ({ menuItemId: c.id, variant: c.variant, selectedVariants: c.selectedVariants || [], quantity: c.qty, note: c.note?.trim() || undefined }));
     const orderPayload = { customerName: name, items, notes: document.getElementById('orderNotes')?.value?.trim() || '' };
     if (customerProfile?.phone) orderPayload.customerId = customerProfile.phone;
     if (preorderMode) {

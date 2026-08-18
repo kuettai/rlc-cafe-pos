@@ -744,7 +744,16 @@ function discountBadgeHtml(discountType) {
 }
 
 function cardHtml(o){
-  const items = (o.items||[]).map(i=>`<div>${i.quantity||i.qty||1}x ${i.name}${i.variant?' ('+i.variant+')':''}</div>`).join('');
+  // Per-item notes ("less sugar" on ONE of three lattes). Shown on its own line
+  // under the item it belongs to, in a different colour and prefixed 📝 so the
+  // cashier can tell it apart from the order-level note lower down the card.
+  // Absent on every order placed before the feature existed.
+  const items = (o.items||[]).map(i=>{
+    const note = typeof i.note === 'string' ? i.note.trim() : '';
+    return `<div>${i.quantity||i.qty||1}x ${escapeHtmlPos(i.name)}${i.variant?' ('+escapeHtmlPos(i.variant)+')':''}`
+      + (note?`<span class="pos-item-note">📝 ${escapeHtmlPos(note)}</span>`:'')
+      + `</div>`;
+  }).join('');
   const mins = Math.floor((Date.now()-new Date(o.createdAt))/60000);
   const preOrder = isPreOrder(o);
   // Pre-orders are exempt from the urgent timer: they are legitimately days old.
@@ -802,9 +811,9 @@ function cardHtml(o){
     ${preRibbon}
     ${hasReceipt ? `<div class="pos-receipt-badge${receiptMismatch?' pos-receipt-mismatch':''}">💰 Receipt: RM${(o.receiptAmount||0).toFixed(2)}${receiptMismatch?' ⚠️ expected RM'+(o.total||o.totalAmount||0).toFixed(2):''}</div>` : ''}
     ${o.status==='PENDING' && o.modifiedAt ? '<div class="pos-card-modified">✏️ modified</div>' : ''}
-    <div class="pos-card-name">${o.customerName||'Guest'}${o.isWalkUp?' <span class="pos-card-tag">walk-up</span>':''}${o.staffCode?' <span class="pos-card-tag pos-card-tag-staff">🎫 staff price requested</span>':''}</div>
+    <div class="pos-card-name">${escapeHtmlPos(o.customerName||'Guest')}${o.isWalkUp?' <span class="pos-card-tag">walk-up</span>':''}${o.staffCode?' <span class="pos-card-tag pos-card-tag-staff">🎫 staff price requested</span>':''}</div>
     <div class="pos-card-items">${items||'—'}</div>
-    ${o.notes ? '<div class="pos-card-note">📝 '+o.notes+'</div>' : ''}
+    ${o.notes ? '<div class="pos-card-note">📝 Order note: '+escapeHtmlPos(o.notes)+'</div>' : ''}
     ${archiveHint(o)}
     <div class="pos-card-footer"><span>${priceHtml}</span><span>${preOrder?'':`${urgent?'⚠️ ':''}${timeAgo(o.createdAt)}`}</span></div>
     ${showDiscountBadge ? `<div class="pos-card-discount">${discountBadgeHtml(o.discountType)}</div>` : ''}
@@ -1098,7 +1107,14 @@ function openDetail(id){
   const linePrice = i => isPreOrder(o)
     ? Number(i.grossUnitPrice != null ? i.grossUnitPrice : (i.price || i.unitPrice || 0))
     : Number(i.price || i.unitPrice || 0);
-  const items = (o.items||[]).map(i=>`<li>${i.quantity||i.qty||1}x ${i.name}${i.variant?' ('+i.variant+')':''} <span style="color:var(--text-light,#7A6355);float:right">RM${(linePrice(i)*(i.quantity||i.qty||1)).toFixed(2)}</span></li>`).join('');
+  const items = (o.items||[]).map(i=>{
+    // Same per-item note as the queue card, repeated here because the detail is
+    // where a cashier looks when they are unsure what the card said.
+    const note = typeof i.note === 'string' ? i.note.trim() : '';
+    return `<li>${i.quantity||i.qty||1}x ${escapeHtmlPos(i.name)}${i.variant?' ('+escapeHtmlPos(i.variant)+')':''} <span style="color:var(--text-light,#7A6355);float:right">RM${(linePrice(i)*(i.quantity||i.qty||1)).toFixed(2)}</span>`
+      + (note?`<span class="pos-item-note">📝 ${escapeHtmlPos(note)}</span>`:'')
+      + `</li>`;
+  }).join('');
   let actions = '';
   // A pre-order is RM0 — there is no payment to confirm, the cashier is simply
   // releasing it to the barista on the day.
@@ -1117,10 +1133,10 @@ function openDetail(id){
   modal.className='pos-modal-overlay';
   modal.innerHTML=`<div class="pos-modal">
     <button class="pos-modal-close">✕</button>
-    <h3>${o.customerName||'Guest'}</h3>
+    <h3>${escapeHtmlPos(o.customerName||'Guest')}</h3>
     <p style="font-size:.82rem;color:var(--text-light,#7A6355);margin-top:4px">Ordered at ${orderTime} · ${timeAgo(o.createdAt)}${o.isWalkUp?' · Walk-up':''}</p>
     <ul class="pos-detail-items">${items}</ul>
-    ${o.notes ? `<div style="background:var(--cream,#f9f5f0);padding:10px 12px;border-radius:8px;font-size:.85rem;margin-bottom:10px">📝 ${o.notes}</div>` : ''}
+    ${o.notes ? `<div style="background:var(--cream,#f9f5f0);padding:10px 12px;border-radius:8px;font-size:.85rem;margin-bottom:10px">📝 Order note: ${escapeHtmlPos(o.notes)}</div>` : ''}
     <div class="pos-detail-total">Total: RM ${(o.total||o.totalAmount||0).toFixed(2)}</div>
     ${o.discountType && o.discountType!=='NONE' ? `<div style="font-size:.85rem;color:#7C3AED;margin-bottom:8px">Discount: ${o.discountType}</div>` : ''}
     ${isPreOrder(o) ? `<div style="background:#EDE9FE;color:#5B21B6;padding:10px 12px;border-radius:8px;font-size:.85rem;margin-bottom:10px">🎉 <strong>Ministry pre-order</strong>${o.preorderCode ? ` · <span style="font-family:monospace">${escapeHtmlPos(o.preorderCode)}</span>` : ''} — free, no payment due.${o.status==='PENDING' ? ' Release it to the barista when it should be made.' : ''}</div>` : ''}
@@ -1381,7 +1397,9 @@ function openPrepView(){
   const items = [];
   preparing.forEach(o=>{
     (o.items||[]).forEach(i=>{
-      for(let n=0;n<(i.quantity||i.qty||1);n++) items.push({name:i.name,variant:i.variant,customer:o.customerName,notes:o.notes});
+      // `note` rides along per unit: this view flattens quantity into one row per
+      // drink, and a per-item request belongs on every one of them.
+      for(let n=0;n<(i.quantity||i.qty||1);n++) items.push({name:i.name,variant:i.variant,note:i.note,customer:o.customerName,notes:o.notes});
     });
   });
   const modal=document.createElement('div');
@@ -1390,10 +1408,13 @@ function openPrepView(){
     <button class="pos-modal-close">✕</button>
     <h3>☕ Prep Queue (${items.length} drinks)</h3>
     <div style="margin-top:16px;max-height:60vh;overflow-y:auto">
-      ${items.length ? items.map((it,i)=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--cream-dark,#eee)">
-        <div><strong>${it.name}</strong>${it.variant?' <span style="color:var(--text-light,#7A6355)">('+it.variant+')</span>':''}</div>
-        <div style="text-align:right;font-size:.85rem"><span style="color:var(--primary,#6B4226)">${it.customer}</span>${it.notes?'<br><span style="color:#7C3AED;font-size:.75rem">📝 '+it.notes+'</span>':''}</div>
-      </div>`).join('') : '<p style="color:var(--text-light);text-align:center;padding:24px">No orders being prepared</p>'}
+      ${items.length ? items.map((it,i)=>{
+        const itemNote = typeof it.note === 'string' ? it.note.trim() : '';
+        return `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:10px 0;border-bottom:1px solid var(--cream-dark,#eee)">
+        <div><strong>${escapeHtmlPos(it.name)}</strong>${it.variant?' <span style="color:var(--text-light,#7A6355)">('+escapeHtmlPos(it.variant)+')</span>':''}${itemNote?`<span class="pos-item-note">📝 ${escapeHtmlPos(itemNote)}</span>`:''}</div>
+        <div style="text-align:right;font-size:.85rem"><span style="color:var(--primary,#6B4226)">${escapeHtmlPos(it.customer)}</span>${it.notes?'<br><span style="color:#7C3AED;font-size:.75rem">📝 Order note: '+escapeHtmlPos(it.notes)+'</span>':''}</div>
+      </div>`;
+      }).join('') : '<p style="color:var(--text-light);text-align:center;padding:24px">No orders being prepared</p>'}
     </div>
   </div>`;
   document.body.appendChild(modal);

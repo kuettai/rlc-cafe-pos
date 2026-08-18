@@ -1,6 +1,7 @@
 // admin-verses.js — Bible Verses tab (Admin)
 // Part of rlc-cafe-pos v1.55.0
-// Depends on: admin.js (api, showError, showSuccess, showFormModal)
+// Depends on: admin.js (api, showError, showSuccess, showFormModal,
+//             escapeHtml, escapeAttr)
 
 async function loadVerses(container) {
   container.innerHTML = '<div class="loading">Loading verses...</div>';
@@ -25,13 +26,13 @@ function renderVersesSection(container, verses) {
   } else {
     html += verses.map(v => `<div class="admin-form" style="margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:12px">
       <div style="flex:1">
-        <span style="font-style:italic">"${v.text.length > 80 ? v.text.slice(0,80)+'...' : v.text}"</span>
-        <br><small style="color:var(--primary);font-weight:600">— ${v.reference}</small>
+        <span style="font-style:italic">"${escapeHtml(v.text.length > 80 ? v.text.slice(0,80)+'...' : v.text)}"</span>
+        <br><small style="color:var(--primary);font-weight:600">— ${escapeHtml(v.reference)}</small>
         ${v.isActive === false ? ' <span class="admin-card-badge badge-disabled">Disabled</span>' : ''}
       </div>
       <div style="display:flex;gap:6px">
-        <button class="pos-btn pos-btn-sm" data-toggle-verse="${v.verseId}" data-active="${v.isActive !== false}">${v.isActive !== false ? 'Disable' : 'Enable'}</button>
-        <button class="pos-btn pos-btn-sm" style="color:var(--danger)" data-del-verse="${v.verseId}">✕</button>
+        <button class="pos-btn pos-btn-sm" data-toggle-verse="${escapeAttr(v.verseId)}" data-active="${v.isActive !== false}">${v.isActive !== false ? 'Disable' : 'Enable'}</button>
+        <button class="pos-btn pos-btn-sm" style="color:var(--danger)" data-del-verse="${escapeAttr(v.verseId)}">✕</button>
       </div>
     </div>`).join('');
   }

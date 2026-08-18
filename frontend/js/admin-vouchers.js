@@ -1,5 +1,6 @@
 // admin-vouchers.js — Voucher campaigns, assign, CSV
-// Depends on: admin.js (api, showError, showSuccess, showFormModal, $)
+// Depends on: admin.js (api, showError, showSuccess, showFormModal, $,
+//             escapeHtml, escapeAttr)
 
 // --- Vouchers ---
 async function loadVouchers(container){
@@ -37,7 +38,7 @@ function renderVoucherCampaignList(container, campaigns){
                        : '🥤🍪';
       const issued = c.issuedCount || 0;
       const redeemed = c.redeemedCount || 0;
-      html += `<div class="admin-card" data-campaign-id="${c.campaignId}" style="cursor:pointer">
+      html += `<div class="admin-card" data-campaign-id="${escapeAttr(c.campaignId)}" style="cursor:pointer">
         <div class="admin-card-header">
           <div>
             <div class="admin-card-title">${typeIcon} ${escapeHtml(c.name)}</div>
@@ -47,9 +48,9 @@ function renderVoucherCampaignList(container, campaigns){
             </div>
           </div>
           <div class="admin-card-actions">
-            <span class="admin-card-badge ${typeBadge}">${c.voucherType.replace('_',' ')}</span>
-            <span class="admin-card-badge ${c.status==='ACTIVE'?'badge-active':'badge-inactive'}">${c.status||'ACTIVE'}</span>
-            <button class="pos-btn pos-btn-sm" data-view-campaign="${c.campaignId}">View</button>
+            <span class="admin-card-badge ${typeBadge}">${escapeHtml(c.voucherType.replace('_',' '))}</span>
+            <span class="admin-card-badge ${c.status==='ACTIVE'?'badge-active':'badge-inactive'}">${escapeHtml(c.status||'ACTIVE')}</span>
+            <button class="pos-btn pos-btn-sm" data-view-campaign="${escapeAttr(c.campaignId)}">View</button>
           </div>
         </div>
       </div>`;
@@ -178,7 +179,7 @@ function renderVoucherCampaignDetail(container, campaign, stats, vouchers){
     </div>
     <div class="admin-card" style="margin-bottom:20px">
       <div class="admin-card-subtitle">
-        <strong>${campaign.voucherType.replace('_',' ')}</strong> · ${expiry}<br>
+        <strong>${escapeHtml(campaign.voucherType.replace('_',' '))}</strong> · ${expiry}<br>
         ${campaign.description ? escapeHtml(campaign.description)+'<br>' : ''}
         Total: <strong>${stats.total||0}</strong> ·
         Issued: <strong style="color:var(--success)">${stats.issued||0}</strong> ·
@@ -333,7 +334,7 @@ function renderVoucherTable(container, vouchers, campaignId, filter){
       expiryCell = v.expiresAt ? new Date(v.expiresAt).toLocaleDateString() : '—';
     }
     const action = (v.status === 'ISSUED' && !expired)
-      ? `<button class="pos-btn pos-btn-sm pos-btn-danger" data-revoke-id="${v.voucherId}" data-revoke-phone="${escapeAttr(v.phone)}">Revoke</button>`
+      ? `<button class="pos-btn pos-btn-sm pos-btn-danger" data-revoke-id="${escapeAttr(v.voucherId)}" data-revoke-phone="${escapeAttr(v.phone)}">Revoke</button>`
       : '';
     html += `<tr style="border-bottom:1px solid var(--cream-dark)">
       <td style="padding:8px 0">${escapeHtml(v.phone||'')}</td>
@@ -363,12 +364,8 @@ function renderVoucherTable(container, vouchers, campaignId, filter){
   });
 }
 
-function escapeHtml(s){
-  return String(s == null ? '' : s)
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-}
-function escapeAttr(s){ return escapeHtml(s); }
+// escapeHtml / escapeAttr moved to admin.js — it loads first, so every admin
+// module can call them without relying on cross-file hoisting from this file.
 
 // Strip only leading emoji + whitespace — safe for plain-text exports
 // (clipboard, CSV) that would otherwise carry rendering-fragile characters.

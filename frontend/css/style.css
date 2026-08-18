@@ -560,14 +560,43 @@ header h1{
   font-size:1.3rem;
   color:var(--primary);
 }
+/* Cart row: name + ✕ on one line, the drink's own note input full-width
+   beneath it. Stacked rather than inline so the note stays tappable at ~390px
+   phone width and does not squeeze the name on the counter iPad. */
 .cart-item{
   display:flex;
-  justify-content:space-between;
-  align-items:center;
+  flex-direction:column;
+  align-items:stretch;
+  gap:8px;
   padding:14px 0;
   border-bottom:1px solid var(--cream-dark);
 }
-.cart-item .cart-item-info{flex:1}
+.cart-item-main{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:10px;
+}
+.cart-item-note{
+  width:100%;
+  padding:9px 12px;
+  border:1px solid var(--cream-dark);
+  border-radius:10px;
+  background:var(--cream,#FFF8F0);
+  font-family:inherit;
+  font-size:.88rem;
+  color:var(--text);
+  box-sizing:border-box;
+  min-height:40px;
+}
+.cart-item-note::placeholder{color:var(--text-light);opacity:.8}
+.cart-item-note:focus{
+  outline:none;
+  border-color:var(--accent,#D4A574);
+  background:#fff;
+  box-shadow:0 0 0 3px rgba(212,165,116,.25);
+}
+.cart-item .cart-item-info{flex:1;min-width:0}
 .cart-item .cart-item-name{font-weight:600;font-size:1rem;color:var(--text)}
 .cart-item .cart-item-variant{font-size:.82rem;color:var(--text-light);margin-top:2px}
 .cart-item-actions{display:flex;align-items:center;gap:10px}
@@ -733,6 +762,16 @@ header h1{
   font-size:.95rem;
 }
 .order-details li:last-child{border:none}
+/* Per-item note on the read-only order view. Sits under its own item, in the
+   same purple the POS and prep views use for a note, so "this drink" reads
+   differently from the whole-order note block above the list. */
+.order-item-note{
+  display:block;
+  font-size:.82rem;
+  color:#7C3AED;
+  margin-top:3px;
+  overflow-wrap:anywhere;
+}
 .order-total{
   font-weight:800;
   margin-top:14px;
@@ -862,12 +901,36 @@ header h1{
   transition:var(--transition);
 }
 .edit-btn:hover{background:var(--cream,#FFF8F0)}
+/* Edit-mode item row. Column direction so the per-item note input (and the
+   tap-to-expand variant picker, which was previously laid out BESIDE the name
+   row rather than under it) each get their own full-width line. The name and
+   its quantity controls keep their own inner flex row. */
 .edit-item-row{
   display:flex;
-  justify-content:space-between;
-  align-items:center;
+  flex-direction:column;
+  align-items:stretch;
+  gap:8px;
   padding:10px 0;
   border-bottom:1px solid var(--cream-dark,#F5EDE4);
+}
+.edit-item-note{
+  width:100%;
+  padding:8px 11px;
+  border:1px solid var(--cream-dark,#F5EDE4);
+  border-radius:10px;
+  background:var(--cream,#FFF8F0);
+  font-family:inherit;
+  font-size:.85rem;
+  color:var(--text,#3D2B1F);
+  box-sizing:border-box;
+  min-height:38px;
+}
+.edit-item-note::placeholder{color:var(--text-light,#7A6355);opacity:.8}
+.edit-item-note:focus{
+  outline:none;
+  border-color:var(--accent,#D4A574);
+  background:#fff;
+  box-shadow:0 0 0 3px rgba(212,165,116,.25);
 }
 .edit-item-name{font-weight:500;font-size:.95rem}
 .edit-item-controls{
@@ -1497,6 +1560,25 @@ header h1{
   font-size:.75rem;
   color:#7C3AED;
   margin-top:2px;
+}
+/* Per-ITEM note, on the queue card and in the order detail. Indented under its
+   own item with a left rule so it reads as belonging to that drink, not to the
+   order — .pos-card-note above is the order-level one. `white-space:normal`
+   overrides the nowrap/ellipsis on .pos-card-items: a truncated request is
+   worse than a taller card. */
+.pos-item-note{
+  display:block;
+  /* The detail row floats its price right; without this the note would slide
+     under it. Harmless on the queue card, which has no floats. */
+  clear:both;
+  white-space:normal;
+  overflow-wrap:anywhere;
+  margin:2px 0 4px 14px;
+  padding-left:8px;
+  border-left:2px solid #C4B5FD;
+  font-size:.78rem;
+  font-weight:600;
+  color:#6D28D9;
 }
 /* Auto-archive countdown shown on READY cards. */
 .pos-archive-hint{

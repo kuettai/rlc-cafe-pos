@@ -1,5 +1,6 @@
 // admin-preorder.js — Pre-order links management + templates
-// Depends on: admin.js (api, showError, showSuccess, showFormModal, $)
+// Depends on: admin.js (api, showError, showSuccess, showFormModal, $,
+//             escapeHtml, escapeAttr)
 
 // --- Pre-Order Links ---
 // Ministry volunteers pre-order free drinks via a link with an 8-char
@@ -178,7 +179,7 @@ function openPreorderForm(container, existingCode){
     </div>
     <div class="admin-form-row">
       <div class="admin-form-group"><label>Service Date</label>
-        <input id="pfDate" type="date" class="pos-input" value="${initialServiceDate}">
+        <input id="pfDate" type="date" class="pos-input" value="${escapeAttr(initialServiceDate)}">
       </div>
       <div class="admin-form-group"><label>Opens At</label>
         <input id="pfOpens" type="datetime-local" class="pos-input" value="${initialOpensLocal}">

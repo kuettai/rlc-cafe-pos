@@ -189,7 +189,7 @@ function renderOrder(order) {
   }
 
   if (order.customerName) {
-    html += `<p style="margin-bottom:8px;font-size:1.1rem;font-weight:600;color:var(--primary,#6B4226)">Hi, ${order.customerName}!</p>`;
+    html += `<p style="margin-bottom:8px;font-size:1.1rem;font-weight:600;color:var(--primary,#6B4226)">Hi, ${escHtml(order.customerName)}!</p>`;
   }
 
   // "2 orders ahead · est. wait ~6 min" is meaningless on a pre-order that is not
@@ -288,14 +288,17 @@ function renderOrder(order) {
   html += `<div class="order-details"><h3>Order Details</h3>`;
   // For a pre-order only the customer's own note is shown — the machine-composed
   // "[PRE-ORDER: CODE] Collect: …" prefix is surfaced as a field above instead.
-  if (preNotes.tail) html += `<div style="background:var(--cream,#f9f5f0);padding:10px 12px;border-radius:8px;font-size:.85rem;margin-bottom:10px">📝 ${preNotes.tail}</div>`;
+  if (preNotes.tail) html += `<div style="background:var(--cream,#f9f5f0);padding:10px 12px;border-radius:8px;font-size:.85rem;margin-bottom:10px">📝 ${escHtml(preNotes.tail)}</div>`;
   html += `<ul id="orderItemsList">`;
   items.forEach((i, idx) => {
     const label = i.variant ? `${i.name} (${i.variant})` : i.name;
     // Item records keep their full unitPrice on a pre-order (free-ness lives at
     // order level), so the RM0 is applied here at display time only.
     const amount = isPre ? 'Free' : `RM ${((i.price || i.unitPrice || 0) * (i.quantity || 1)).toFixed(2)}`;
-    html += `<li><span>${label} × ${i.quantity || 1}</span><span>${amount}</span></li>`;
+    // Per-item note ("less sugar" on one of three lattes). Absent on every order
+    // placed before this feature, and absent when empty.
+    const itemNote = typeof i.note === 'string' ? i.note.trim() : '';
+    html += `<li><span>${escHtml(label)} × ${i.quantity || 1}${itemNote ? `<span class="order-item-note">📝 ${escHtml(itemNote)}</span>` : ''}</span><span>${amount}</span></li>`;
   });
   html += `</ul><div class="order-total">Total: RM ${total.toFixed(2)}</div></div>`;
 
@@ -415,8 +418,41 @@ function enterEditMode(order) {
   // would let them delete but not add a single character, unexplained. The server
   // arbitrates the limit; the client must not be quietly harsher than it.
   const notesMax = 200;
+  // Per-item notes share the server's 80-char cap. The server measures the
+  // TRIMMED value and answers 400 over the limit, so it stays the authority;
+  // maxlength here is only so the customer is not typing into a void.
+  const itemNoteMax = 80;
   let notes = preNotes.tail;
   let menuCache = null;
+
+  // ─── Pre-order collection time ────────────────────────────────────────
+  // `collectionOptions` / `collectionTime` come from GET /api/orders/{id} and
+  // exist for pre-orders only. They are ABSENT against a backend that has not
+  // been deployed yet, in which case no picker is rendered and the flow behaves
+  // exactly as before: the local `[PRE-ORDER: …] Collect: …` parse still shows
+  // the stored time, and the backend keeps whatever it has stored.
+  //
+  // `order.collectionTime` is preferred over the local parse for the
+  // preselection only — the prefix handling itself is untouched.
+  const collectionOptions = isPre && Array.isArray(order.collectionOptions)
+    ? order.collectionOptions.filter(o => typeof o === 'string' && o.trim())
+    : [];
+  const showCollectionPicker = collectionOptions.length > 0;
+  let chosenCollection = (typeof order.collectionTime === 'string' && order.collectionTime)
+    ? order.collectionTime
+    : preNotes.collect;
+  const collectionHtml = showCollectionPicker
+    ? `<section class="collection-section" style="margin-top:14px">
+        <label>Collection Time</label>
+        <div class="collection-radios">
+          ${collectionOptions.map(t => `<label class="collection-radio">
+            <input type="radio" name="collectionTime" value="${escHtml(t)}"${chosenCollection === t ? ' checked' : ''}>
+            <span>${escHtml(t)}</span>
+          </label>`).join('')}
+        </div>
+        <p class="collection-hint">Drinks are prepared to be ready around this time.</p>
+      </section>`
+    : '';
   const listEl = document.getElementById('orderItemsList');
   const actionsRow = document.querySelector('.order-actions-row');
   // The T3 prompt offers "Edit Order" again; tapping it mid-edit would restart
@@ -431,14 +467,23 @@ function enterEditMode(order) {
   actionsRow.insertAdjacentHTML('beforebegin', `
     <div class="edit-extras" style="margin-top:14px">
       <button id="addItemBtn" type="button" style="width:100%;padding:12px;background:#fff;border:1px dashed var(--primary,#6B4226);color:var(--primary,#6B4226);border-radius:10px;font-size:.95rem;font-weight:600;cursor:pointer">+ Add item</button>
+      ${collectionHtml}
       <div style="margin-top:14px">
-        <label for="editNotes" style="display:block;font-size:.85rem;color:var(--text-light,#7A6355);margin-bottom:4px">Notes (optional)</label>
-        <textarea id="editNotes" maxlength="${notesMax}" rows="2" placeholder="Special requests…" style="width:100%;padding:10px;border:1px solid var(--cream-dark,#ddd);border-radius:8px;font-size:.9rem;resize:none;font-family:inherit;box-sizing:border-box"></textarea>
+        <label for="editNotes" style="display:block;font-size:.85rem;color:var(--text-light,#7A6355);margin-bottom:4px">Anything else about the whole order? (optional)</label>
+        <textarea id="editNotes" maxlength="${notesMax}" rows="2" placeholder="e.g. collecting for a group" style="width:100%;padding:10px;border:1px solid var(--cream-dark,#ddd);border-radius:8px;font-size:.9rem;resize:none;font-family:inherit;box-sizing:border-box"></textarea>
         <div style="display:flex;justify-content:flex-end;font-size:.75rem;color:var(--text-light,#7A6355);margin-top:2px"><span id="editNotesCount">0</span>/${notesMax}</div>
       </div>
-      ${notesPrefix ? `<p style="font-size:.75rem;color:var(--text-light,#7A6355);margin-top:6px">Your collection time (${escHtml(preNotes.collect || '—')}) stays on the order.</p>` : ''}
+      ${notesPrefix && !showCollectionPicker ? `<p style="font-size:.75rem;color:var(--text-light,#7A6355);margin-top:6px">Your collection time (${escHtml(preNotes.collect || '—')}) stays on the order.</p>` : ''}
     </div>
   `);
+
+  // Collection radios use the same markup and classes as the ordering page
+  // (app.js) so the customer sees the control they already used.
+  document.querySelectorAll('.edit-extras input[name="collectionTime"]').forEach(radio => {
+    radio.addEventListener('change', e => {
+      if (e.target.checked) chosenCollection = e.target.value;
+    });
+  });
 
   // Set notes value via .value (not HTML) so user input is safe from injection.
   const notesEl = document.getElementById('editNotes');
@@ -524,9 +569,12 @@ function enterEditMode(order) {
       const pickerDiv = hasVariants
         ? `<div class="edit-variant-picker" data-idx="${idx}" style="display:none;margin-top:8px;padding:10px 12px;background:var(--cream,#f9f5f0);border-radius:8px"></div>`
         : '';
+      // Quantity controls STAY here, unlike the customer cart: a stored order's
+      // items can legitimately have quantity > 1 (walk-ups, and anything placed
+      // before per-item notes existed), and this flow does not de-merge them.
       return `<li class="edit-item-row" data-idx="${idx}">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
-          <span class="edit-item-name">${label}</span>
+          <span class="edit-item-name">${escHtml(label)}</span>
           <div class="edit-item-controls">
             <button class="edit-qty-btn" data-idx="${idx}" data-action="dec">−</button>
             <span class="edit-qty">${i.quantity || 1}</span>
@@ -535,6 +583,9 @@ function enterEditMode(order) {
             ${toggleBtn}
           </div>
         </div>
+        <input type="text" class="edit-item-note" maxlength="${itemNoteMax}" data-idx="${idx}"
+          placeholder="Note for this drink (e.g. less sugar)"
+          aria-label="Note for ${escHtml(label)}" value="${escHtml(i.note || '')}">
         ${pickerDiv}
       </li>`;
     }).join('');
@@ -556,6 +607,18 @@ function enterEditMode(order) {
       btn.addEventListener('click', () => {
         items.splice(parseInt(btn.dataset.idx), 1);
         renderEditItems();
+      });
+    });
+
+    // Per-item note: write straight into the working item on `input` and never
+    // re-render from here. renderEditItems() replaces the whole list, so a
+    // re-render per keystroke would destroy the input being typed into and lose
+    // focus and caret position. The value is read back from `items` whenever a
+    // quantity change or a removal does force a re-render.
+    listEl.querySelectorAll('.edit-item-note').forEach(input => {
+      input.addEventListener('input', () => {
+        const it = items[parseInt(input.dataset.idx)];
+        if (it) it.note = input.value;
       });
     });
 
@@ -629,7 +692,7 @@ function enterEditMode(order) {
     } else {
       pickerListEl.innerHTML = picks.map((m, idx) => `
         <li data-pick-idx="${idx}" style="padding:14px 20px;border-bottom:1px solid var(--cream-dark,#eee);cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px">
-          <div style="flex:1;min-width:0"><div style="font-weight:600;color:var(--text,#3D2B1F)">${m.name}</div>${m.category ? `<div style="font-size:.75rem;color:var(--text-light,#7A6355);margin-top:2px">${m.category === 'DRINK' ? '🥤 Drink' : '🍔 Food'}</div>` : ''}</div>
+          <div style="flex:1;min-width:0"><div style="font-weight:600;color:var(--text,#3D2B1F)">${escHtml(m.name)}</div>${m.category ? `<div style="font-size:.75rem;color:var(--text-light,#7A6355);margin-top:2px">${m.category === 'DRINK' ? '🥤 Drink' : '🍔 Food'}</div>` : ''}</div>
           <span style="color:var(--primary,#6B4226);font-weight:700;white-space:nowrap">${isPre ? 'Free' : `RM ${(m.basePrice || 0).toFixed(2)}`}</span>
         </li>
       `).join('');
@@ -680,20 +743,28 @@ function enterEditMode(order) {
     const notesToSend = notesPrefix
       ? (trimmedNotes ? `${notesPrefix} | ${trimmedNotes}` : notesPrefix)
       : notes;
+    const body = {
+      action: 'update',
+      // `note` is per ITEM, omitted when empty rather than sent as ''. The
+      // backend caps it at 80 trimmed characters and answers 400 over that.
+      items: items.map(i => ({
+        menuItemId: i.menuItemId,
+        variant: i.variant,
+        quantity: i.quantity || 1,
+        selectedVariants: i.selectedVariants || null,
+        note: (typeof i.note === 'string' ? i.note.trim() : '') || undefined,
+      })),
+      notes: notesToSend,
+    };
+    // Only sent when the picker was actually rendered AND an option is selected.
+    // The backend rejects anything that is not one of the link's allowed options,
+    // and omitting the field leaves the stored collection time alone.
+    if (showCollectionPicker && chosenCollection) body.collectionTime = chosenCollection;
     try {
       const res = await fetch(`${API_BASE}/api/orders/${orderId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'update',
-          items: items.map(i => ({
-            menuItemId: i.menuItemId,
-            variant: i.variant,
-            quantity: i.quantity || 1,
-            selectedVariants: i.selectedVariants || null,
-          })),
-          notes: notesToSend,
-        })
+        body: JSON.stringify(body)
       });
       if (res.status === 409) {
         isEditing = false;

@@ -1,5 +1,5 @@
 // admin-checklist.js — Checklist configuration
-// Depends on: admin.js (api, showError, showSuccess, $)
+// Depends on: admin.js (api, showError, showSuccess, $, escapeAttr)
 
 // --- Checklist ---
 async function loadChecklist(container){
@@ -18,7 +18,7 @@ function renderChecklistAdmin(container, config){
       return `<div class="admin-card cl-row ${enabled?'':'is-disabled'}" data-cl-row>
       <span class="cl-handle" data-drag-phase="${phase}" title="Drag to reorder" aria-hidden="true">⠿</span>
       <span class="cl-num">${i+1}.</span>
-      <input class="pos-input cl-label" value="${item.label}" data-phase="${phase}" data-idx="${i}" data-field="label">
+      <input class="pos-input cl-label" value="${escapeAttr(item.label)}" data-phase="${phase}" data-idx="${i}" data-field="label">
       <select class="pos-input cl-type" data-phase="${phase}" data-idx="${i}" data-field="type">
         <option value="checkbox" ${item.type==='checkbox'?'selected':''}>Checkbox</option>
         <option value="text" ${item.type==='text'?'selected':''}>Text input</option>

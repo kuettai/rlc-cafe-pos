@@ -1,5 +1,6 @@
 // admin-ingredients.js — Ingredients + stock history
-// Depends on: admin.js (api, showError, showFormModal, showSuccess, $)
+// Depends on: admin.js (api, showError, showFormModal, showSuccess, $,
+//             escapeHtml, escapeAttr)
 
 // --- Ingredients ---
 async function loadIngredients(container){
@@ -52,21 +53,21 @@ function renderIngredientsSection(container, items, menuItems, recipes){
     sorted.forEach(ing=>{
       const isActive = ing.isActive !== false;
       const isLow = isActive && ing.currentStock <= (ing.lowStockThreshold||0);
-      const usageLabel = ing.usageUnit ? ` · recipe unit: ${ing.usageUnit}` : '';
+      const usageLabel = ing.usageUnit ? ` · recipe unit: ${escapeHtml(ing.usageUnit)}` : '';
       html += `<div class="admin-card ${isActive ? '' : 'is-disabled'}">
         <div class="admin-card-header">
           <div>
-            <div class="admin-card-title">${ing.name}${isActive ? '' : ' <span class="admin-card-badge badge-disabled" style="margin-left:6px">Disabled</span>'}</div>
-            <div class="admin-card-subtitle">${ing.currentStock} ${ing.unit} · ${ing.storageLocation||'—'}${usageLabel}${isActive ? '' : ' · <em>drinks that use this should be disabled from the Menu tab</em>'}</div>
+            <div class="admin-card-title">${escapeHtml(ing.name)}${isActive ? '' : ' <span class="admin-card-badge badge-disabled" style="margin-left:6px">Disabled</span>'}</div>
+            <div class="admin-card-subtitle">${Number(ing.currentStock||0)} ${escapeHtml(ing.unit)} · ${escapeHtml(ing.storageLocation||'—')}${usageLabel}${isActive ? '' : ' · <em>drinks that use this should be disabled from the Menu tab</em>'}</div>
           </div>
           <div class="admin-card-actions">
             ${isLow ? '<span class="admin-card-badge badge-inactive">Low Stock</span>' : ''}
             <label class="toggle-switch" title="${isActive?'Click to disable':'Click to enable'}">
-              <input type="checkbox" data-toggle-ing="${ing.ingredientId}" ${isActive?'checked':''}>
+              <input type="checkbox" data-toggle-ing="${escapeAttr(ing.ingredientId)}" ${isActive?'checked':''}>
               <span class="toggle-slider"></span>
             </label>
-            <button class="pos-btn pos-btn-sm" data-edit-ing="${ing.ingredientId}">Edit</button>
-            <button class="pos-btn pos-btn-sm pos-btn-danger" data-del-ing="${ing.ingredientId}">Delete</button>
+            <button class="pos-btn pos-btn-sm" data-edit-ing="${escapeAttr(ing.ingredientId)}">Edit</button>
+            <button class="pos-btn pos-btn-sm pos-btn-danger" data-del-ing="${escapeAttr(ing.ingredientId)}">Delete</button>
           </div>
         </div>
       </div>`;
@@ -87,16 +88,16 @@ function renderIngredientsSection(container, items, menuItems, recipes){
       const variantRecipes = recipes.filter(r=>r.PK.startsWith(`RECIPE#${id}#`) && r.PK!==`RECIPE#${id}#default`);
       const baseStr = baseRecipe.map(r=>{
         const ing = items.find(i=>i.ingredientId===r.ingredientId);
-        return `${r.quantity}${ing?.usageUnit||''} ${ing?.name||'?'}`;
+        return `${Number(r.quantity||0)}${escapeHtml(ing?.usageUnit||'')} ${escapeHtml(ing?.name||'?')}`;
       }).join(', ') || '<em style="color:var(--text-light)">not set</em>';
       const overrideCount = variantRecipes.length;
       html += `<div class="admin-card" style="padding:12px 16px">
         <div class="admin-card-header">
           <div>
-            <div class="admin-card-title" style="font-size:.95rem">${mi.name}</div>
+            <div class="admin-card-title" style="font-size:.95rem">${escapeHtml(mi.name)}</div>
             <div class="admin-card-subtitle">Base: ${baseStr}${overrideCount ? ` · ${overrideCount} variant override(s)` : ''}</div>
           </div>
-          <button class="pos-btn pos-btn-sm" data-edit-recipe="${id}">Edit</button>
+          <button class="pos-btn pos-btn-sm" data-edit-recipe="${escapeAttr(id)}">Edit</button>
         </div>
       </div>`;
     });
@@ -161,18 +162,22 @@ function openRecipeForm(container, menuItem, ingredients, allRecipes, menuItems)
   const form = document.createElement('div');
   form.className = 'admin-form';
 
+  // `prefix` carries a variant id that can be a free-text legacy variant NAME,
+  // so it is escaped like any other admin-entered value. The DOM attribute value
+  // is unchanged by escaping, so the `[data-prefix="…"]` lookups below still
+  // match — see the note there about the selector side.
   function ingSelect(row, idx, prefix){
-    return `<select class="pos-input" data-prefix="${prefix}" data-ri="${idx}" data-rf="ingredientId" style="flex:2">
+    return `<select class="pos-input" data-prefix="${escapeAttr(prefix)}" data-ri="${idx}" data-rf="ingredientId" style="flex:2">
       <option value="">-- Select --</option>
-      ${ingredients.map(ing=>`<option value="${ing.ingredientId}" ${ing.ingredientId===row.ingredientId?'selected':''}>${ing.name} (${ing.usageUnit||ing.unit})</option>`).join('')}
+      ${ingredients.map(ing=>`<option value="${escapeAttr(ing.ingredientId)}" ${ing.ingredientId===row.ingredientId?'selected':''}>${escapeHtml(ing.name)} (${escapeHtml(ing.usageUnit||ing.unit)})</option>`).join('')}
     </select>`;
   }
 
   function renderRows(rows, prefix){
     return rows.map((r,i)=>`<div style="display:flex;gap:8px;margin-bottom:6px;align-items:center">
       ${ingSelect(r,i,prefix)}
-      <input type="number" step="0.1" class="pos-input" data-prefix="${prefix}" data-ri="${i}" data-rf="quantity" value="${r.quantity||''}" placeholder="Qty" style="flex:1">
-      <button class="pos-btn pos-btn-sm pos-btn-danger" data-prefix="${prefix}" data-rr="${i}" style="min-width:32px">✕</button>
+      <input type="number" step="0.1" class="pos-input" data-prefix="${escapeAttr(prefix)}" data-ri="${i}" data-rf="quantity" value="${r.quantity||''}" placeholder="Qty" style="flex:1">
+      <button class="pos-btn pos-btn-sm pos-btn-danger" data-prefix="${escapeAttr(prefix)}" data-rr="${i}" style="min-width:32px">✕</button>
     </div>`).join('');
   }
 
@@ -185,13 +190,13 @@ function openRecipeForm(container, menuItem, ingredients, allRecipes, menuItems)
         const vname = v.name||v;
         const rows = variantOverrides[vid]||[];
         variantHtml += `<div style="margin-bottom:12px;padding:10px;background:var(--cream,#f9f5f0);border-radius:8px">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><strong style="font-size:.9rem">${vname}</strong><button class="pos-btn pos-btn-sm" data-add-override="${vid}">+ Add</button></div>
-          <div data-override-list="${vid}">${rows.length ? renderRows(rows, `v_${vid}`) : '<span style="font-size:.8rem;color:var(--text-light)">No override — uses base recipe</span>'}</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><strong style="font-size:.9rem">${escapeHtml(vname)}</strong><button class="pos-btn pos-btn-sm" data-add-override="${escapeAttr(vid)}">+ Add</button></div>
+          <div data-override-list="${escapeAttr(vid)}">${rows.length ? renderRows(rows, `v_${vid}`) : '<span style="font-size:.8rem;color:var(--text-light)">No override — uses base recipe</span>'}</div>
         </div>`;
       });
     }
 
-    form.innerHTML = `<h3>Recipe: ${menuItem.name}</h3>
+    form.innerHTML = `<h3>Recipe: ${escapeHtml(menuItem.name)}</h3>
       <h4 style="margin-bottom:8px">Base Ingredients</h4>
       <div id="baseRows">${renderRows(baseRows, 'base')}</div>
       <button class="pos-btn pos-btn-sm" id="addBaseRow" style="margin-top:6px">+ Add Ingredient</button>
@@ -207,14 +212,19 @@ function openRecipeForm(container, menuItem, ingredients, allRecipes, menuItems)
     form.querySelectorAll('[data-prefix="base"][data-rr]').forEach(btn=>btn.onclick=()=>{ baseRows.splice(+btn.dataset.rr,1); if(!baseRows.length) baseRows.push({ingredientId:'',quantity:0}); render(); });
     form.querySelector('#addBaseRow').onclick=()=>{ baseRows.push({ingredientId:'',quantity:0}); render(); };
 
-    // Bind variant overrides
+    // Bind variant overrides.
+    // `vid` is free text (a legacy variant name when the variant has no id), so
+    // it goes through CSS.escape before it is spliced into a SELECTOR — escaping
+    // the HTML above protects the markup, but an unescaped quote here is a
+    // SyntaxError that takes the whole recipe form down. Same treatment as
+    // admin-preorder.js's `input[data-drink-id="…"]` lookup.
     variants.forEach(v=>{
       const vid = v.id||v.name||v;
-      const prefix = `v_${vid}`;
+      const prefix = CSS.escape(`v_${vid}`);
       form.querySelectorAll(`[data-prefix="${prefix}"][data-rf="ingredientId"]`).forEach(s=>s.onchange=()=>{ variantOverrides[vid][+s.dataset.ri].ingredientId=s.value; });
       form.querySelectorAll(`[data-prefix="${prefix}"][data-rf="quantity"]`).forEach(inp=>inp.oninput=()=>{ variantOverrides[vid][+inp.dataset.ri].quantity=+inp.value; });
       form.querySelectorAll(`[data-prefix="${prefix}"][data-rr]`).forEach(btn=>btn.onclick=()=>{ variantOverrides[vid].splice(+btn.dataset.rr,1); render(); });
-      form.querySelector(`[data-add-override="${vid}"]`).onclick=()=>{ if(!variantOverrides[vid]) variantOverrides[vid]=[]; variantOverrides[vid].push({ingredientId:'',quantity:0}); render(); };
+      form.querySelector(`[data-add-override="${CSS.escape(String(vid))}"]`).onclick=()=>{ if(!variantOverrides[vid]) variantOverrides[vid]=[]; variantOverrides[vid].push({ingredientId:'',quantity:0}); render(); };
     });
 
     form.querySelector('#cancelRecipe').onclick=()=>form._overlay.remove();
@@ -244,7 +254,7 @@ function openIngredientForm(container, ing, allItems){
   form.className = 'admin-form';
   form.innerHTML = `<h3>${isEdit?'Edit':'Add'} Ingredient</h3>
     <div class="admin-form-row">
-      <div class="admin-form-group"><label>Name</label><input id="ifName" class="pos-input" value="${ing?.name||''}"></div>
+      <div class="admin-form-group"><label>Name</label><input id="ifName" class="pos-input" value="${escapeAttr(ing?.name||'')}"></div>
       <div class="admin-form-group"><label>Stock Unit (how you count it)</label><select id="ifUnit" class="pos-input">
         <option value="bottles" ${ing?.unit==='bottles'?'selected':''}>bottles</option>
         <option value="bags" ${ing?.unit==='bags'?'selected':''}>bags</option>

@@ -44,9 +44,18 @@ it.
 | `preorder-pending.test.ts` | ministry pre-orders as PENDING — free release (single and bulk), the preserved ISO `expiresAt`, the create/edit restriction parity, the backend-owned notes prefix, `closeCafe` skipping pre-orders, and the `expirePreOrders` recovery path |
 | `preorder-pending-gaps.test.ts` | the coverage holes a mutation audit found in the suite above — the 1-hour PENDING sweep **skipping** pre-orders (previously staged with an empty result, so untested), the `409` on a stale status for the single-order release, `getOrder`'s five pre-order response fields, and the admin daily-report pre-order bucket in both directions (its only prior coverage was the live integration suite) |
 | `push-vapid.test.ts` | web push VAPID config — read from SSM (`/rlc-cafe/VAPID_*`) and cached, paginated, env fallback, and above all that a **missing or malformed config LOGS instead of returning silently**; plus the `vapid-public-key` route, including its refusal to serve a public key whose private counterpart is missing. SSM, DynamoDB and `web-push` are all mocked — nothing is sent, nothing is read for real |
+| `item-notes.test.ts` | per-item special requests — `validateItemNote` / `ITEM_NOTE_MAX_LENGTH` (80 chars **measured trimmed**), the create/edit parity of the cap and its two 400 messages, and that `note` is persisted **only when non-empty** so a note-free order's items stay byte-identical to the pre-feature shape. Also that a rejected note returns before any write, so `foodReserved` is never left moved. 31 tests |
+| `preorder-collection-time.test.ts` | editable pre-order collection times — `resolveCollectionTime` against the link's `collectionOptions` (and the `DEFAULT_COLLECTION_OPTIONS` fallback, including the hard-deleted-link fail-closed case), `parsePreorderCollectionTime`, `createOrder` now validating the field it used to accept as free text, `modifyOrder` rebuilding the prefix with the code taken from the **stored record** rather than the body, the `notes = :n` clause being emitted for a time-only change, a validated time **creating** a prefix that did not exist, `getOrder`'s two pre-order-only response fields, and that `expiresAt` is still untouched. 70 tests |
 | `test-markers.test.ts` | the test-data marker contract (below) |
 
 These mock DynamoDB. They touch nothing real.
+
+`item-notes.test.ts` and `preorder-collection-time.test.ts` are fully mocked and
+offline: both `jest.mock('../src/lib/db', …)`, which is the **only** DynamoDB
+client in the backend, plus `../src/routes/customers`. They make no network call,
+need **no credentials**, write **nothing** to production, and therefore need **no
+`ZZTEST_` marker** — the prefix rule below applies only to suites that create real
+records. Verified rather than assumed.
 
 ## Category 2 — writes to PRODUCTION, ask first
 
