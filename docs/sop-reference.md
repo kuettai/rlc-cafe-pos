@@ -65,8 +65,14 @@ Extracted from church documents. Source: `SOP Set Up & Closing (153) v8.docx` an
 
 ## Payment & Pricing
 
-- **Payment method:** QR payment (Maybank DuitNow)
-- **iPad password:** 153153
+- **Payment method:** QR payment (Maybank DuitNow). The QR is **physical** —
+  printed on the café tables — so no app surface renders one. Payment is
+  QR-only: no cash, no card.
+- **iPad password:** not recorded here. Ask a café admin. This repository is
+  public, so shared credentials must never be committed to it — the previous
+  value was removed on 2026-08-18 and should be treated as compromised
+  regardless of whether it still works, because it remains readable in git
+  history.
 - **POS app:** Loyverse (green) → **replaced by our system**
 
 ### Pricing Rules
