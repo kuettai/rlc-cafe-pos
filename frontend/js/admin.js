@@ -85,6 +85,199 @@ function escapeHtml(s){
 /** Same escaping as escapeHtml — a name that reads correctly at an attribute. */
 function escapeAttr(s){ return escapeHtml(s); }
 
+/**
+ * Malaysia-time dates — the ONE place the admin bundle converts.
+ *
+ * The café runs on Malaysian wall-clock time (UTC+8, no DST), so every "what
+ * day is it" decision has to be made in MYT. Eight sites across admin-*.js
+ * derived today from `new Date().toISOString()`, which is UTC: before 08:00 MYT
+ * the whole admin was a day behind. The worst of them was the pre-order form,
+ * which computed next Sunday from the machine's LOCAL day and then serialised
+ * through UTC, so a link created between midnight and 08:00 got a Saturday
+ * `serviceDate`.
+ *
+ * Mirrors `malaysiaToday` / `malaysiaClock` in `backend/src/lib/date.ts`, which
+ * stays the source of truth for anything the backend decides. This is the
+ * frontend admin bundle's copy for the same reason the escaper is per-bundle:
+ * there is no shared frontend util module, and adding one costs a new `SHELL`
+ * entry plus a script tag on every page. `pos.js` carries its own `mytDate()`
+ * for the POS bundle.
+ */
+const ADMIN_MYT_OFFSET_MS = 8 * 60 * 60 * 1000;
+
+/** Today's calendar date in MYT as YYYY-MM-DD. */
+function mytToday(now){
+  return new Date((now ? now.getTime() : Date.now()) + ADMIN_MYT_OFFSET_MS)
+    .toISOString().slice(0, 10);
+}
+
+/**
+ * Calendar arithmetic on a YYYY-MM-DD string, with no timezone in it at all.
+ * Anchored at explicit UTC midnight, so these are safe on any machine and are
+ * the right tool once `mytToday()` has decided what "today" is.
+ */
+function isoAddDays(dateIso, days){
+  const d = new Date(`${dateIso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Day of week of a YYYY-MM-DD calendar date, 0 = Sunday. */
+function isoDayOfWeek(dateIso){ return new Date(`${dateIso}T00:00:00Z`).getUTCDay(); }
+
+/** A MYT calendar date as "Sun 24 Aug", read at explicit UTC midnight so the
+ *  machine's own timezone cannot shift the weekday. */
+const ADMIN_DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const ADMIN_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function mytDayLabel(dateIso){
+  if(!dateIso) return '';
+  const d = new Date(`${dateIso}T00:00:00Z`);
+  if(!Number.isFinite(d.getTime())) return dateIso;
+  return `${ADMIN_DAYS[d.getUTCDay()]} ${d.getUTCDate()} ${ADMIN_MONTHS[d.getUTCMonth()]}`;
+}
+
+// ─── Unsaved work: ONE guard for the whole admin ──────────────────────
+//
+// The admin had no dirty tracking of any kind: `loadTab()` replaces
+// `#adminContent`, so tapping another sidebar tab discarded every pending
+// Checklist or Settings edit silently, with no warning and nothing to recover
+// from. The explicit-Save model stays — nothing here writes anything.
+//
+// A tab OPTS IN by calling `watchUnsaved()` with a `read()` that snapshots its
+// editable state and a `count(baseline, current)` that says how many changes
+// that represents. Diffing against a baseline (rather than setting a flag on
+// first keystroke) is what makes the guard stay quiet when an edit is typed and
+// then undone.
+let _unsaved = null;   // { tab, label, read, count, save, baseline }
+
+// `baseline` is explicit for a tab that re-renders itself in place (the
+// Checklist rebuilds its whole DOM on every reorder), where snapshotting at
+// registration time would silently re-baseline and lose the pending count.
+function watchUnsaved({ tab, label, read, count, save, baseline }){
+  _unsaved = {
+    tab, label: label || tab, read, count: count || countLeafChanges, save,
+    baseline: baseline !== undefined ? baseline : read(),
+  };
+  renderUnsavedIndicators();
+}
+
+/**
+ * Re-baseline after a successful save — that work is no longer at risk.
+ *
+ * `keys` re-baselines only part of the snapshot, which the Settings tab needs:
+ * it has two independent Save buttons, and saving the pre-order templates must
+ * not quietly mark a pending café-status edit as written.
+ */
+function markUnsavedSaved(keys){
+  if(_unsaved){
+    const current = _unsaved.read();
+    if(!keys) _unsaved.baseline = current;
+    else for(const k of keys) _unsaved.baseline[k] = current[k];
+  }
+  renderUnsavedIndicators();
+}
+
+/** Drop the watch (tab left, or its state deliberately discarded). */
+function clearUnsaved(tab){
+  if(_unsaved && (!tab || _unsaved.tab === tab)) _unsaved = null;
+  renderUnsavedIndicators();
+}
+
+/** How many pending changes the watched tab is holding. 0 when nothing differs. */
+function unsavedCount(){
+  if(!_unsaved) return 0;
+  try{ return _unsaved.count(_unsaved.baseline, _unsaved.read()) || 0; }
+  catch(e){ return 0; }   // a half-rendered tab must never block navigation
+}
+
+function unsavedLabel(n){ return `${n} unsaved change${n === 1 ? '' : 's'}`; }
+
+/**
+ * Generic change count: leaves that differ between two snapshots. Suits a flat
+ * settings object and nested arrays whose order is not itself meaningful. A tab
+ * whose rows can be reordered supplies its own counter instead (see
+ * admin-checklist.js) — index-wise diffing would report a reorder as a dozen
+ * changes.
+ */
+function countLeafChanges(a, b){
+  if(a === b) return 0;
+  const aObj = a && typeof a === 'object', bObj = b && typeof b === 'object';
+  if(!aObj || !bObj) return String(a) === String(b) ? 0 : 1;
+  if(Array.isArray(a) || Array.isArray(b)){
+    const av = Array.isArray(a) ? a : [], bv = Array.isArray(b) ? b : [];
+    let n = Math.abs(av.length - bv.length);
+    for(let i = 0; i < Math.min(av.length, bv.length); i++) n += countLeafChanges(av[i], bv[i]);
+    return n;
+  }
+  let n = 0;
+  for(const k of new Set([...Object.keys(a), ...Object.keys(b)])) n += countLeafChanges(a[k], b[k]);
+  return n;
+}
+
+/** The warning dot on the tab holding unsaved work, plus any live save bar. */
+function renderUnsavedIndicators(){
+  const n = unsavedCount();
+  app.querySelectorAll('.sidebar-nav button[data-tab]').forEach(btn=>{
+    const dot = btn.querySelector('.nav-dot');
+    if(!dot) return;
+    const on = !!(_unsaved && _unsaved.tab === btn.dataset.tab && n > 0);
+    dot.hidden = !on;
+    if(on) dot.title = unsavedLabel(n);
+  });
+  const bar = document.querySelector('[data-save-state]');
+  if(bar && typeof bar._render === 'function') bar._render(n);
+}
+
+/**
+ * Run `proceed` — but if the watched tab is holding changes, ask first.
+ *
+ * Deliberately a modal: it is the one moment where continuing destroys work,
+ * and the alternative (a toast you can tap past) is what we are fixing.
+ */
+function guardUnsaved(proceed){
+  const n = unsavedCount();
+  if(!n){ clearUnsaved(); proceed(); return; }
+  const tabName = _unsaved.label;
+  const canSave = typeof _unsaved.save === 'function';
+  const overlay = document.createElement('div');
+  overlay.className = 'admin-guard-overlay';
+  overlay.innerHTML = `<div class="admin-guard" role="dialog" aria-modal="true" aria-labelledby="guardTitle">
+    <h3 id="guardTitle">Leave without saving?</h3>
+    <p><strong>${n}</strong> unsaved change${n === 1 ? '' : 's'} on the ${escapeHtml(tabName)} tab.
+       Nothing has been written yet — leaving now loses ${n === 1 ? 'it' : 'them'}.</p>
+    <div class="admin-guard-actions">
+      <button class="pos-btn pos-btn-primary pos-btn-sm" data-guard="stay">Keep editing</button>
+      ${canSave ? '<button class="pos-btn pos-btn-sm" data-guard="save">Save, then leave</button>' : ''}
+      <button class="pos-btn pos-btn-sm admin-danger-quiet" data-guard="discard">Discard ${n}</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector('[data-guard="stay"]').focus();
+
+  const close = ()=> overlay.remove();
+  overlay.onclick = e => { if(e.target === overlay) close(); };
+  overlay.querySelector('[data-guard="stay"]').onclick = close;
+  overlay.querySelector('[data-guard="discard"]').onclick = ()=>{
+    close(); clearUnsaved(); proceed();
+  };
+  const saveBtn = overlay.querySelector('[data-guard="save"]');
+  if(saveBtn) saveBtn.onclick = async()=>{
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving…';
+    // Only leave if the save actually landed — otherwise the guard was the last
+    // thing standing between the operator and losing the work.
+    const ok = await Promise.resolve(_unsaved.save()).catch(()=>false);
+    if(ok === false){ saveBtn.disabled = false; saveBtn.textContent = 'Save, then leave'; return; }
+    close(); clearUnsaved(); proceed();
+  };
+}
+
+// Reload / close / back. The browser shows its own wording here; all we control
+// is whether it asks at all.
+window.addEventListener('beforeunload', e => {
+  if(unsavedCount() > 0){ e.preventDefault(); e.returnValue = ''; }
+});
+
 // --- Login ---
 function renderLogin(){
   app.innerHTML = `<div class="admin-login">
@@ -114,28 +307,62 @@ function renderLogin(){
 function logout(){ token=null; localStorage.removeItem('pos_token'); localStorage.removeItem('pos_user'); renderLogin(); }
 
 // --- Main app shell ---
+//
+// The 14 destinations are chunked into three labelled groups so the list reads
+// as three decisions rather than one wall, and — the part that actually
+// mattered at 1024x768 — the identity row and the footer are PINNED flex
+// children while only `.sidebar-nav` scrolls. See the comment on
+// `.admin-sidebar` in admin.css for the measurements.
+const ADMIN_NAV = [
+  ['Sunday', [
+    ['dashboard', '📊', 'Dashboard'],
+    ['menu',      '🍽️', 'Menu'],
+    ['checklist', '✅', 'Checklist'],
+    ['reports',   '📈', 'Reports'],
+  ]],
+  ['Setup', [
+    ['ingredients', '🧪', 'Ingredients'],
+    ['planogram',   '📷', 'Planogram'],
+    ['display',     '📺', 'Display'],
+    ['verses',      '✝️', 'Verses'],
+    ['settings',    '⚙️', 'Settings'],
+  ]],
+  ['People &amp; links', [
+    ['users',     '👥', 'Users'],
+    ['vouchers',  '🎟️', 'Vouchers'],
+    ['preorder',  '🔗', 'Pre-Order Links'],
+    ['stafflink', '🎫', 'Staff Link'],
+    ['customers', '👤', 'Customers'],
+  ]],
+];
+
+function navGroupsHtml(){
+  return ADMIN_NAV.map(([label, items], gi) => {
+    const id = `navGroup${gi}`;
+    return `<p class="sidebar-group-label" id="${id}">${label}</p>
+    <div class="sidebar-group" role="group" aria-labelledby="${id}">
+      ${items.map(([tab, ico, text]) => `<button data-tab="${tab}"${tab === currentTab ? ' class="active"' : ''}>
+        <span class="nav-ico" aria-hidden="true">${ico}</span><span class="nav-txt">${text}</span>
+        <span class="nav-dot" hidden></span>
+      </button>`).join('')}
+    </div>`;
+  }).join('');
+}
+
 function renderApp(){
   app.innerHTML = `<aside class="admin-sidebar" id="adminSidebar">
-  <div class="sidebar-header"><span>☕ Admin</span><button class="sidebar-close" id="sidebarClose">✕</button></div>
-  <div class="sidebar-user">👤 ${escapeHtml(currentUser)}</div>
-  <nav class="sidebar-nav">
-    <button data-tab="dashboard" class="active">📊 Dashboard</button>
-    <button data-tab="menu">🍽️ Menu</button>
-    <button data-tab="ingredients">🧪 Ingredients</button>
-    <button data-tab="checklist">✅ Checklist</button>
-    <button data-tab="planogram">📷 Planogram</button>
-    <button data-tab="users">👥 Users</button>
-    <button data-tab="vouchers">🎟️ Vouchers</button>
-    <button data-tab="preorder">🔗 Pre-Order Links</button>
-    <button data-tab="stafflink">🎫 Staff Link</button>
-    <button data-tab="display">📺 Display</button>
-    <button data-tab="customers">👤 Customers</button>
-    <button data-tab="reports">📈 Reports</button>
-    <button data-tab="settings">⚙️ Settings</button>
-    <button data-tab="verses">✝️ Verses</button>
+  <div class="sidebar-top">
+    <span class="sidebar-who">
+      <span class="sidebar-who-name">👤 ${escapeHtml(currentUser)}</span>
+      <span class="sidebar-who-role">Admin</span>
+    </span>
+    <button class="sidebar-close" id="sidebarClose" aria-label="Close menu">✕</button>
+  </div>
+  <nav class="sidebar-nav" aria-label="Admin sections">
+    ${navGroupsHtml()}
   </nav>
   <div class="sidebar-footer">
-    <a href="pos" class="pos-btn pos-btn-sm" style="text-decoration:none;display:block;text-align:center;margin-bottom:8px">Go to POS</a>
+    <a href="pos" class="pos-btn pos-btn-sm" style="text-decoration:none;display:flex;align-items:center;justify-content:center">Go to POS →</a>
     <button class="nav-logout">Logout</button>
   </div>
 </aside>
@@ -158,22 +385,30 @@ function renderApp(){
 
   app.querySelectorAll('.sidebar-nav button[data-tab]').forEach(btn=>{
     btn.onclick=()=>{
-      app.querySelectorAll('.sidebar-nav button').forEach(b=>b.classList.remove('active'));
-      btn.classList.add('active');
-      currentTab = btn.dataset.tab;
-      loadTab();
-      if(window.innerWidth < 900){
-        document.getElementById('adminSidebar').classList.remove('open');
-        document.getElementById('adminOverlay').style.display='';
-      }
+      if(btn.dataset.tab === currentTab) return;
+      // Switching tab replaces #adminContent, which is where unsaved edits live.
+      guardUnsaved(()=>{
+        app.querySelectorAll('.sidebar-nav button').forEach(b=>b.classList.remove('active'));
+        btn.classList.add('active');
+        currentTab = btn.dataset.tab;
+        loadTab();
+        if(window.innerWidth < 900){
+          document.getElementById('adminSidebar').classList.remove('open');
+          document.getElementById('adminOverlay').style.display='';
+        }
+      });
     };
   });
-  app.querySelector('.nav-logout').onclick = logout;
+  app.querySelector('.nav-logout').onclick = ()=> guardUnsaved(logout);
   loadTab();
 }
 
 function loadTab(){
   const c = $('#adminContent');
+  // Whatever was being edited is gone with the container. By here the guard has
+  // already had its say (kept, saved or discarded), so drop the watch and let
+  // the incoming tab register its own.
+  clearUnsaved();
   switch(currentTab){
     case 'dashboard': loadDashboard(c); break;
     case 'menu': loadMenu(c); break;
@@ -425,7 +660,12 @@ function renderSettingsSection(container, settings, templates){
       <div class="admin-setting-row">
         <div class="admin-setting-info"><h4>Celebration Mode</h4><p>All drinks at a flat price</p></div>
         <div class="admin-setting-control">
-          <label class="pos-switch"><input type="checkbox" id="setCelebration" ${settings.celebrationMode?'checked':''}><span class="pos-slider"></span></label>
+          <!-- Uses the admin toggle-switch component, not pos-switch: one
+               switch across the whole admin, and it carries the 44px hit area. -->
+          <label class="toggle-switch" title="Celebration mode — all eligible drinks at the flat price">
+            <input type="checkbox" id="setCelebration" ${settings.celebrationMode?'checked':''} aria-label="Celebration mode">
+            <span class="toggle-slider"></span>
+          </label>
         </div>
       </div>
       <div class="admin-setting-row">
@@ -458,6 +698,8 @@ function renderSettingsSection(container, settings, templates){
     try{
       await api('PUT','/api/admin/settings', body);
       showSuccess('Settings saved');
+      markUnsavedSaved(['cafeStatus','celebrationMode','celebrationPrice',
+                        'orderExpiryMinutes','archiveAfterMinutes']);
     } catch(e){ showError('Failed to save settings'); }
   };
 
@@ -467,6 +709,39 @@ function renderSettingsSection(container, settings, templates){
   if (templates) {
     renderPreorderTemplatesSection(container.querySelector('#preorderTemplatesSection'), templates);
   }
+
+  // ─── Unsaved-work watch ─────────────────────────────────────────────
+  // Both save buttons on this tab stay exactly as they were; this only makes
+  // leaving the tab with pending edits ask first. Registered AFTER the
+  // templates block so its inputs exist for the baseline snapshot.
+  const readSettingsState = ()=>{
+    const q = sel => container.querySelector(sel);
+    const optCbs = [...container.querySelectorAll('#tplOptionList input[data-tpl-opt]')];
+    return {
+      cafeStatus: q('#setCafeStatus') ? q('#setCafeStatus').value : '',
+      celebrationMode: !!(q('#setCelebration') && q('#setCelebration').checked),
+      celebrationPrice: q('#setCelebrationPrice') ? q('#setCelebrationPrice').value : '',
+      orderExpiryMinutes: q('#setExpiry') ? q('#setExpiry').value : '',
+      archiveAfterMinutes: q('#setArchive') ? q('#setArchive').value : '',
+      bannerMessage: q('#tplBanner') ? q('#tplBanner').value : '',
+      eligibleItemKeywords: _preorderTplKeywords.slice(),
+      collectionOptions: _preorderTplCollectionOpts.slice(),
+      // The excluded-option checkboxes are rendered by an async menu fetch, so
+      // before it lands fall back to the saved value — the same reasoning as the
+      // save handler's "an unrendered list is not an empty list". Sorted because
+      // the render orders by price while the stored array does not, and a
+      // reordering is not a change.
+      excludedOptions: (optCbs.length
+        ? optCbs.filter(cb => cb.checked).map(cb => cb.dataset.tplOpt)
+        : (templates && Array.isArray(templates.excludedOptions) ? templates.excludedOptions : [])
+      ).slice().sort(),
+    };
+  };
+  // No `save` here on purpose: this tab has TWO independent Save buttons
+  // (Settings and Templates) and the guard must not decide to write both.
+  watchUnsaved({ tab:'settings', label:'Settings', read: readSettingsState });
+  container.addEventListener('input', renderUnsavedIndicators);
+  container.addEventListener('change', renderUnsavedIndicators);
 }
 
 // ─── Pre-Order Templates section (Admin → Settings) ─────────────────
@@ -528,7 +803,7 @@ function renderPreorderTemplatesSection(host, templates) {
     el.innerHTML = _preorderTplKeywords.map((v, i) => `
       <div style="display:flex;gap:6px;align-items:center">
         <input class="pos-input" data-kw-idx="${i}" value="${escapeAttr(v)}" placeholder="e.g. latte" style="flex:1;margin:0">
-        <button type="button" class="pos-btn pos-btn-sm pos-btn-danger" data-kw-remove="${i}" style="min-width:36px">✕</button>
+        <button type="button" class="pos-btn pos-btn-sm admin-danger-quiet" data-kw-remove="${i}" aria-label="Remove keyword">✕</button>
       </div>`).join('');
     el.querySelectorAll('input[data-kw-idx]').forEach(inp => {
       inp.oninput = () => { _preorderTplKeywords[+inp.dataset.kwIdx] = inp.value; };
@@ -546,7 +821,7 @@ function renderPreorderTemplatesSection(host, templates) {
     el.innerHTML = _preorderTplCollectionOpts.map((v, i) => `
       <div style="display:flex;gap:6px;align-items:center">
         <input class="pos-input" data-opt-idx="${i}" value="${escapeAttr(v)}" placeholder="e.g. After 1st Service" maxlength="60" style="flex:1;margin:0">
-        <button type="button" class="pos-btn pos-btn-sm pos-btn-danger" data-opt-remove="${i}" ${_preorderTplCollectionOpts.length <= 1 ? 'disabled title="Need at least one option"' : ''} style="min-width:36px">✕</button>
+        <button type="button" class="pos-btn pos-btn-sm admin-danger-quiet" data-opt-remove="${i}" aria-label="Remove option" ${_preorderTplCollectionOpts.length <= 1 ? 'disabled title="Need at least one option"' : ''}>✕</button>
       </div>`).join('');
     el.querySelectorAll('input[data-opt-idx]').forEach(inp => {
       inp.oninput = () => { _preorderTplCollectionOpts[+inp.dataset.optIdx] = inp.value; };
@@ -603,7 +878,9 @@ function renderPreorderTemplatesSection(host, templates) {
     listEl.innerHTML = entries.map(([key, e]) => {
       const priceTag = e.price ? ` <span style="color:var(--text-light);font-size:.85rem">+RM ${e.price.toFixed(2)}</span>` : '';
       const onWhat = e.items.length > 2 ? `${e.items.length} drinks` : e.items.map(escapeHtml).join(', ');
-      return `<label style="display:flex;gap:8px;align-items:center;padding:4px 0;font-weight:400">
+      // The whole row is the hit area — the bare checkbox was 13px wide, 32 of
+      // them, on a tablet.
+      return `<label class="admin-check-row">
         <input type="checkbox" data-tpl-opt="${escapeAttr(key)}" data-tpl-type="${escapeAttr(e.type)}" data-tpl-group="${escapeAttr(e.group)}"${tplExcluded.has(key) ? ' checked' : ''}>
         <span>${escapeHtml(e.group)}: <strong>${escapeHtml(e.option)}</strong>${priceTag}
           <span style="color:var(--text-light);font-size:.8rem"> — ${onWhat}</span></span>
@@ -669,6 +946,8 @@ function renderPreorderTemplatesSection(host, templates) {
         bannerMessage, eligibleItemKeywords, collectionOptions, excludedOptions,
       });
       showSuccess('Templates saved');
+      markUnsavedSaved(['bannerMessage','eligibleItemKeywords',
+                        'collectionOptions','excludedOptions']);
     } catch (e) {
       showError('Failed to save templates');
     }

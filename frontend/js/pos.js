@@ -21,6 +21,49 @@ let celebrationPrice = 5;   // flat price for celebration-eligible drinks
 let featuredDrink = null;  // { menuItemId, name, basePrice, imageUrl } or null
 let searchFilter = '';
 let prevUrgentIds = [];
+// Which tab the LIST view is showing. Held here rather than read back off the DOM
+// so the 7s poll can restore it: renderBoard() used to rebuild the tab strip with
+// Pending hardcoded active, so a volunteer on the Ready tab handing over a drink
+// was thrown back to Pending within 7 seconds, mid-task.
+let listTab = 'PENDING';
+// Whether the stats strip is collapsed. Visible by default now, so this only
+// records a deliberate collapse and survives the re-render on every poll.
+let statsCollapsed = false;
+
+// --- Connection health -------------------------------------------------------
+// `lastGoodFetch` is the timestamp of the last SUCCESSFUL queue poll; `fetchFailed`
+// says whether the most recent attempt failed. Together they drive the stale
+// board treatment.
+//
+// Why this exists: renderBoard() was reachable only from inside fetchOrders()'s
+// try block and the catch only called showError(), which auto-hides after 3s
+// against a 7s poll. So a café whose API had gone away rendered an EMPTY board
+// under a green OPEN badge — visually identical to "nobody has ordered" — and the
+// only warning was on screen 43% of the time. The board must never be able to lie
+// about being quiet.
+let lastGoodFetch = null;
+let fetchFailed = false;
+let retryInFlight = false;
+function isStale(){ return fetchFailed && lastGoodFetch !== null; }
+// True before the first successful poll has ever landed. Distinct from stale:
+// there is no "as it was at" time to show, so the copy has to differ.
+function isColdFailure(){ return fetchFailed && lastGoodFetch === null; }
+function clockStr(d){
+  return new Date(d).toLocaleTimeString('en-MY',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}
+// "5m 35s" — how old the board is. Seconds matter under a minute; beyond an hour
+// nobody needs the seconds.
+function ageStr(since){
+  const s = Math.max(0, Math.floor((Date.now() - since)/1000));
+  if(s < 60) return `${s}s`;
+  const m = Math.floor(s/60), r = s%60;
+  if(m < 60) return r ? `${m}m ${r}s` : `${m}m`;
+  return `${Math.floor(m/60)}h ${m%60}m`;
+}
+// Actions are paused while the board is stale: approving against a queue that may
+// have moved on is how an order gets approved twice, or the wrong one rejected.
+function actionsPaused(){ return fetchFailed; }
+function disabledAttr(){ return actionsPaused() ? ' disabled' : ''; }
 
 // --- Auth helpers ---
 function authHeaders(){ return { 'Content-Type':'application/json', Authorization:`Bearer ${token}` }; }
@@ -166,7 +209,14 @@ function showPinChangeModal(){
 // --- Main view ---
 function renderMain(){
   app.innerHTML = `<aside class="pos-sidebar" id="posSidebar">
-  <div class="pos-sidebar-user">👤 ${currentUser} <span class="pos-status-dot ${cafeOpen?'open':'closed'}"></span></div>
+  <!-- Name on its own line with the state under it: at 220px a name plus a pill
+       wraps into an orphaned word, and this row is read at a glance to confirm who
+       is on the till. The state is a WORD as well as a colour — a bare dot is a
+       single-channel signal, and this one was the wrong colour anyway (see
+       renderStatusDot). -->
+  <div class="pos-sidebar-user">👤 ${escapeHtmlPos(currentUser)}
+    <span class="pos-status-chip ${cafeOpen?'is-open':'is-closed'}"><span class="pos-status-dot ${cafeOpen?'open':'closed'}"></span><span id="posStatusText">${cafeOpen?'OPEN':'CLOSED'}</span></span>
+  </div>
   <div class="pos-sidebar-section-label">Quick Actions</div>
   <div class="pos-sidebar-actions">
     <button id="btnVoucher" class="pos-action-btn pos-action-primary">🎟️ Voucher</button>
@@ -182,16 +232,34 @@ function renderMain(){
     <button id="btnStockCount" class="pos-sidebar-btn">📦 Stock Count</button>
     <button id="btnPlanogram" class="pos-sidebar-btn">📷 AI Scan</button>
     <button id="btnHistory" class="pos-sidebar-btn">📜 History</button>
-    <button id="btnStats" class="pos-sidebar-btn">📊 Stats</button>
+    <!-- Ingredient usage moved out of the stats strip. It is a REPORT, like History
+         and Stats, and as a 44px button inside a strip of ~23px readouts it was
+         setting that strip's whole row height — the strip is now on screen
+         permanently, so that cost 20px of board on every render. Here it also gets a
+         readable label instead of a bare 📦. -->
+    <button id="btnIngUsed" class="pos-sidebar-btn">📦 Ingredients Used</button>
+    <button id="btnStats" class="pos-sidebar-btn">${statsCollapsed?'📊 Show Stats':'📊 Hide Stats'}</button>
   </nav>
-  <div class="pos-sidebar-footer">
-  </div>
 </aside>
 <div class="pos-sidebar-overlay" id="posSidebarOverlay"></div>
 <main class="pos-main">
-  <div id="closedBanner" class="pos-closed-banner${cafeOpen?'':' visible'}" role="alert" aria-live="assertive">⚠️ CAFÉ IS CLOSED — Customers cannot order. Tap Open to start service.</div>
+  <!-- The closed banner now CARRIES the primary action. It used to read "Tap Open
+       to start service" while the only ☀️ Open Café button lived in the sidebar at
+       left:-212px — an instruction pointing off-canvas. -->
+  <div id="closedBanner" class="pos-closed-banner${cafeOpen?'':' visible'}" role="alert" aria-live="assertive">
+    <div class="pos-closed-txt">
+      <strong>⚠️ The café is closed — customers cannot order yet</strong>
+      <span>Finish the opening checklist, then open the café.</span>
+    </div>
+    <button id="btnOpenCafeBanner" class="pos-btn-open-cafe">☀️ Open Café</button>
+  </div>
+  <!-- Persistent connection-lost panel. Empty and hidden until a poll fails;
+       filled by renderConnectionState(). Deliberately NOT the 3s-auto-hiding
+       #errorBanner: the whole defect was a warning that disappeared while the
+       fault continued. -->
+  <div id="staleBanner" class="pos-stale-banner" role="alert" aria-live="assertive"></div>
   <div id="celebBanner" class="pos-celeb-banner${celebrationMode?' visible':''}" role="status" aria-live="polite">🎉 CELEBRATION MODE — All eligible drinks discounted</div>
-  <div id="posStats" class="pos-stats-bar"></div>
+  <div id="posStats" class="pos-stats-bar${statsCollapsed?' collapsed':''}"></div>
   <div class="pos-controls">
     <!-- Walk-up lives here, not in the sidebar. A customer arriving at the
          counter is the most time-critical action a cashier takes, and it used
@@ -205,7 +273,7 @@ function renderMain(){
          inviting a tap that would do nothing. renderStats keeps the count fresh
          on every poll. -->
     <button id="btnReleasePreorders" class="pos-btn pos-btn-sm pos-btn-preorder-release" hidden></button>
-    <button id="btnFeatured" class="pos-btn pos-btn-sm pos-btn-outline pos-btn-featured${featuredDrink?' pos-btn-featured-active':''}">⭐ ${featuredDrink?featuredDrink.name:'Set Featured'}</button>
+    <button id="btnFeatured" class="pos-btn pos-btn-sm pos-btn-outline pos-btn-featured${featuredDrink?' pos-btn-featured-active':''}">⭐ ${featuredDrink?escapeHtmlPos(featuredDrink.name):'Set Featured'}</button>
     <button id="btnView" class="pos-btn pos-btn-sm pos-btn-outline">${viewMode==='kanban'?'📋 List':'📊 Kanban'}</button>
     <span id="lastRefresh" class="pos-last-refresh"></span>
   </div>
@@ -218,6 +286,9 @@ function renderMain(){
     $('#posSidebar').classList.remove('open');
   };
   $('#btnCafeToggle').onclick = toggleCafe;
+  // Same destination as the sidebar toggle, reached from the banner that names it.
+  const openBannerBtn = document.getElementById('btnOpenCafeBanner');
+  if(openBannerBtn) openBannerBtn.onclick = ()=> openChecklist('open');
   $('#btnCelebration').onclick = async()=>{
     try{
       celebrationMode=!celebrationMode;
@@ -255,11 +326,44 @@ function renderMain(){
     modal.querySelector('#scStore').onclick=()=>{ modal.remove(); openStockCount('storeroom'); };
   };
   $('#btnStockCount').onclick = ()=> openManualStockCount();
-  document.getElementById('headerLogout').onclick = logout;
+  // Logout is GUARDED. The guarding used to be exactly inverted: Tutorial (which
+  // is reversible) sat behind a confirm() while Logout — one tap, ends the shift's
+  // session, in the header next to it — had none at all. Uses the same modal
+  // pattern as askStaffPrice/confirmReleaseAll rather than window.confirm, which
+  // this file already documents as unusable on the counter iPad.
+  document.getElementById('headerLogout').onclick = async ()=>{
+    const active = orders.filter(o=>o.status==='PENDING'||o.status==='PREPARING').length;
+    const ok = await posConfirm({
+      title: 'Log out of the till?',
+      body: active > 0
+        ? `${active} order${active===1?' is':'s are'} still open on the board. They stay on the board for the next volunteer — but you will need your PIN to get back in.`
+        : 'You will need your PIN to get back in. If you are handing over to someone else, use 🔄 Handover instead so the checklist is recorded.',
+      yes: 'Log out',
+      no: 'Stay logged in',
+      danger: true,
+    });
+    if(ok) logout();
+  };
   $('#btnHistory').onclick = openHistory;
-  $('#btnStats').onclick = ()=>{ $('#posStats').classList.toggle('visible'); };
+  $('#btnIngUsed').onclick = showIngredientUsage;
+  // The stats strip is visible by default now, so this button collapses it —
+  // it is no longer the only way to see the numbers at all.
+  $('#btnStats').onclick = ()=>{
+    statsCollapsed = !statsCollapsed;
+    $('#posStats').classList.toggle('collapsed', statsCollapsed);
+    $('#btnStats').textContent = statsCollapsed ? '📊 Show Stats' : '📊 Hide Stats';
+  };
   document.getElementById('headerTutorial').onclick = async ()=>{
-    if(!confirm('Start the training tutorial?')) return;
+    // Still guarded, but by the same dialog as everything else: starting the tour
+    // swaps the live board for mock data and stops the poll, which is genuinely
+    // disruptive mid-service. What was wrong was not that Tutorial asked — it was
+    // that Logout did not.
+    if(!await posConfirm({
+      title: 'Start the training tutorial?',
+      body: 'The board is replaced with practice orders and live updates pause until the tour finishes. Nothing real is changed.',
+      yes: '📖 Start tutorial',
+      no: 'Not now',
+    })) return;
     try{
       await initTrainingMode([]);
       // renderMain() itself schedules startTrainingTour when trainingMode
@@ -305,16 +409,12 @@ async function fetchCafeStatus(){
     if(banner) banner.classList.toggle('visible', celebrationMode);
     const closedBanner = $('#closedBanner');
     if(closedBanner) closedBanner.classList.toggle('visible', !cafeOpen);
+    // One renderer for the badge AND the sidebar dot. They used to be updated in
+    // different places — the badge here, the dot only by renderMain() from a
+    // `cafeOpen` that is false at boot — which is why a grey dot sat beside a
+    // green OPEN badge for an entire shift after login.
     const headerBadge = document.getElementById('headerCafeBadge');
-    if(headerBadge){
-      if(cafeOpen){
-        headerBadge.textContent = '● OPEN';
-        headerBadge.classList.add('is-open');
-      } else {
-        headerBadge.textContent = '';
-        headerBadge.classList.remove('is-open');
-      }
-    }
+    if(headerBadge) renderCafeBadge(headerBadge);
     // Handover button visibility
     const handoverBtn = document.getElementById('btnHandover');
     if(handoverBtn) handoverBtn.style.display = cafeOpen ? '' : 'none';
@@ -382,6 +482,10 @@ async function fetchOrders(){
       : [];
 
     orders = list;
+    // A poll landed: the board is current again. Set BEFORE renderBoard so the
+    // stale chrome is torn down in the same frame the fresh cards appear in.
+    lastGoodFetch = Date.now();
+    fetchFailed = false;
     renderBoard();
 
     // Apply flash to mutated cards after they exist in the DOM.
@@ -403,14 +507,24 @@ async function fetchOrders(){
     if(cancelledOrders.length) playCancelSound();
 
     prevOrdersById = currentById;
-
-    updateLastRefresh();
-  } catch(e){ if(e.message!=='Unauthorized') showError('Failed to fetch orders'); }
-}
-
-function updateLastRefresh(){
-  const el = $('#lastRefresh');
-  if(el) el.textContent = 'Updated ' + new Date().toLocaleTimeString('en-MY',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  } catch(e){
+    // THE failure path. It used to do nothing but call showError(), which
+    // auto-hides after 3s against a 7s poll — so the board rendered whatever it
+    // last had (or nothing at all, on the first poll) under a green OPEN badge,
+    // and the only warning was absent 4 seconds out of every 7.
+    //
+    // Now: mark the data stale and RENDER. renderBoard() draws the lane skeleton
+    // either way, renderConnectionState() puts up a panel that does not auto-hide,
+    // and every action goes inert. `orders` is deliberately left ALONE — the last
+    // known board is more use to a cashier than an empty one, as long as the screen
+    // is honest about its age, which is what the banner and the STALE pill do.
+    //
+    // 401 is not a connection fault: api() has already called logout() and there is
+    // no session left to show a stale board to.
+    if(e.message === 'Unauthorized') return;
+    fetchFailed = true;
+    renderBoard();
+  }
 }
 
 function flashNew(){
@@ -538,6 +652,48 @@ function showNameFlash(name){
 
 function filtered(){ return searchFilter ? orders.filter(o=>(o.customerName||'').toLowerCase().includes(searchFilter)) : orders; }
 
+/**
+ * THE queue comparator. One function, used by the kanban lanes AND the list view,
+ * because they used to disagree: the kanban applied a receipt-first tier and the
+ * list did not, so the same order sat in a different position depending on which
+ * button was last pressed.
+ *
+ * Two tiers:
+ *
+ *  1. RECEIPT FIRST. Someone who has uploaded payment proof outranks someone who
+ *     tapped through the order form and walked away — this tier is production
+ *     behaviour and is kept deliberately. It is the only signal on a PENDING card
+ *     that a real human is committed to the transaction.
+ *
+ *  2. OLDEST FIRST within each tier. This is the change. It was `createdAt`
+ *     DESCENDING, i.e. newest first, so the person who had waited LONGEST was
+ *     rendered LAST: a 17-minute-old order came sixth, roughly 1100px below the
+ *     fold, while the urgent chime and the red border fired on a card nobody
+ *     could see. Preparing and Ready had no sort at all and came back in whatever
+ *     order DynamoDB answered in.
+ *
+ * `createdAt` is used for every status, not `updatedAt` — a cashier is judging how
+ * long the CUSTOMER has waited, and an unrelated edit must not send an order to
+ * the back of the queue.
+ */
+function queueOrder(a, b){
+  const ar = a.receiptUrl ? 0 : 1;
+  const br = b.receiptUrl ? 0 : 1;
+  if(ar !== br) return ar - br;
+  // Oldest first. An unparseable/absent createdAt sorts last rather than
+  // pretending to be from 1970 and hijacking the top of the lane.
+  const at = new Date(a.createdAt).getTime();
+  const bt = new Date(b.createdAt).getTime();
+  const av = Number.isFinite(at) ? at : Infinity;
+  const bv = Number.isFinite(bt) ? bt : Infinity;
+  return av - bv;
+}
+
+// Orders of one status, filtered by the search box, in queue order.
+function laneOrders(status){
+  return filtered().filter(o => o.status === status).sort(queueOrder);
+}
+
 function renderStats(){
   // Pending INCLUDES ministry pre-orders, deliberately. The badge must equal the
   // number of rows visible in the Pending tab — if it says 5 and the volunteer
@@ -545,7 +701,10 @@ function renderStats(){
   const pending = orders.filter(o=>o.status==='PENDING').length;
   const preparing = orders.filter(o=>o.status==='PREPARING').length;
   const ready = orders.filter(o=>o.status==='READY').length;
-  const total = orders.length;
+  // There used to be a "Queue" stat here showing `orders.length`, which is exactly
+  // Waiting + Making + Ready — all three of which sit next to it. A readout whose
+  // value is the sum of its neighbours is furniture, and this strip is now on
+  // screen permanently, so it has to earn its height.
   // "Completed" and "Revenue" come from /api/pos/shift-summary — the live
   // queue only carries PENDING/PREPARING/READY, so the queue-derived sum
   // can never see ARCHIVED sales. Falls back to queue-derived numbers if
@@ -559,16 +718,26 @@ function renderStats(){
   // starts counting here. Inflating this number days early would send the bar
   // chasing drinks nobody has asked for yet.
   const drinkItems = orders.filter(o=>o.status==='PREPARING'||(o.status==='PENDING'&&!isPreOrder(o))).reduce((s,o)=>s+(o.items||[]).filter(i=>i.category==='DRINK').reduce((ss,i)=>ss+(i.quantity||i.qty||1),0),0);
+  // Two things on this bar are a QUEUE OF WORK rather than a reading: money
+  // waiting to be checked, and pre-orders waiting to be released. Both were
+  // discoverable only by spotting a badge on a card somewhere in the lane, or by
+  // noticing the release button appear. They are prompts, so they sit apart from
+  // the counts and only exist when the count is non-zero — a "0 receipts to check"
+  // pill is furniture.
+  const receipts = orders.filter(o=>o.receiptUrl).length;
+  const dueToday = releasablePreOrders().length;
+  const flags =
+    (receipts ? `<span class="pos-flag pos-flag-receipt">💰 ${receipts} receipt${receipts===1?'':'s'} to check</span>` : '')
+    + (dueToday ? `<span class="pos-flag pos-flag-preorder">🎉 ${dueToday} pre-order${dueToday===1?'':'s'} to release</span>` : '');
+
   const statsEl = $('#posStats');
-  if(statsEl) statsEl.innerHTML = `<div class="pos-stat"><span class="pos-stat-num">${pending}</span><span class="pos-stat-lbl">Pending</span></div>
-    <div class="pos-stat"><span class="pos-stat-num">${preparing}</span><span class="pos-stat-lbl">Making</span></div>
-    <div class="pos-stat"><span class="pos-stat-num">${ready}</span><span class="pos-stat-lbl">Ready</span></div>
-    <div class="pos-stat"><span class="pos-stat-num">${completed}</span><span class="pos-stat-lbl">Completed</span></div>
+  if(statsEl) statsEl.innerHTML = `<div class="pos-stat"><span class="pos-stat-num">${pending}</span><span class="pos-stat-lbl">⏳ Waiting</span></div>
+    <div class="pos-stat"><span class="pos-stat-num">${preparing}</span><span class="pos-stat-lbl">☕ Making</span></div>
+    <div class="pos-stat"><span class="pos-stat-num">${ready}</span><span class="pos-stat-lbl">🔔 Ready</span></div>
+    <div class="pos-stat"><span class="pos-stat-num">${drinkItems}</span><span class="pos-stat-lbl">🥤 Drinks to make</span></div>
+    <div class="pos-stat"><span class="pos-stat-num">${completed}</span><span class="pos-stat-lbl">✅ Done</span></div>
     <div class="pos-stat"><span class="pos-stat-num">RM${revenue.toFixed(2)}</span><span class="pos-stat-lbl">Revenue</span></div>
-    <div class="pos-stat"><span class="pos-stat-num">${total}</span><span class="pos-stat-lbl">Queue</span></div>
-    <div class="pos-stat"><span class="pos-stat-num">${drinkItems}</span><span class="pos-stat-lbl">Drinks</span></div>
-    <div class="pos-stat pos-stat-btn" id="btnIngUsed" style="cursor:pointer"><span class="pos-stat-num">📦</span><span class="pos-stat-lbl">Usage</span></div>`;
-  $('#btnIngUsed')?.addEventListener('click', showIngredientUsage);
+    ${flags ? `<span class="pos-flagstrip">${flags}</span>` : ''}`;
   updateReleaseAllButton();
 }
 
@@ -580,6 +749,8 @@ function updateReleaseAllButton(){
   const n = releasablePreOrders().length;
   btn.hidden = n === 0;
   btn.textContent = `🎉 Release ${n} pre-order${n === 1 ? '' : 's'}`;
+  // Paused along with every other mutating action while the board is stale.
+  btn.disabled = actionsPaused();
 }
 
 async function getRecipesAndIngredients(){
@@ -667,41 +838,217 @@ async function showIngredientUsage(){
   document.body.appendChild(modal);
 }
 
+// An empty lane that TEACHES. Three lanes each reading "No orders" over 90% dead
+// space told a first-time volunteer nothing; the Waiting lane names the action,
+// because "nobody has ordered yet" is exactly the moment a walk-up happens.
+// `noMatch` is a different state and says so — the lane is not empty, the search
+// box is hiding it.
+function laneEmptyHtml(status){
+  // A lane must never claim "nothing waiting" when the truth is "we could not ask".
+  // This is the same defect as the empty board under a green OPEN badge, one level
+  // down: the banner above says the fetch failed, so the lanes must not contradict
+  // it with a confident reading of zero.
+  if(fetchFailed){
+    return `<div class="pos-col-empty pos-col-empty-unknown">
+      <b>Not known</b>
+      <p>${isColdFailure()
+        ? 'This lane has never loaded.'
+        : `Nothing has been received since ${escapeHtmlPos(clockStr(lastGoodFetch))}.`}
+      There may be orders here that this screen cannot see yet.</p></div>`;
+  }
+  if(searchFilter){
+    return `<div class="pos-col-empty"><b>No match</b>
+      <p>Nobody in this lane matches “${escapeHtmlPos(searchFilter)}”.</p></div>`;
+  }
+  if(status === 'PENDING'){
+    return `<div class="pos-col-empty">
+      <b>Nothing waiting</b>
+      <p>Tap ➕ Walk-up when someone comes to the counter.</p>
+      <button class="pos-btn pos-btn-primary pos-empty-walkup"${disabledAttr()}>➕ Walk-up</button>
+    </div>`;
+  }
+  if(status === 'PREPARING'){
+    return `<div class="pos-col-empty"><b>Nothing being made</b>
+      <p>Approved orders land here for the barista.</p></div>`;
+  }
+  return `<div class="pos-col-empty"><b>Nothing to hand over</b>
+    <p>Drinks appear here once the barista marks them ready.</p></div>`;
+}
+
+// One lane. The scroll container is INSIDE the lane and wraps the header, which is
+// what lets `position:sticky` pin the header to its own lane instead of the page.
+function laneHtml(key, label, status, rows){
+  const body = rows.length
+    ? `<div class="pos-col-cards">${rows.map(cardHtml).join('')}</div>`
+    : laneEmptyHtml(status);
+  return `<section class="pos-col pos-col-${key}">
+    <div class="pos-col-scroll">
+      <h3 class="pos-col-hdr">${label}<span class="pos-col-n">${rows.length}</span></h3>
+      ${body}
+    </div>
+  </section>`;
+}
+
 function renderBoard(){
   const board = $('#orderBoard');
   if(!board) return;
   renderStats();
-  const list = filtered();
+  renderConnectionState();
+  const pending   = laneOrders('PENDING');
+  const preparing = laneOrders('PREPARING');
+  const ready     = laneOrders('READY');
   if(viewMode==='kanban'){
-    const pending = list.filter(o=>o.status==='PENDING').sort((a,b)=>{
-      if(a.receiptUrl && !b.receiptUrl) return -1;
-      if(!a.receiptUrl && b.receiptUrl) return 1;
-      return new Date(b.createdAt)-new Date(a.createdAt);
-    });
-    const preparing = list.filter(o=>o.status==='PREPARING');
-    const ready = list.filter(o=>o.status==='READY');
-    board.className = 'pos-board pos-kanban';
-    const emptyMsg = '<div class="pos-col-empty">No orders</div>';
-    board.innerHTML = `<div class="pos-col pos-col-pending"><h3>Pending (${pending.length})</h3>${pending.length ? pending.map(cardHtml).join('') : emptyMsg}</div>
-      <div class="pos-col pos-col-preparing"><h3>Preparing (${preparing.length})</h3>${preparing.length ? preparing.map(cardHtml).join('') : emptyMsg}</div>
-      <div class="pos-col pos-col-ready"><h3>Ready (${ready.length})</h3>${ready.length ? ready.map(cardHtml).join('') : emptyMsg}</div>`;
+    // `is-empty` lets the lanes size to their content rather than stretching into
+    // three full-height hollow tubes when there is nothing on the board at all.
+    const anyRows = pending.length + preparing.length + ready.length > 0;
+    board.className = 'pos-board pos-kanban' + (anyRows ? '' : ' is-empty');
+    board.innerHTML =
+      laneHtml('pending','⏳ Waiting','PENDING',pending)
+      + laneHtml('preparing','☕ Making','PREPARING',preparing)
+      + laneHtml('ready','🔔 Ready','READY',ready);
   } else {
+    const byStatus = { PENDING: pending, PREPARING: preparing, READY: ready };
+    // `listTab` is module state, so the tab a volunteer chose survives the 7s
+    // poll's re-render. Guard against a stale value from an older shell.
+    if(!byStatus[listTab]) listTab = 'PENDING';
+    const rows = byStatus[listTab];
+    const tab = (s, label) =>
+      `<button class="pos-tab${s===listTab?' active':''}" data-s="${s}">${label}` +
+      `<span class="pos-tab-n">${byStatus[s].length}</span></button>`;
     board.className = 'pos-board pos-list-view';
     board.innerHTML = `<div class="pos-tabs">
-      <button class="pos-tab active" data-s="PENDING">Pending</button>
-      <button class="pos-tab" data-s="PREPARING">Preparing</button>
-      <button class="pos-tab" data-s="READY">Ready</button></div>
-      <div id="listItems">${list.filter(o=>o.status==='PENDING').sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).map(cardHtml).join('')}</div>`;
-    board.querySelectorAll('.pos-tab').forEach(t=>t.onclick=e=>{
-      board.querySelectorAll('.pos-tab').forEach(x=>x.classList.remove('active'));
-      e.target.classList.add('active');
-      const s=e.target.dataset.s;
-      const f=filtered().filter(o=>o.status===s);
-      $('#listItems').innerHTML=f.map(cardHtml).join('');
-      bindCards();
+      ${tab('PENDING','⏳ Waiting')}${tab('PREPARING','☕ Making')}${tab('READY','🔔 Ready')}
+      </div>
+      <div id="listItems" class="pos-list-items">${
+        rows.length ? rows.map(cardHtml).join('') : laneEmptyHtml(listTab)
+      }</div>`;
+    board.querySelectorAll('.pos-tab').forEach(t=>t.onclick=()=>{
+      listTab = t.dataset.s;
+      renderBoard();
     });
   }
+  board.querySelectorAll('.pos-empty-walkup').forEach(b=>b.onclick=e=>{
+    e.stopPropagation();
+    openWalkup();
+  });
   bindCards();
+}
+
+/**
+ * Renders the persistent connection-lost chrome. Called from renderBoard(), which
+ * is now called on BOTH the success and failure paths of fetchOrders() — the whole
+ * point being that the lane skeleton always renders, so an unreachable API can
+ * never look like a quiet café.
+ *
+ * Nothing here auto-hides. It stays until a fetch succeeds.
+ */
+function renderConnectionState(){
+  const banner = $('#staleBanner');
+  const stamp  = $('#lastRefresh');
+  const badge  = document.getElementById('headerCafeBadge');
+
+  if(banner){
+    if(fetchFailed){
+      const cold = isColdFailure();
+      // "as it was at HH:MM:SS — 5m 35s ago" is the load-bearing sentence: it
+      // names what is on screen and how far behind it is.
+      const what = cold
+        ? 'The board below could not be loaded at all, so it is empty because of the fault — not because the queue is empty.'
+        : `Showing the board as it was at ${clockStr(lastGoodFetch)} — ${ageStr(lastGoodFetch)} ago. New orders will not appear.`;
+      banner.innerHTML = `<div class="pos-stale-txt">
+          <strong>⚠️ Can't reach the café system</strong>
+          <span>${what} Approve, Ready and Walk-up are paused until it is back.
+          Retrying<span class="pos-retry-dots"><i></i><i></i><i></i></span></span>
+        </div>
+        <button class="pos-btn-retry" id="btnRetryFetch">🔄 Retry now</button>`;
+      banner.classList.add('visible');
+      const retry = $('#btnRetryFetch');
+      if(retry) retry.onclick = async ()=>{
+        if(retryInFlight) return;
+        retryInFlight = true;
+        retry.disabled = true;
+        retry.textContent = 'Retrying…';
+        try{ await fetchOrders(); } finally { retryInFlight = false; }
+      };
+    } else {
+      banner.classList.remove('visible');
+      banner.innerHTML = '';
+    }
+  }
+
+  // The timestamp carries the STALE pill, because the timestamp is where a
+  // cashier looks to judge whether what they are reading is current.
+  if(stamp){
+    if(fetchFailed){
+      stamp.innerHTML = isColdFailure()
+        ? '<span class="pos-stale-pill">NO DATA</span> Never loaded'
+        : `<span class="pos-stale-pill">STALE</span> Last updated ${escapeHtmlPos(clockStr(lastGoodFetch))}`;
+    } else if(lastGoodFetch){
+      stamp.textContent = 'Updated ' + clockStr(lastGoodFetch);
+    }
+  }
+
+  // A green "OPEN" over a board that failed to load is the single most misleading
+  // thing this screen can show, so while the poll is failing the badge stops
+  // asserting the present tense.
+  if(badge) renderCafeBadge(badge);
+
+  // On a COLD failure `cafeOpen` is still its boot default of false, so the red
+  // "the café is closed" banner would be asserting a state nobody has confirmed —
+  // two contradictory alarms at once, one of them invented. Suppress it and let the
+  // connection panel be the single message; fetchCafeStatus() restores it as soon
+  // as the real state is known.
+  const closedBanner = $('#closedBanner');
+  if(closedBanner && isColdFailure()) closedBanner.classList.remove('visible');
+
+  // Every mutating control on the board chrome goes inert together. The card-level
+  // buttons are rendered with `disabled` by cardHtml, so they need no sweep here.
+  const paused = actionsPaused();
+  ['#btnWalkup','#btnReleasePreorders','#btnFeatured'].forEach(sel=>{
+    const el = $(sel);
+    if(el) el.disabled = paused;
+  });
+}
+
+// Header café badge — one place, three states. Previously written inline in
+// fetchCafeStatus() with only OPEN and blank, which is why a failing poll left a
+// confident green badge sitting over an empty board.
+function renderCafeBadge(badge){
+  badge.classList.remove('is-open','is-closed','is-stale');
+  if(fetchFailed && cafeOpen && lastGoodFetch){
+    badge.classList.add('is-stale');
+    badge.textContent = `⏸ LAST SEEN OPEN · ${clockStr(lastGoodFetch)}`;
+  } else if(fetchFailed){
+    badge.classList.add('is-stale');
+    badge.textContent = '⏸ NOT CONNECTED';
+  } else if(cafeOpen){
+    badge.classList.add('is-open');
+    badge.textContent = '● OPEN';
+  } else {
+    badge.classList.add('is-closed');
+    badge.textContent = '● CLOSED';
+  }
+  renderStatusDot();
+}
+
+// The sidebar status dot. It sat permanently grey on first login: renderMain()
+// reads `cafeOpen`, which is false at boot, and fetchCafeStatus() then updated the
+// badge, the toggle button and both banners — but never the dot. So a grey dot sat
+// next to a green OPEN badge for the whole shift.
+function renderStatusDot(){
+  const dot = document.querySelector('.pos-status-dot');
+  if(!dot) return;
+  dot.classList.toggle('open', cafeOpen && !fetchFailed);
+  dot.classList.toggle('closed', !cafeOpen && !fetchFailed);
+  dot.classList.toggle('stale', fetchFailed);
+  const txt = document.getElementById('posStatusText');
+  if(txt) txt.textContent = fetchFailed ? 'STALE' : cafeOpen ? 'OPEN' : 'CLOSED';
+  const chip = document.querySelector('.pos-status-chip');
+  if(chip){
+    chip.classList.toggle('is-open', cafeOpen && !fetchFailed);
+    chip.classList.toggle('is-closed', !cafeOpen && !fetchFailed);
+    chip.classList.toggle('is-stale', fetchFailed);
+  }
 }
 
 function timeAgo(d){ const m=Math.floor((Date.now()-new Date(d))/60000); return m<1?'just now':m<60?`${m}m ago`:`${Math.floor(m/60)}h ${m%60}m ago`; }
@@ -748,9 +1095,13 @@ function cardHtml(o){
   // under the item it belongs to, in a different colour and prefixed 📝 so the
   // cashier can tell it apart from the order-level note lower down the card.
   // Absent on every order placed before the feature existed.
+  // The quantity is its own fixed-width span so the drink names line up down the
+  // card, and the variant is a distinct weight rather than parenthesised inline —
+  // "Latte Large" is read faster than "Latte (Large)" at arm's length.
   const items = (o.items||[]).map(i=>{
     const note = typeof i.note === 'string' ? i.note.trim() : '';
-    return `<div>${i.quantity||i.qty||1}x ${escapeHtmlPos(i.name)}${i.variant?' ('+escapeHtmlPos(i.variant)+')':''}`
+    return `<div><span class="pos-card-qty">${i.quantity||i.qty||1}×</span>${escapeHtmlPos(i.name)}`
+      + (i.variant?` <span class="pos-card-variant">${escapeHtmlPos(i.variant)}</span>`:'')
       + (note?`<span class="pos-item-note">📝 ${escapeHtmlPos(note)}</span>`:'')
       + `</div>`;
   }).join('');
@@ -762,16 +1113,32 @@ function cardHtml(o){
   let quickAction = '';
   // data-approve-label so the click handler can restore the right caption after
   // a failed approve without having to re-derive it from the order list.
-  if(o.status==='PENDING') quickAction = `<div class="pos-card-actions"><button class="pos-btn pos-btn-sm pos-btn-primary pos-card-quick-approve" data-quick-id="${o.id||o.orderId}" data-approve-label="${approveLabel(o)}" onclick="event.stopPropagation()">${approveLabel(o)}</button></div>`;
-  else if(o.status==='PREPARING') quickAction = `<div class="pos-card-actions"><button class="pos-btn pos-btn-sm pos-btn-primary pos-card-quick-ready" data-quick-id="${o.id||o.orderId}" onclick="event.stopPropagation()">✓ Ready</button></div>`;
+  //
+  // Approve and Ready are now DIFFERENT COLOUR FAMILIES. They were the same brown
+  // `pos-btn-primary` pill in the same slot on the card, which made the one
+  // transition a cashier performs dozens of times a service illegible by colour —
+  // and the lane header naming the difference is usually scrolled out of view. A
+  // pre-order release keeps the violet of its own ribbon, so button and card match.
+  //
+  // `disabled` while the board is stale: approving against a queue that may have
+  // moved on is how an order gets approved twice.
+  const off = disabledAttr();
+  if(o.status==='PENDING'){
+    const variant = preOrder ? 'pos-btn-preorder-release' : 'pos-btn-primary';
+    quickAction = `<div class="pos-card-actions"><button class="pos-btn pos-btn-sm ${variant} pos-card-quick-approve" data-quick-id="${o.id||o.orderId}" data-approve-label="${approveLabel(o)}" onclick="event.stopPropagation()"${off}>${approveLabel(o)}</button></div>`;
+  } else if(o.status==='PREPARING'){
+    quickAction = `<div class="pos-card-actions"><button class="pos-btn pos-btn-sm pos-btn-ready pos-card-quick-ready" data-quick-id="${o.id||o.orderId}" onclick="event.stopPropagation()"${off}>🔔 Mark Ready</button></div>`;
+  }
 
   // Price display: when a discount is applied show the gross (strikethrough)
   // next to the net collected. Gross reconstructed as net + offset since
   // totalAmount is stored as net across the codebase.
   const gross = Number(o.totalAmount || 0) + Number(o.discountOffset || 0);
   const net   = Number(o.total || o.totalAmount || 0);
+  // The struck-through gross was inline `color:#999` — 2.85:1 on the white card.
+  // It is now tinted from the warm hue by .pos-card-price s.
   const priceHtml = o.discountType && o.discountType !== 'NONE' && Number(o.discountOffset || 0) > 0
-    ? `<s style="color:#999">RM ${gross.toFixed(2)}</s> RM ${net.toFixed(2)}`
+    ? `<s>RM ${gross.toFixed(2)}</s>RM ${net.toFixed(2)}`
     : `RM ${net.toFixed(2)}`;
 
   // The name already carries a PRE-ORDER pill, so the MINISTRY_PREORDER discount
@@ -807,15 +1174,47 @@ function cardHtml(o){
     ? `<div class="pos-card-preorder-ribbon${preDueToday ? '' : ' pos-card-preorder-ribbon-later'}">🎉 PRE-ORDER${o.preorderCode ? ` · ${escapeHtmlPos(o.preorderCode)}` : ''}${preLaterDate ? ` · ${preLaterDate}` : ''}</div>`
     : '';
 
+  // The wait time leads the card, because it is what decides who is served next —
+  // it used to be the last, smallest, palest thing on it (2.54:1). READY says how
+  // long ago it was called instead; a pre-order says when it was PLACED, since it
+  // has legitimately been sitting there for days and "waiting 4d" is not a queue
+  // position.
+  const waitLine = o.status === 'READY'
+    ? `<span class="pos-card-wait">Ready ${escapeHtmlPos(timeAgo(o.readyAt || o.updatedAt || o.createdAt))}</span>`
+    : preOrder
+      ? `<span class="pos-card-wait">Placed ${escapeHtmlPos(timeAgo(o.createdAt))}</span>`
+      : `<span class="pos-card-wait${urgent?' pos-card-wait-urgent':''}">${urgent?'⚠️ waiting ':'waiting '}${escapeHtmlPos(timeAgo(o.createdAt)).replace(' ago','')}</span>`;
+
+  // Hierarchy, and deliberately NOT uniform.
+  //
+  // On PENDING / PREPARING the DRINKS lead and the name is an attribution line in
+  // the footer: those two cards exist to check a payment and to make an order. The
+  // name was 1.15rem/800 — the loudest thing on the card — and the drinks were
+  // 0.85rem in the palest ink, which is backwards for both jobs.
+  //
+  // READY inverts the inversion: nobody is making anything any more, the entire job
+  // is to call a name, so on a READY card the name is the HEADLINE above the items
+  // and the footer carries the order id instead.
+  const who = `<span class="pos-card-who">${escapeHtmlPos(o.customerName||'Guest')}</span>`;
+  const isReady = o.status === 'READY';
+  const leadName = isReady ? `<p class="pos-card-lead">${who}</p>` : '';
+  const footerLeft = isReady
+    ? `<span class="pos-card-name">order ${escapeHtmlPos(String(o.id||o.orderId||'').slice(-6))}</span>`
+    : `<span class="pos-card-name">for ${who}</span>`;
+  const tags = (o.isWalkUp?'<span class="pos-card-tag">🚶 walk-up · cash at counter</span>':'')
+    + (o.staffCode?'<span class="pos-card-tag pos-card-tag-staff">🎫 staff price requested — you decide</span>':'');
+
   return `<div class="pos-card pos-card-${o.status.toLowerCase()} ${preOrder?'pos-card-preorder':''} ${urgent?'pos-card-urgent':''} ${hasReceipt?'pos-card-receipt':''}" data-id="${o.id||o.orderId}" data-status="${o.status}">
     ${preRibbon}
     ${hasReceipt ? `<div class="pos-receipt-badge${receiptMismatch?' pos-receipt-mismatch':''}">💰 Receipt: RM${(o.receiptAmount||0).toFixed(2)}${receiptMismatch?' ⚠️ expected RM'+(o.total||o.totalAmount||0).toFixed(2):''}</div>` : ''}
     ${o.status==='PENDING' && o.modifiedAt ? '<div class="pos-card-modified">✏️ modified</div>' : ''}
-    <div class="pos-card-name">${escapeHtmlPos(o.customerName||'Guest')}${o.isWalkUp?' <span class="pos-card-tag">walk-up</span>':''}${o.staffCode?' <span class="pos-card-tag pos-card-tag-staff">🎫 staff price requested</span>':''}</div>
+    <div class="pos-card-top">${waitLine}</div>
+    ${leadName}
     <div class="pos-card-items">${items||'—'}</div>
     ${o.notes ? '<div class="pos-card-note">📝 Order note: '+escapeHtmlPos(o.notes)+'</div>' : ''}
+    <div class="pos-card-footer">${footerLeft}<span class="pos-card-price">${priceHtml}</span></div>
     ${archiveHint(o)}
-    <div class="pos-card-footer"><span>${priceHtml}</span><span>${preOrder?'':`${urgent?'⚠️ ':''}${timeAgo(o.createdAt)}`}</span></div>
+    ${tags ? `<div class="pos-card-tags">${tags}</div>` : ''}
     ${showDiscountBadge ? `<div class="pos-card-discount">${discountBadgeHtml(o.discountType)}</div>` : ''}
     ${quickAction}
   </div>`;
@@ -876,7 +1275,7 @@ function askStaffPrice(o){
         ${escapeHtmlPos(o.customerName||'Guest')} used the staff link
         (code <strong style="font-family:monospace">${escapeHtmlPos(o.staffCode)}</strong>).
       </p>
-      <div class="pos-detail-total" style="margin:10px 0">Staff price: RM ${net.toFixed(2)}${gross > net ? ` <s style="color:#999;font-weight:400">RM ${gross.toFixed(2)}</s>` : ''}</div>
+      <div class="pos-detail-total" style="margin:10px 0">Staff price: RM ${net.toFixed(2)}${gross > net ? ` <s style="color:var(--ink-muted);font-weight:600">RM ${gross.toFixed(2)}</s>` : ''}</div>
       <div style="display:flex;flex-direction:column;gap:10px;margin-top:16px">
         <button class="pos-btn pos-btn-primary pos-btn-lg" id="spYes" style="width:100%">✓ Yes, staff price — RM ${net.toFixed(2)}</button>
         <button class="pos-btn pos-btn-lg" id="spNo" style="width:100%">Not staff — charge full price${gross > net ? ` (RM ${gross.toFixed(2)})` : ''}</button>
@@ -971,6 +1370,43 @@ function confirmReleaseAll(due){
   });
 }
 
+/**
+ * Generic yes/no confirmation, in the same `.pos-modal-overlay` shape as
+ * askStaffPrice / confirmReleaseAll / confirmReleaseNotToday and for the same
+ * reason those exist: window.confirm is unusable on the counter iPad.
+ *
+ * Resolves true only on the affirmative button. ✕, the negative button and a
+ * backdrop tap all resolve false, so dismissing is always the safe outcome.
+ *
+ * `title` and `body` are OUR copy, never customer data — a caller passing a
+ * customer name must escape it itself (see the escaping invariant: escaping is a
+ * property of the render site).
+ */
+function posConfirm({ title, body, yes = 'Confirm', no = 'Cancel', danger = false }){
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.className = 'pos-modal-overlay';
+    overlay.style.zIndex = '660';
+    overlay.innerHTML = `<div class="pos-modal" style="max-width:420px">
+      <button class="pos-modal-close" aria-label="Close">✕</button>
+      <h3>${title}</h3>
+      ${body ? `<p style="font-size:.9rem;color:var(--ink-muted);margin:10px 0 4px">${body}</p>` : ''}
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:18px">
+        <button class="pos-btn ${danger ? 'pos-btn-danger' : 'pos-btn-primary'} pos-btn-lg" id="pcYes" style="width:100%">${yes}</button>
+        <button class="pos-btn pos-btn-lg" id="pcNo" style="width:100%">${no}</button>
+      </div>
+    </div>`;
+    let settled = false;
+    const done = v => { if(settled) return; settled = true; overlay.remove(); resolve(v); };
+    overlay.querySelector('#pcYes').onclick = () => done(true);
+    overlay.querySelector('#pcNo').onclick  = () => done(false);
+    overlay.querySelector('.pos-modal-close').onclick = () => done(false);
+    overlay.onclick = e => { if(e.target === overlay) done(false); };
+    document.body.appendChild(overlay);
+    overlay.querySelector('#pcNo').focus();
+  });
+}
+
 // Per-order guard for a pre-order that is NOT due today. Same dialog shape as
 // confirmReleaseAll above (and askStaffPrice) rather than a third style, and for
 // the same reason: window.confirm is unusable on the counter iPad. Dismissing —
@@ -1037,7 +1473,7 @@ function bindCards(){
     e.stopPropagation();
     btn.disabled=true; btn.textContent='...';
     try{ await api('PUT',`/api/pos/orders/${btn.dataset.quickId}/ready`); fetchOrders(); }
-    catch(err){ btn.disabled=false; btn.textContent='✓ Ready'; showError('Ready failed'); }
+    catch(err){ btn.disabled=false; btn.textContent='🔔 Mark Ready'; showError('Ready failed'); }
   });
 }
 
@@ -1073,6 +1509,11 @@ function initSwipe(card){
 
     const id=card.dataset.id;
     const status=card.dataset.status;
+
+    // Swipe is a shortcut for the same mutations the card buttons perform, so it
+    // honours the same pause. Without this the board's buttons would be visibly
+    // inert while a swipe still fired a write against a queue we know is stale.
+    if(actionsPaused()) return;
 
     if(dx>threshold){
       // Swipe right: advance state
@@ -1119,12 +1560,12 @@ function openDetail(id){
   // A pre-order is RM0 — there is no payment to confirm, the cashier is simply
   // releasing it to the barista on the day.
   if(o.status==='PENDING') actions=`<button class="pos-btn pos-btn-primary pos-btn-lg" id="btnApprove">${isPreOrder(o) ? 'Release to barista' : '✓ Payment Confirmed'}</button>
-    <button class="pos-btn pos-btn-lg" id="btnNewcomer" style="background:#8b5cf6;color:#fff">🎁 Newcomer</button>
+    <button class="pos-btn pos-btn-lg pos-btn-preorder-release" id="btnNewcomer">🎁 Newcomer</button>
     <button class="pos-btn pos-btn-danger pos-btn-lg" id="btnReject">✗ Reject</button>`;
-  else if(o.status==='PREPARING') actions=`<button class="pos-btn pos-btn-primary pos-btn-lg" id="btnReady">✓ Ready</button>
-    <button class="pos-btn pos-btn-lg" id="btnUndo" style="background:#6b7280;color:#fff">↩ Undo</button>`;
-  else if(o.status==='READY') actions=`<button class="pos-btn pos-btn-primary pos-btn-lg" id="btnCollected">✓ Collected</button>
-    <button class="pos-btn pos-btn-lg" id="btnUndoReady" style="background:#6b7280;color:#fff">↩ Back to Preparing</button>
+  else if(o.status==='PREPARING') actions=`<button class="pos-btn pos-btn-ready pos-btn-lg" id="btnReady">🔔 Mark Ready</button>
+    <button class="pos-btn pos-btn-lg pos-btn-secondary" id="btnUndo">↩ Undo</button>`;
+  else if(o.status==='READY') actions=`<button class="pos-btn pos-btn-collect pos-btn-lg" id="btnCollected">📦 Collected</button>
+    <button class="pos-btn pos-btn-lg pos-btn-secondary" id="btnUndoReady">↩ Back to Preparing</button>
     <button class="pos-btn pos-btn-danger pos-btn-lg" id="btnCancelCompleted">✗ Cancel / Refund</button>`;
 
   const orderTime = new Date(o.createdAt).toLocaleTimeString('en-MY',{hour:'2-digit',minute:'2-digit'});
@@ -1312,7 +1753,7 @@ async function openMenuToggle(){
               <button class="pos-btn pos-btn-sm" data-food-dec="${m.menuItemId||m.id}" style="width:36px;height:36px;border-radius:50%;padding:0">−</button>
               <input type="number" min="0" data-food-qty="${m.menuItemId||m.id}" value="${qty}" style="width:50px;text-align:center;font-weight:700;border:1px solid var(--cream-dark,#ddd);border-radius:6px;padding:4px;font-size:1rem" class="pos-food-qty-input">
               <button class="pos-btn pos-btn-sm" data-food-inc="${m.menuItemId||m.id}" style="width:36px;height:36px;border-radius:50%;padding:0">+</button>
-              ${reserved > 0 ? `<span style="font-size:.75rem;color:#9CA3AF">(${reserved} reserved)</span>` : ''}
+              ${reserved > 0 ? `<span style="font-size:.78rem;font-weight:700;color:var(--ink-muted)">(${reserved} reserved)</span>` : ''}
             </div>
           </div>`;
         }).join('')}</div>

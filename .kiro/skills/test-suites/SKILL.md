@@ -1,6 +1,6 @@
 ---
 name: test-suites
-description: How to run the RLC Café POS test suites safely — which are offline and which write to the live production café, why it must be `npm test` (`TZ=UTC jest`) and never a bare `npx jest`, the ZZTEST_ prefix every test-created record must carry, the reserved test phone range, the Sunday-afternoon end-of-day-email hazard, and the cleanup procedure afterwards. Use before running any test, adding a suite that writes data, or cleaning up after a live run.
+description: How to run the RLC Café POS test suites safely — which are offline and which write to the live production café, why it must be `npm test` (`TZ=UTC jest`) and never a bare `npx jest`, the ZZTEST_ prefix every test-created record must carry, the reserved test phone range, the Sunday-afternoon end-of-day-email hazard, why a Playwright `page.route()` block does NOT stop writes (service workers bypass it — this already took a menu item off the live customer menu) and the `serviceWorkers:'block'` + positive-control harness rule, and the cleanup procedure afterwards. Use before running any test, adding a suite that writes data, driving any frontend page in a real browser against the live API, or cleaning up after a live run.
 ---
 
 # Test Suites
@@ -8,6 +8,45 @@ description: How to run the RLC Café POS test suites safely — which are offli
 Two categories, and the difference matters more than anything else here: some
 suites are pure and offline, and some **write to the live production café** that
 real volunteers use on Sunday mornings. There is no staging environment.
+
+> ## ⛔ Read this before driving any page in a real browser
+>
+> **A Playwright `page.route()` block does NOT stop this app from writing to
+> production.** `page.route()` does not intercept requests issued by a **service
+> worker**, and **every page here registers one** (`frontend/sw.js`, whose `fetch`
+> handler passes `/api/` straight through). So a harness that "blocks all non-GET"
+> can report zero blocked requests and still have let every `PUT` reach the live
+> table.
+>
+> **This has already happened.** On 2026-08-18, during a verification probe of the
+> admin Menu tab, a harness believed to be read-only flipped `latte-001`
+> (☕ Latte) to `isActive:false` — **taking Latte off the live customer menu**. It
+> was restored to `isActive:true, isEnabledToday:false` and verified. The tell was
+> a **positive control that read 0 allowed requests**: a route handler that has
+> intercepted nothing is not a route handler that blocked everything, it is a
+> route handler that was never consulted.
+>
+> The harness rule, both halves required:
+>
+> ```js
+> const ctx = await browser.newContext({ serviceWorkers: 'block' });
+> // …then a POSITIVE CONTROL that must FAIL LOUDLY:
+> let seen = 0;
+> await ctx.route('**/api/**', r => { seen++; return r.continue(); });
+> // after navigating and doing anything at all:
+> if (seen === 0) throw new Error('interception never fired — assume writes escaped');
+> ```
+>
+> `serviceWorkers: 'block'` is a **context** option; it cannot be set per page,
+> and setting it after the page exists is too late.
+>
+> **Corollary — an earlier read-only claim is unreliable for the same reason.**
+> The admin UX audit that preceded this, and the `journey_admin` "read-only" row
+> below, were both asserted with the same defective mechanism. Treat them as
+> unproven, not as evidence that a browser probe of the admin is safe.
+>
+> A frontend probe against the live API is a **category-2 activity**: say what it
+> may write, get explicit confirmation, and check afterwards.
 
 ## Category 1 — safe, offline, run freely
 
@@ -64,7 +103,8 @@ records. Verified rather than assumed.
 | `backend/tests/integration.test.ts` "Order Flow" | opens the café, creates a real order, approves it (deducts ingredient stock), marks it ready, closes the café (expires PENDING orders and archives the rest) |
 | `screenshots/journey_customer/customer.spec.ts` | submits a real customer order, then cancels it (leaving a CANCELLED record) |
 | `screenshots/journey_cashier/cashier.spec.ts` | may **open the café** and tick opening-checklist rows; the walk-up cart does not submit |
-| `screenshots/journey_admin/admin.spec.ts` | read-only (login + tab navigation) |
+| `screenshots/journey_admin/admin.spec.ts` | login + tab navigation. **"Read-only" is a claim, not a verified fact** — it was asserted with a `page.route()` harness, which the box above shows does not see service-worker traffic. Re-establish it under `serviceWorkers:'block'` before relying on it |
+| **any ad-hoc browser probe of a frontend page against the live API** | whatever the page's own JS decides to send. See the box above |
 
 On 2026-08-02, seven `npm test` runs put seven phantom RM7 orders into the Sunday
 figures and sent two spurious summary emails. That is why `integration.test.ts`
@@ -201,6 +241,10 @@ sent. The script prints this list every run — read it.
 - Cover the invariants that have bitten: `expiresAt` removed on transitions out
   of PENDING, discounts not stacking, net vs gross totals, food counters
   balancing across ready/undo.
+- A Playwright spec or ad-hoc browser harness creates its context with
+  `serviceWorkers: 'block'` **and** carries a positive control that throws when
+  interception never fired — see the box at the top of this file. A harness whose
+  block is unverified is a harness that writes to production.
 - A guard is only tested if a fixture **reaches** it, and a multi-query handler
   needs each query's fixture staged distinctly — see **Test teeth** in the
   `invariants` skill. A suite that stages `{ Items: [] }` for the query a guard

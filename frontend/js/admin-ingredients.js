@@ -332,7 +332,9 @@ async function openStockHistoryModal(){
   overlay.querySelector('#shClose').onclick = ()=> overlay.remove();
 
   const dateInput = overlay.querySelector('#shDate');
-  const today = new Date().toISOString().split('T')[0];
+  // MYT: the snapshot dates are keyed by the café's calendar day, so opening
+  // this before 08:00 used to land on yesterday and look like missing data.
+  const today = mytToday();
   dateInput.value = today;
 
   // Load list of dates that have snapshots (used for the count summary + hints)

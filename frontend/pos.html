@@ -11,13 +11,17 @@
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@sjmc11/tourguidejs@0.0.27/dist/css/tour.min.css">
 </head>
-<body>
+<!-- `pos-shell` opts this page into the viewport-locked POS app shell in
+     style.css: the board becomes a bounded-height flex child so each kanban lane
+     can own its own scroll under a sticky header. The class is the scope — every
+     other page sharing this stylesheet keeps ordinary document scrolling. -->
+<body class="pos-shell">
 <header class="pos-header"><button class="header-hamburger" id="posHeaderToggle" aria-label="Toggle menu">☰</button><h1>☕ RLC Café POS</h1><span id="headerCafeBadge" class="pos-header-badge" aria-live="polite"></span><button class="header-tutorial" id="headerTutorial">📖 Tutorial</button><button class="header-logout" id="headerLogout">Logout</button></header>
 <div class="error-banner" id="errorBanner" role="alert"></div>
 <div class="pos-app" id="app"></div>
 
 <footer class="app-footer" id="appFooter">
-  <span class="app-version">v1.74.0</span>
+  <span class="app-version">v1.75.0</span>
   <button id="checkUpdateBtn" class="check-update-btn">Check for update</button>
 </footer>
 

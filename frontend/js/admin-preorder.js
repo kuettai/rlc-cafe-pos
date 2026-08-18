@@ -124,24 +124,33 @@ function renderPreorderCodes(container, codes){
 
 function openPreorderForm(container, existingCode){
   const isEdit = !!(existingCode && existingCode.code);
-  // Default: opens now, expires 8 days from now, service date next Sunday
+  // Default: opens now, service date next Sunday, expires 3PM that Sunday.
+  //
+  // `serviceDate` is a CAFÉ CALENDAR DATE, so it is derived in MYT (see
+  // mytToday in admin.js) and never through the machine's timezone. It used to
+  // read the LOCAL day-of-week and then serialise with `toISOString()`, which
+  // is UTC: a link created between midnight and 08:00 MYT was stamped with
+  // SATURDAY, and everything downstream — the release sweep, the expiry cron,
+  // the customer's banner — reads that field.
   const now = new Date();
-  const nextSunday = new Date(now);
-  const daysUntilSun = (7 - now.getDay()) % 7 || 7; // next Sunday, not today
-  nextSunday.setDate(now.getDate() + daysUntilSun);
-  const serviceDate = nextSunday.toISOString().split('T')[0];
-  // datetime-local inputs want local ISO without timezone (YYYY-MM-DDTHH:MM)
+  const todayMyt = mytToday();
+  const daysUntilSun = (7 - isoDayOfWeek(todayMyt)) % 7 || 7; // next Sunday, not today
+  const serviceDate = isoAddDays(todayMyt, daysUntilSun);
+  // datetime-local inputs want local ISO without timezone (YYYY-MM-DDTHH:MM),
+  // and are read back with `new Date(value)`, i.e. in the machine's zone. That
+  // is the widget's own contract, so these two stay local — only the calendar
+  // date above had to move to MYT.
   const toLocalInput = d => {
     const pad = n => String(n).padStart(2, '0');
     return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   };
-  const expiresGuess = new Date(nextSunday);
-  expiresGuess.setHours(15, 0, 0, 0); // Sunday 3PM local
+  // 3PM on the service date, in the operator's own clock.
+  const expiresGuess = new Date(`${serviceDate}T15:00:00`);
 
   // ─── Resolve initial field values (edit vs create) ────────────────
   const initialName = isEdit
     ? String(existingCode.name || '')
-    : `Sunday ${nextSunday.toLocaleDateString(undefined,{day:'numeric',month:'short'})} Service`;
+    : `Sunday ${mytDayLabel(serviceDate).replace(/^\S+\s/, '')} Service`;
   const initialServiceDate = isEdit && existingCode.serviceDate ? existingCode.serviceDate : serviceDate;
   const initialOpensLocal = isEdit && existingCode.opensAt
     ? toLocalInput(new Date(existingCode.opensAt))

@@ -1,6 +1,6 @@
 ---
 name: test-suites
-description: How to run the RLC Café POS test suites safely — which are offline and which write to the live production café, why it must be `npm test` (`TZ=UTC jest`) and never a bare `npx jest`, the ZZTEST_ prefix every test-created record must carry, the reserved test phone range, the Sunday-afternoon end-of-day-email hazard, and the cleanup procedure afterwards. Use before running any test, adding a suite that writes data, or cleaning up after a live run.
+description: How to run the RLC Café POS test suites safely — which are offline and which write to the live production café, why it must be `npm test` (`TZ=UTC jest`) and never a bare `npx jest`, the ZZTEST_ prefix every test-created record must carry, the reserved test phone range, the Sunday-afternoon end-of-day-email hazard, why a Playwright `page.route()` block does NOT stop writes (service workers bypass it — this already took a menu item off the live customer menu) and the `serviceWorkers:'block'` + positive-control harness rule, and the cleanup procedure afterwards. Use before running any test, adding a suite that writes data, driving any frontend page in a real browser against the live API, or cleaning up after a live run.
 ---
 
 # Test Suites
@@ -18,6 +18,14 @@ the **live production café** — ask first, then clean up with
 `scripts/test-markers.cjs`; never hardcode a marker string. Do not run the live
 suites on a Sunday afternoon: the close now leaves the cron to email the real
 end-of-day summary, and a test run burns that date's single send.
+
+**About to drive a page in a real browser against the live API?** A
+`page.route()` write-block **does not work here** — service workers bypass it and
+every page registers one. That is not theoretical: on 2026-08-18 a "read-only"
+probe took ☕ Latte off the live customer menu. Use
+`browser.newContext({ serviceWorkers: 'block' })` **and** a positive control that
+throws when interception never fired. Read the box at the top of the `.kiro` file
+first.
 
 **Adding a suite that writes data, or a new marker?** Update
 `.kiro/skills/test-suites/SKILL.md` and `scripts/test-markers.cjs` together.

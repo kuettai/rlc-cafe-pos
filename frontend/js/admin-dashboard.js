@@ -14,25 +14,29 @@
 // All spacing/colour lives in admin.css (`.admin-dashboard` scope). Keep it
 // there: inline styles are what flattened the old hierarchy.
 
-// Track selected date globally for the dashboard
-let dashboardSelectedDate = new Date().toISOString().slice(0, 10);
+// Track selected date globally for the dashboard.
+// MYT, not UTC (see mytToday in admin.js): the café is UTC+8, so a UTC "today"
+// asked the API for yesterday's figures every morning before 08:00.
+let dashboardSelectedDate = mytToday();
 
 function computePastSundays() {
   const sundays = [];
-  const today = new Date();
-  const d = new Date(today);
-  // Go back to find the most recent past Sunday
-  d.setDate(d.getDate() - ((d.getDay() === 0) ? 7 : d.getDay()));
+  // Malaysian on both counts: which day of the week it is, and which calendar
+  // date gets serialised. This used to read the LOCAL day-of-week and then
+  // serialise through UTC, so it could disagree with itself.
+  const today = mytToday();
+  // A Sunday steps back a full week — "past Sundays" never includes today.
+  let d = isoAddDays(today, -(isoDayOfWeek(today) === 0 ? 7 : isoDayOfWeek(today)));
   for (let i = 0; i < 13; i++) {
-    sundays.push(d.toISOString().slice(0, 10));
-    d.setDate(d.getDate() - 7);
+    sundays.push(d);
+    d = isoAddDays(d, -7);
   }
   return sundays;
 }
 
 async function loadDashboard(container){
   container.innerHTML = '<div class="loading">Loading dashboard...</div>';
-  dashboardSelectedDate = new Date().toISOString().slice(0, 10);
+  dashboardSelectedDate = mytToday();
   await fetchAndRenderDashboard(container);
 }
 
@@ -58,7 +62,7 @@ async function fetchAndRenderDashboard(container){
 
 function renderDashboard(container, data){
   const { daily, sessions, discounts, ingredients, checklistLogs, stockHistory, featuredAudit, todayIso } = data;
-  const today = todayIso || new Date().toISOString().slice(0, 10);
+  const today = todayIso || mytToday();
   const allOrders = Array.isArray(daily?.orders) ? daily.orders : [];
   const todaysOrders = allOrders.filter(o => (o.createdAt || '').startsWith(today));
 
@@ -156,7 +160,7 @@ function renderDashboard(container, data){
   }
 
   // ─── Date selector (Feature 6) ────────────────────────────────────
-  const realToday = new Date().toISOString().slice(0, 10);
+  const realToday = mytToday();
   const pastSundays = computePastSundays();
   let dateOptionsHtml = `<option value="${realToday}"${dashboardSelectedDate === realToday ? ' selected' : ''}>Today (${realToday})</option>`;
   for (const sun of pastSundays) {
@@ -221,10 +225,16 @@ function renderDashboard(container, data){
             const row = discountSummary[key] || { count: 0, totalOffset: 0 };
             const drinks = drinkBreakdown[key] || {};
             const drinkEntries = Object.entries(drinks);
-            const drinkText = drinkEntries.map(([name, qty]) => `${name} ×${qty}`).join(', ');
+            // The drink name is admin-entered rather than customer-entered, so
+            // this is lower severity than the customer-text sites — but it is
+            // still a string going into innerHTML, and every render site gets
+            // escaped, not just the ones with a scary source.
+            const drinkText = drinkEntries.map(([name, qty]) => `${escapeHtml(name)} ×${qty}`).join(', ');
             const hasBreakdown = drinkEntries.length > 0;
             const accordionId = `discount-accordion-${key}`;
-            return `<tr class="discount-row ${hasBreakdown ? 'dash-row-toggle' : 'dash-row-static'}" data-accordion="${accordionId}">
+            return `<tr class="discount-row ${hasBreakdown ? 'dash-row-toggle' : 'dash-row-static'}"
+              data-accordion="${accordionId}"
+              ${hasBreakdown ? `tabindex="0" role="button" aria-expanded="false" aria-controls="${accordionId}"` : ''}>
               <td>${label}${hasBreakdown ? ' ▸' : ''}</td>
               <td class="num">${row.count}</td>
               <td class="num">${Number(row.totalOffset||0).toFixed(2)}</td>
@@ -295,20 +305,27 @@ function renderDashboard(container, data){
     };
   }
 
-  // Feature 7: Accordion click handlers for discount rows
+  // Feature 7: Accordion handlers for discount rows. Pointer, Enter and Space
+  // all do the same thing, and the row reports its state — it used to be a
+  // click-only <tr> with no tabindex, role or aria-expanded.
   container.querySelectorAll('.discount-row').forEach(row => {
-    row.onclick = () => {
+    const toggle = () => {
       const accordionId = row.getAttribute('data-accordion');
       const breakdown = container.querySelector(`#${accordionId}`);
       if (breakdown) {
         const isVisible = breakdown.style.display !== 'none';
         breakdown.style.display = isVisible ? 'none' : 'table-row';
+        if (row.hasAttribute('aria-expanded')) row.setAttribute('aria-expanded', String(!isVisible));
         // Toggle arrow indicator
         const td = row.querySelector('td');
         if (td) {
           td.innerHTML = td.innerHTML.replace(' ▸', '').replace(' ▾', '') + (isVisible ? ' ▸' : ' ▾');
         }
       }
+    };
+    row.onclick = toggle;
+    row.onkeydown = e => {
+      if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') { e.preventDefault(); toggle(); }
     };
   });
 

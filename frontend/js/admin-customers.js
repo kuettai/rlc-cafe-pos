@@ -37,6 +37,16 @@ function renderCustomersSection(container, customers, sortField = 'totalSpent', 
     return sortDir === 'asc' ? ' ↑' : ' ↓';
   };
 
+  // Sortable headers are real controls: reachable by Tab, operable by Enter or
+  // Space, and announced with their current direction. They were click-only
+  // `<th>`s with no tabindex, role or aria-sort, so sorting was unavailable to
+  // anyone not using a pointer.
+  const th = (field, label, extra) => `<th class="sortable-col" data-sort="${field}"
+    tabindex="0" role="button"
+    aria-sort="${field === sortField ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}"
+    aria-label="Sort by ${label}${field === sortField ? (sortDir === 'asc' ? ', ascending' : ', descending') : ''}"
+    style="padding:10px 12px;white-space:nowrap${extra || ''}">${label}${arrow(field)}</th>`;
+
   let html = `<div class="admin-section">
     <div class="admin-section-header">
       <h2>👤 Customers</h2>
@@ -53,11 +63,11 @@ function renderCustomersSection(container, customers, sortField = 'totalSpent', 
       <table class="admin-table" style="width:100%;border-collapse:collapse;font-size:.9rem">
         <thead>
           <tr style="border-bottom:2px solid var(--cream-dark);text-align:left">
-            <th class="sortable-col" data-sort="phone" style="padding:10px 12px;cursor:pointer;white-space:nowrap">Phone${arrow('phone')}</th>
-            <th class="sortable-col" data-sort="name" style="padding:10px 12px;cursor:pointer;white-space:nowrap">Name${arrow('name')}</th>
-            <th class="sortable-col" data-sort="orderCount" style="padding:10px 12px;cursor:pointer;white-space:nowrap;text-align:right">Orders${arrow('orderCount')}</th>
-            <th class="sortable-col" data-sort="totalSpent" style="padding:10px 12px;cursor:pointer;white-space:nowrap;text-align:right">Total Spent (RM)${arrow('totalSpent')}</th>
-            <th class="sortable-col" data-sort="lastOrderAt" style="padding:10px 12px;cursor:pointer;white-space:nowrap">Last Visit${arrow('lastOrderAt')}</th>
+            ${th('phone', 'Phone')}
+            ${th('name', 'Name')}
+            ${th('orderCount', 'Orders', ';text-align:right')}
+            ${th('totalSpent', 'Total Spent (RM)', ';text-align:right')}
+            ${th('lastOrderAt', 'Last Visit')}
           </tr>
         </thead>
         <tbody>`;
@@ -90,17 +100,32 @@ function renderCustomersSection(container, customers, sortField = 'totalSpent', 
       renderCustomersSection(container, customers, sortField, sortDir, searchInput.value.trim());
     }, 300);
   };
-  searchInput.focus();
+  // Only take focus when the operator is already typing here — an unconditional
+  // focus() on every re-render pops the iPad keyboard on entering the tab and
+  // moves the caret to the end mid-edit.
+  if (search) {
+    searchInput.focus();
+    const end = searchInput.value.length;
+    try { searchInput.setSelectionRange(end, end); } catch (e) { /* not text-like */ }
+  }
 
-  // Sort column headers
-  container.querySelectorAll('.sortable-col').forEach(th => {
-    th.onclick = () => {
-      const field = th.dataset.sort;
+  // Sort column headers — pointer, Enter and Space all do the same thing.
+  container.querySelectorAll('.sortable-col').forEach(cell => {
+    const sort = () => {
+      const field = cell.dataset.sort;
       let newDir = 'desc';
       if (field === sortField) {
         newDir = sortDir === 'desc' ? 'asc' : 'desc';
       }
       renderCustomersSection(container, customers, field, newDir, searchInput.value.trim());
+      // The table was replaced; put focus back on the header just activated so
+      // a keyboard user is not returned to the top of the page.
+      const again = container.querySelector(`.sortable-col[data-sort="${field}"]`);
+      if (again) again.focus();
+    };
+    cell.onclick = sort;
+    cell.onkeydown = e => {
+      if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') { e.preventDefault(); sort(); }
     };
   });
 }

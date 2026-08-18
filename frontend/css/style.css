@@ -29,6 +29,38 @@
   --radius-xl:24px;
   --font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',sans-serif;
   --transition:all .2s ease;
+
+  /* --- Derived readable shades. The committed hues are kept; only the
+     lightness moves. Every ratio below was measured, not estimated.
+
+     Secondary text is tinted from the warm brown hue, never grey: the old
+     #9CA3AF greys were both off-world and unreadable at a metre (2.54:1 on a
+     white card), and they appeared on the one number a cashier reads under
+     time pressure — how long someone has been waiting. --- */
+  --ink-muted:#6B5647;         /* 6.89:1 on #fff · 6.67:1 on --bg · 5.95:1 on --cream-dark */
+  --ink-quiet:#5F4C3E;         /* 8.11:1 on #fff — labels, uppercase micro-copy */
+  --pending-ink:#7A4E06;       /* 6.46:1 on --warning-bg  (was --warning  2.95:1) */
+  --making-ink:#1E40AF;        /* 8.01:1 on --info-bg     (was --info     4.75:1) */
+  --ready-ink:#14603A;         /* 6.77:1 on --success-bg  (was --success  3.85:1) */
+  --ready-fill:#1B6B39;        /* white on it = 6.54:1 — the Mark-ready button */
+  --ready-fill-hi:#22804A;
+  --urgent-ink:#A62D20;        /* 6.96:1 on #fff · 6.36:1 on --urgent-tint */
+  --urgent-tint:#FEF2F2;
+  --preorder:#7C3AED;          /* the committed ribbon violet */
+  --preorder-deep:#6D28D9;
+  --preorder-soft:#C4B5FD;
+  --preorder-soft-ink:#4C1D95; /* 5.93:1 on --preorder-soft */
+  --receipt:#4338CA;           /* white on it = 7.90:1 */
+  --closed:#A31414;            /* white on it = 7.87:1 */
+  --stale:#B0271A;             /* white on it = 6.66:1 */
+  --stale-ink:#7A1F12;         /* 8.80:1 on --danger-bg */
+  --archive-ink:#8A5A0B;       /* 5.92:1 on #fff */
+  --note-ink:#5B21B6;          /* 8.98:1 on #fff */
+  --disabled-bg:#EFE7DC;
+  --disabled-bd:#DFD2C2;
+  --disabled-ink:#6B5647;      /* 5.62:1 on --disabled-bg — inert, still readable */
+  --pos-hdr-h:56px;            /* one source of truth: header height, sidebar top */
+  --tap:44px;                  /* the floor for every touch target */
 }
 
 body{
@@ -1094,7 +1126,8 @@ header h1{
 .pos-header{
   background:linear-gradient(135deg,#1a1a2e 0%,#2d2d44 100%);
   color:#fff;
-  padding:14px 20px;
+  padding:6px 12px;
+  min-height:var(--pos-hdr-h);
   text-align:center;
   position:sticky;
   top:0;
@@ -1102,24 +1135,91 @@ header h1{
   box-shadow:0 2px 12px rgba(0,0,0,.2);
   display:flex;
   align-items:center;
+  gap:8px;
 }
 .pos-header h1{
-  font-size:1.35rem;
+  font-size:1.2rem;
   font-weight:700;
-  letter-spacing:-.5px;
+  letter-spacing:-.3px;
   flex:1;
+  text-align:left;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
 }
+/* Every header control clears the 44px tap floor. These were 37×37 (hamburger),
+   88×35 (Tutorial) and 73×29 (Logout) — all missed on a counter tablet, and
+   Logout is the one that ends the session. */
 .header-hamburger{
-  background:none;border:none;color:#fff;font-size:1.5rem;
-  cursor:pointer;padding:4px 12px 4px 4px;margin-right:8px;
+  width:var(--tap);height:var(--tap);flex:0 0 auto;
+  background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.28);
+  color:#fff;font-size:1.25rem;border-radius:10px;cursor:pointer;padding:0;
+  display:inline-flex;align-items:center;justify-content:center;
 }
+.header-hamburger:hover{background:rgba(255,255,255,.22)}
 .header-logout{
-  background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;
-  font-size:.8rem;font-weight:600;padding:6px 14px;border-radius:6px;cursor:pointer;
+  background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.32);color:#fff;
+  font-size:.82rem;font-weight:700;padding:10px 14px;border-radius:9px;cursor:pointer;
+  min-height:var(--tap);white-space:nowrap;flex:0 0 auto;
 }
-.header-logout:hover{background:rgba(255,255,255,.25)}
+.header-logout:hover{background:rgba(255,255,255,.26)}
 
 .pos-app{padding:0;max-width:1280px;margin:0 auto}
+
+/* === POS app shell ================================================
+   The cashier board is a fixed-viewport app, not a document: each lane owns
+   its own scroll (see .pos-col-scroll) so a sticky lane header can stay put
+   while a busy Waiting lane is scrolled. That needs a BOUNDED height, which
+   only a viewport-locked flex column can give — hence `.pos-shell` on <body>
+   of pos.html. Scoped to that class so index/track/admin/reports, which share
+   this stylesheet, keep their ordinary document scrolling.
+
+   Below 700px (phones) the lock is released and the page scrolls normally:
+   three internally-scrolling lanes stacked in a 600px-tall viewport would be
+   three tiny windows, which is worse than the single scroll it replaced. */
+@media(min-width:700px){
+  body.pos-shell{
+    height:100dvh;
+    overflow:hidden;
+    display:flex;
+    flex-direction:column;
+  }
+  body.pos-shell .pos-app{flex:1;min-height:0;display:flex;width:100%}
+  body.pos-shell .pos-main{
+    flex:1;min-width:0;min-height:0;
+    display:flex;flex-direction:column;
+    overflow:hidden;
+    padding:0;
+  }
+  body.pos-shell .pos-board{flex:1;min-height:0}
+  /* The version marker stays on screen — support asks for it constantly — but as a
+     44px rule rather than the 80px block a document page can afford. Exactly 44px:
+     it holds a real control, so it cannot be thinner, and there is no reason for it
+     to be thicker. */
+  body.pos-shell .app-footer{
+    flex:0 0 auto;margin-top:0;padding:0 14px;gap:14px;
+    background:#fff;border-top:1px solid var(--cream-dark);
+  }
+  /* The login card is the one non-board view inside the locked shell. */
+  body.pos-shell .pos-login{margin:48px auto;max-height:100%;overflow-y:auto}
+}
+/* Footer tap target — OUTSIDE the media query, because the phone layout has the
+   same thumbs. "Check for update" was a 91×14 text link, a real control well below
+   the tap floor. Scoped to the POS shell so the customer-facing pages keep their
+   existing footer proportions. */
+body.pos-shell .app-footer{min-height:var(--tap)}
+body.pos-shell .app-version{opacity:.9;font-weight:600}
+body.pos-shell .check-update-btn{
+  min-height:var(--tap);padding:0 12px;opacity:1;font-weight:700;
+}
+/* Keyboard focus, themed from the palette rather than left at the browser's
+   default. Scoped to the POS shell so the customer-facing pages are untouched. */
+body.pos-shell :focus-visible{
+  outline:3px solid var(--primary);
+  outline-offset:2px;
+  border-radius:4px;
+}
+body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
 
 /* === POS Login === */
 .pos-login{
@@ -1172,7 +1272,10 @@ header h1{
 }
 .pos-btn:hover{background:var(--cream);border-color:var(--accent)}
 .pos-btn:active{transform:scale(.96)}
-.pos-btn-sm{padding:8px 14px;font-size:.82rem;min-height:40px;border-radius:10px}
+/* `.pos-btn-sm` is "compact", not "small enough to miss": it is used across the
+   controls row and inside modals, all of it thumb-operated on the counter
+   tablet, so it keeps the 44px floor and only loses horizontal padding. */
+.pos-btn-sm{padding:9px 14px;font-size:.82rem;min-height:var(--tap);border-radius:10px}
 .pos-btn-outline{background:var(--cream,#f9f5f0);border-color:var(--primary,#6B4226);color:var(--primary,#6B4226)}
 .pos-btn-outline:hover{background:var(--primary,#6B4226);color:#fff}
 .pos-btn-lg{
@@ -1206,21 +1309,90 @@ header h1{
   border-color:#7C3AED;
   box-shadow:0 2px 8px rgba(124,58,237,.25);
 }
-
-/* === Top bar === */
-.pos-topbar{
-  display:flex;
-  flex-wrap:wrap;
-  gap:10px;
-  align-items:center;
-  padding:14px 20px;
-  background:#fff;
-  border-bottom:1px solid var(--cream-dark);
-  position:sticky;
-  top:52px;
-  z-index:90;
-  box-shadow:var(--shadow-sm);
+/* "Mark ready" is the OTHER quick action, so it gets the OTHER colour family.
+   Approve and Ready were the same brown pill in the same slot on the card, which
+   made the one transition a cashier performs dozens of times a service illegible
+   by colour — and the lane header naming the difference is often scrolled away.
+   Success green, at a fill dark enough for white text (6.54:1). */
+.pos-btn-ready{
+  background:linear-gradient(135deg,var(--ready-fill) 0%,var(--ready-fill-hi) 100%);
+  color:#fff;
+  border-color:#155C30;
+  box-shadow:0 2px 8px rgba(21,92,48,.24);
 }
+.pos-btn-ready:hover{
+  background:linear-gradient(135deg,var(--ready-fill-hi) 0%,var(--ready-fill) 100%);
+  border-color:var(--ready-fill-hi);
+  color:#fff;
+}
+/* Reverse / step-back actions — "↩ Undo", "↩ Back to Preparing". These were inline
+   `background:#6b7280` slabs: a cool grey belonging to no palette here, with white
+   on it at 4.83:1. A warm neutral that is clearly secondary to the filled primary
+   beside it, and legible at 6.99:1. */
+.pos-btn-secondary{
+  background:var(--cream-dark);
+  border-color:#E0D2BE;
+  color:var(--ink-quiet);
+  font-weight:700;
+}
+.pos-btn-secondary:hover{background:#EDE1D2;border-color:var(--accent);color:var(--text)}
+
+/* READY → collected: the lane's own family, but outlined. Handing a drink over
+   is the end of the job, not another advance, so it does not compete with
+   Approve or Mark ready for attention. */
+.pos-btn-collect{background:var(--cream);border-color:var(--ready-fill);color:#124F2B}
+.pos-btn-collect:hover{background:var(--success-bg);border-color:var(--ready-fill);color:#124F2B}
+
+/* The disabled state that did not exist. There was ONE partial variant —
+   `.pos-btn-preorder-release[disabled]{opacity:.6;cursor:default}` — so every
+   other disabled button in the POS kept its gradient, its shadow and its
+   press-scale and looked exactly as tappable as a live one. Generalised here to
+   all `.pos-btn` variants rather than added as a second competing rule.
+
+   Inert by every channel at once: flat fill, no gradient, no shadow, no lift,
+   `not-allowed` cursor. `!important` because the variant classes above set
+   background/border/shadow at the same specificity and several ship their own
+   `background:…!important` (see .pos-btn-featured-active). The label stays
+   legible at 5.62:1 — a disabled control still has to be readable to explain
+   why nothing is happening. */
+/* `.is-blocked` shares the appearance but not the semantics: a control that is
+   BLOCKED rather than irrelevant stays enabled so a tap can explain the blocker,
+   which a real `disabled` attribute makes impossible (it swallows the event) and
+   `aria-disabled` merely misreports. See #clSubmit in pos-checklist.js. */
+.pos-btn:disabled,
+.pos-btn[disabled],
+.pos-btn.is-blocked{
+  background:var(--disabled-bg)!important;
+  background-image:none!important;
+  border-color:var(--disabled-bd)!important;
+  color:var(--disabled-ink)!important;
+  box-shadow:none!important;
+  text-shadow:none!important;
+  cursor:not-allowed;
+  transform:none!important;
+  animation:none!important;
+  font-weight:600;
+}
+.pos-btn:disabled:hover,
+.pos-btn[disabled]:hover,
+.pos-btn.is-blocked:hover,
+.pos-btn:disabled:active,
+.pos-btn[disabled]:active,
+.pos-btn.is-blocked:active{
+  background:var(--disabled-bg)!important;
+  border-color:var(--disabled-bd)!important;
+  transform:none!important;
+}
+/* …but a blocked control is still POINTABLE, because tapping it produces an
+   explanation. `not-allowed` on something that responds would be a lie. */
+.pos-btn.is-blocked{cursor:pointer}
+.pos-btn.is-blocked:hover{border-color:var(--accent)!important}
+
+/* `.pos-topbar` used to live here: a `position:sticky; top:52px` bar attached to
+   a class no page has ever rendered — dead CSS carrying exactly the behaviour
+   the board wanted. Removed rather than left as a third competing rule; the
+   sticky treatment now belongs to `.pos-col-hdr` (the lane header), which is the
+   element that actually needs to stay put while its lane scrolls. */
 .pos-user{
   font-weight:700;
   margin-right:auto;
@@ -1231,57 +1403,105 @@ header h1{
   gap:8px;
 }
 .pos-status-dot{
-  width:10px;
-  height:10px;
+  width:9px;
+  height:9px;
   border-radius:50%;
   display:inline-block;
+  flex:0 0 auto;
 }
+/* The state as a WORD as well as a colour. A bare dot asked the volunteer to
+   remember which colour meant what, and it was the only indicator of café state in
+   the sidebar. */
+.pos-status-chip{
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  padding:3px 9px;
+  border-radius:999px;
+  font-size:.65rem;
+  font-weight:800;
+  letter-spacing:.08em;
+  border:1px solid transparent;
+}
+.pos-status-chip.is-open{color:#053C2C;background:#B7F3D6;border-color:#10B981}     /* 9.95:1 */
+.pos-status-chip.is-closed{color:#fff;background:var(--closed);border-color:#7F1D1D} /* 7.87:1 */
+.pos-status-chip.is-stale{color:#3B2A12;background:var(--accent-light);border-color:#B98B4E} /* 8.71:1 */
 .pos-status-dot.open{
   background:var(--success);
   box-shadow:0 0 6px rgba(45,138,78,.5);
   animation:dotPulse 2s ease-in-out infinite;
 }
+/* Closed is a STATE, not an absence — it gets the closed hue, not a grey that
+   reads as "unknown". (It also used to sit next to a green OPEN badge on first
+   login, because only the badge was being updated; see renderStatusDot().) */
 .pos-status-dot.closed{
-  background:#9CA3AF;
+  background:var(--closed);
+}
+.pos-status-dot.stale{
+  background:var(--stale);
+  box-shadow:0 0 0 2px rgba(176,39,26,.25);
 }
 @keyframes dotPulse{0%,100%{opacity:1}50%{opacity:.5}}
 
-/* === Stats bar === */
+/* === Stats bar ===
+   Visible by DEFAULT. It was `display:none`, reachable only via 📊 Stats in the
+   hamburger, which put the whole workload-at-a-glance two taps away — on the one
+   screen whose entire job is telling a volunteer what needs doing next. The
+   sidebar button now collapses it for anyone who wants the room back. */
 .pos-stats-bar{
-  display:none;
-  gap:2px;
-  padding:10px 20px;
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:4px 8px;
+  padding:8px 14px;
   background:var(--cream);
   border-bottom:1px solid var(--cream-dark);
-  overflow-x:auto;
+  flex:0 0 auto;
 }
-.pos-stats-bar.visible{display:flex}
+.pos-stats-bar.collapsed{display:none}
 .pos-stat{
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  padding:8px 16px;
-  min-width:70px;
+  display:inline-flex;
+  align-items:baseline;
+  gap:5px;
+  padding:3px 10px 3px 0;
+  border-right:1px solid #E4D6C4;
 }
+.pos-stat:last-child{border-right:0}
 .pos-stat-num{
-  font-size:1.2rem;
+  font-size:1.3rem;
   font-weight:800;
   color:var(--primary);
+  line-height:1.1;
 }
 .pos-stat-lbl{
-  font-size:.7rem;
-  color:var(--text-light);
-  font-weight:600;
-  text-transform:uppercase;
-  letter-spacing:.3px;
+  font-size:.75rem;
+  color:var(--ink-quiet);
+  font-weight:700;
 }
+/* The two things on this bar that are a QUEUE OF WORK rather than a count:
+   money waiting to be checked, and pre-orders waiting to be released. They sit
+   apart from the counts because they are prompts, not readings. */
+.pos-flagstrip{display:flex;flex-wrap:wrap;gap:6px;margin-left:auto}
+.pos-flag{
+  display:inline-flex;align-items:center;gap:5px;
+  font-size:.75rem;font-weight:700;padding:5px 10px;border-radius:999px;
+  white-space:nowrap;
+}
+.pos-flag-receipt{background:#E0E7FF;color:#2D2C8F}   /* 9.12:1 */
+.pos-flag-preorder{background:#EDE9FE;color:#4C1D95}  /* 9.23:1 */
+
+/* Every number a volunteer compares — money, counts, wait times — is tabular,
+   so digits line up between cards instead of dancing. */
+.pos-stat-num,.pos-col-n,.pos-card-footer,.pos-last-refresh,
+.pos-cl-count,.pos-tab-n,.pos-flag{font-variant-numeric:tabular-nums}
 
 /* === Controls === */
 .pos-controls{
   display:flex;
-  gap:10px;
-  padding:14px 20px;
+  gap:8px;
+  padding:10px 14px;
   align-items:center;
+  flex:0 0 auto;
   /* Wrap rather than squeezing the search field to nothing: this bar now also
      carries the Walk-up button, and a narrow tablet in portrait would otherwise
      crush every control. */
@@ -1294,11 +1514,12 @@ header h1{
    the search box 50px against the buttons' 41px, and the leftover margin pushed
    its centre 7px above theirs. Scoped so other forms are unaffected. */
 .pos-controls .pos-input{
-  min-height:40px;
-  padding:8px 14px;
-  font-size:.9rem;
+  min-height:var(--tap);
+  padding:10px 14px;
+  font-size:.92rem;
   margin-bottom:0;
 }
+.pos-controls .pos-input::placeholder{color:var(--ink-muted)}  /* 6.54:1 on --cream */
 /* `flex:1` alone has a 0% basis, so the field still collapsed to a sliver before
    the row wrapped — visible on a 768px-wide tablet in portrait once the bar
    gained the pre-order release button. min-width forces the wrap the flex-wrap
@@ -1313,8 +1534,8 @@ header h1{
   border-color:var(--brown,#6B4226);
   color:#fff;
   font-weight:700;
-  min-height:40px;
-  padding:8px 16px;
+  min-height:var(--tap);
+  padding:10px 16px;
   white-space:nowrap;
   flex:0 0 auto;
 }
@@ -1332,78 +1553,200 @@ header h1{
   border-color:#7C3AED;
   color:#fff;
   font-weight:700;
-  min-height:40px;
-  padding:8px 16px;
+  min-height:var(--tap);
+  padding:10px 16px;
   white-space:nowrap;
   flex:0 0 auto;
 }
 .pos-btn-preorder-release:hover,
 .pos-btn-preorder-release:focus-visible{
-  background:#6D28D9;
-  border-color:#6D28D9;
+  background:var(--preorder-deep);
+  border-color:var(--preorder-deep);
   color:#fff;
 }
-.pos-btn-preorder-release[disabled]{opacity:.6;cursor:default}
+/* The `[disabled]{opacity:.6;cursor:default}` that used to sit here was the only
+   disabled styling in the POS. It is now handled for every variant by the
+   generalised `.pos-btn:disabled` rule above — see the note there. */
 .pos-last-refresh{
-  font-size:.72rem;
-  color:#9CA3AF;
+  font-size:.8rem;
+  font-weight:600;
+  color:var(--ink-muted);          /* was #9CA3AF — 2.54:1 on white */
   margin-left:auto;
   white-space:nowrap;
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+}
+/* Stale marker on the timestamp itself, so the age of the data is flagged at the
+   exact place a cashier looks to judge it. Word AND colour, not colour alone. */
+.pos-stale-pill{
+  background:var(--stale);
+  color:#fff;
+  font-size:.68rem;
+  font-weight:800;
+  letter-spacing:.1em;
+  padding:4px 9px;
+  border-radius:6px;
 }
 
-/* === Kanban board === */
+/* === Kanban board ===
+   Three fixed lanes, each scrolling independently under a sticky header. The
+   user chose this over a single FIFO list for a specific reason: an order placed
+   but never paid for would permanently own row 1 of one combined list, and there
+   is no way to tell it apart from the order that genuinely needs doing next. */
 .pos-kanban{
   display:grid;
-  grid-template-columns:1fr 1fr 1fr;
-  gap:16px;
-  padding:20px;
+  /* minmax(0,1fr), not 1fr. A grid track's automatic minimum is its content's
+     min-content width, so ONE unbreakable customer name (they do happen — a full
+     Malay or Indian name with no spaces to break on) stretched Waiting to 68% of
+     the board and crushed Making and Ready to ~110px each. minmax(0,…) lets the
+     track go narrower than its content and hands the wrapping to
+     `overflow-wrap:anywhere` on the name and item rows instead. */
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:10px;
+  padding:12px;
 }
-.pos-col h3{
-  font-size:.9rem;
-  font-weight:700;
-  margin-bottom:12px;
-  padding:10px 14px;
-  border-radius:var(--radius);
+/* With nothing on the board the lanes size to their content instead of
+   stretching into three full-height hollow tubes. */
+.pos-kanban.is-empty{align-items:start}
+.pos-col{
+  min-width:0;
+  min-height:0;
+  display:flex;
+  flex-direction:column;
+  background:var(--cream-dark);
+  border:1px solid #E7D9C6;
+  border-radius:var(--radius-lg);
+  overflow:hidden;
+}
+/* The scroll container is INSIDE the lane, so `position:sticky` on the header has
+   a scrollport to stick to. Put the overflow on `.pos-col` itself and the header
+   would stick to the page instead and scroll away with its lane. */
+.pos-col-scroll{
+  flex:1;
+  min-height:0;
+  overflow-y:auto;
+  overscroll-behavior:contain;
+}
+.pos-col-hdr{
+  position:sticky;
+  top:0;
+  z-index:3;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:11px 12px;
+  /* 16px, up from 12.8px. This is the label that tells a volunteer which of
+     three near-identical stacks of cards they are looking at. */
+  font-size:1rem;
+  font-weight:800;
+  letter-spacing:.05em;
   text-transform:uppercase;
-  letter-spacing:.5px;
-  font-size:.8rem;
+  /* Offset + blur, so cards passing underneath are visibly behind it rather than
+     colliding with it. */
+  box-shadow:0 3px 6px -2px rgba(74,44,23,.22);
 }
-.pos-col-pending h3{
+.pos-col-n{
+  margin-left:auto;
+  font-size:1.05rem;
+  font-weight:800;
+  background:rgba(255,255,255,.72);
+  padding:1px 10px;
+  border-radius:999px;
+}
+/* Lane ink, measured. Was --warning 2.95:1, --info 4.75:1, --success 3.85:1 on
+   these tints — all three below the 4.5:1 floor at the previous 12.8px, two of
+   them below even the large-text 3:1. */
+.pos-col-pending .pos-col-hdr{
   background:var(--warning-bg);
-  color:var(--warning);
-  border:1px solid #F5D789;
+  color:var(--pending-ink);        /* 6.46:1 */
+  border-bottom:1px solid #E7C878;
 }
-.pos-col-preparing h3{
+.pos-col-preparing .pos-col-hdr{
   background:var(--info-bg);
-  color:var(--info);
-  border:1px solid #93C5FD;
+  color:var(--making-ink);         /* 8.01:1 */
+  border-bottom:1px solid #A9C6FB;
 }
-.pos-col-ready h3{
+.pos-col-ready .pos-col-hdr{
   background:var(--success-bg);
-  color:var(--success);
-  border:1px solid #6EE7A0;
+  color:var(--ready-ink);          /* 6.77:1 */
+  border-bottom:1px solid #86D9AC;
 }
+.pos-col-cards{padding:10px 10px 20px;display:flex;flex-direction:column;gap:10px}
+.pos-col-cards .pos-card{margin-bottom:0}
 
+/* Empty, but CONNECTED. Three lanes each saying "No orders" over 90% dead space
+   told a new volunteer nothing about what to do next; the Waiting lane now names
+   the action, because "nobody has ordered yet" is the moment a walk-up happens. */
 .pos-col-empty{
+  margin:10px;
+  padding:16px 14px;
+  background:var(--cream);
+  border:1px solid var(--cream-dark);
+  border-radius:var(--radius);
   text-align:center;
-  padding:24px 12px;
-  color:#9CA3AF;
-  font-size:.85rem;
-  font-style:italic;
+}
+.pos-col-empty b{
+  display:block;
+  font-size:.98rem;
+  font-weight:800;
+  color:var(--text);
+  margin-bottom:4px;
+}
+.pos-col-empty p{
+  font-size:.86rem;
+  color:var(--ink-muted);          /* was #9CA3AF italic — 2.46:1 */
+  font-weight:600;
+  margin-bottom:12px;
+}
+.pos-col-empty p:last-child{margin-bottom:0}
+.pos-col-empty .pos-btn{width:100%}
+/* "Not known" — the lane could not be read, which is not the same as empty. */
+.pos-col-empty-unknown{
+  background:var(--danger-bg);
+  border-color:#F3C9C4;
+}
+.pos-col-empty-unknown b{color:var(--stale-ink)}      /* 8.80:1 on --danger-bg */
+.pos-col-empty-unknown p{color:var(--stale-ink);font-weight:600}
+
+/* Lane scrollbars themed from the palette. The global 6px `--cream` thumb was
+   near-invisible against a cream lane, so a scrollable lane did not look
+   scrollable. */
+.pos-col-scroll,.checklist-items,.pos-sidebar{
+  scrollbar-width:thin;
+  scrollbar-color:var(--accent) var(--cream-dark);
+}
+.pos-col-scroll::-webkit-scrollbar,
+.checklist-items::-webkit-scrollbar,
+.pos-sidebar::-webkit-scrollbar{width:10px}
+.pos-col-scroll::-webkit-scrollbar-track,
+.checklist-items::-webkit-scrollbar-track,
+.pos-sidebar::-webkit-scrollbar-track{background:var(--cream-dark)}
+.pos-col-scroll::-webkit-scrollbar-thumb,
+.checklist-items::-webkit-scrollbar-thumb,
+.pos-sidebar::-webkit-scrollbar-thumb{
+  background:var(--accent);
+  border-radius:99px;
+  border:2px solid var(--cream-dark);
 }
 
 /* === List view === */
-.pos-list-view{padding:16px 20px}
-.pos-tabs{display:flex;gap:6px;margin-bottom:16px}
+.pos-list-view{padding:12px 14px;display:flex;flex-direction:column;min-height:0}
+.pos-tabs{display:flex;gap:6px;margin-bottom:12px;flex:0 0 auto;flex-wrap:wrap}
 .pos-tab{
-  padding:10px 20px;
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  padding:10px 16px;
   border:none;
   background:var(--cream-dark);
   border-radius:var(--radius);
   cursor:pointer;
-  min-height:44px;
-  font-weight:600;
-  color:var(--text-light);
+  min-height:var(--tap);
+  font-family:inherit;
+  font-size:.9rem;
+  font-weight:700;
+  color:var(--ink-quiet);          /* was --text-light: 4.24:1 on --cream-dark */
   transition:var(--transition);
 }
 .pos-tab:hover{background:var(--accent-light)}
@@ -1412,6 +1755,18 @@ header h1{
   color:#fff;
   box-shadow:0 2px 8px rgba(107,66,38,.2);
 }
+/* Counts on the tabs too, so switching tab is an informed choice rather than a
+   guess at where the work is. */
+.pos-tab-n{
+  font-weight:800;
+  background:rgba(255,255,255,.75);
+  color:var(--ink-quiet);
+  padding:1px 9px;
+  border-radius:999px;
+  font-size:.85rem;
+}
+.pos-tab.active .pos-tab-n{background:rgba(255,255,255,.22);color:#fff}
+.pos-list-items{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding-right:2px}
 
 /* === Order cards === */
 .pos-card{
@@ -1432,46 +1787,107 @@ header h1{
 .pos-card:active{transform:scale(.98)}
 .pos-card-pending{border-left-color:var(--warning)}
 .pos-card-receipt{
-  border:2px solid #6366F1;
-  border-left:5px solid #6366F1;
+  border:2px solid var(--receipt);
+  border-left:5px solid var(--receipt);
 }
+/* Money already transferred, waiting to be checked against the order. A band
+   across the card, not an inline chip — it is the reason to pick this card up.
+   White on #6366F1 measured 4.47:1, under the floor for its own label; the
+   deeper --receipt is 7.90:1. The pulse moved off `opacity`, which was dropping
+   that ratio to ~3.3:1 for half of every cycle. */
 .pos-receipt-badge{
-  font-size:.78rem;
-  font-weight:700;
+  font-size:.85rem;
+  font-weight:800;
   color:#fff;
-  background:#6366F1;
-  padding:4px 8px;
-  border-radius:8px;
-  margin-bottom:6px;
-  display:inline-block;
+  background:var(--receipt);
+  padding:7px 11px;
+  border-radius:9px;
+  margin-bottom:8px;
+  display:flex;
+  align-items:center;
+  gap:7px;
+  flex-wrap:wrap;
   animation:receiptPulse 2s ease-in-out infinite;
 }
-@keyframes receiptPulse{0%,100%{opacity:1}50%{opacity:.7}}
+@keyframes receiptPulse{
+  0%,100%{box-shadow:0 0 0 0 rgba(67,56,202,0)}
+  50%    {box-shadow:0 0 0 3px rgba(67,56,202,.28)}
+}
+@media (prefers-reduced-motion:reduce){
+  .pos-receipt-badge{animation:none}
+}
+/* The one authored moment on the board: the order that has waited too long.
+   The tint is now PERSISTENT and the pulse moved to the shadow — the old version
+   animated the background between #fff and #FEF2F2, so for half of every cycle
+   the card looked completely ordinary, and it was fighting the tint rather than
+   adding to it. The cue also now lands on something a cashier can actually see:
+   this card sorts FIRST in its lane instead of last. */
 .pos-card-urgent{
   border-left-color:var(--danger);
-  animation:urgentPulse 2s ease-in-out infinite;
+  background:var(--urgent-tint);
+  animation:urgentPulse 2.4s ease-in-out infinite;
 }
-@keyframes urgentPulse{0%,100%{background:#fff}50%{background:#FEF2F2}}
+@keyframes urgentPulse{
+  0%,100%{box-shadow:var(--shadow-sm)}
+  50%    {box-shadow:0 3px 14px rgba(192,57,43,.34)}
+}
+@media (prefers-reduced-motion:reduce){
+  .pos-card-urgent{animation:none;box-shadow:0 2px 10px rgba(192,57,43,.28)}
+}
 .pos-card-preparing{border-left-color:var(--info)}
 .pos-card-ready{border-left-color:var(--success)}
+/* Card hierarchy, deliberately NOT applied uniformly.
+   On a PENDING or PREPARING card the DRINKS are what has to be read and acted
+   on, so they lead and the name recedes to an attribution line. The name was
+   1.15rem/800 — the loudest thing on the card — while the drinks were 0.85rem
+   `--text-light`, the quietest, which is backwards for the two jobs those cards
+   serve (check a payment, make an order).
+   READY inverts the inversion: nobody is making anything there and the entire
+   job is to call a name, so `.pos-card-ready` promotes it again below. */
+/* The attribution line in the card footer: "for Grace Wong". */
 .pos-card-name{
-  font-weight:800;
-  font-size:1.15rem;
-  margin-bottom:6px;
-  color:var(--text);
+  font-weight:600;
+  font-size:.88rem;
+  color:var(--ink-muted);          /* 6.89:1 on the white card */
+  min-width:0;
+  overflow-wrap:anywhere;          /* the long-name fix, paired with minmax(0,1fr) */
 }
+.pos-card-name .pos-card-who{font-weight:800;color:var(--ink-quiet)}   /* 8.11:1 */
+/* READY promotes the name to the headline, ABOVE the drinks. */
+.pos-card-lead{
+  margin:0 0 8px;
+  font-size:1.3rem;
+  font-weight:800;
+  color:var(--text);
+  line-height:1.2;
+  overflow-wrap:anywhere;
+}
+.pos-card-top{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.pos-card-wait{font-size:.95rem;font-weight:800;color:var(--ink-muted)}   /* was 2.54:1 */
+.pos-card-tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+/* Tags WRAP. A 257px lane cannot hold a nowrap pill, and "🎫 staff price
+   requested" is the one tag that must never be half-read — it decides whether
+   RM5 sticks. */
 .pos-card-tag{
-  font-size:.68rem;
-  opacity:.6;
-  font-weight:500;
+  display:inline-block;
+  font-size:.75rem;
+  font-weight:700;
+  padding:3px 8px;
+  border-radius:9px;
+  background:var(--cream-dark);
+  color:var(--ink-quiet);          /* 6.99:1 — was opacity:.6 on --text-light */
+  white-space:normal;
+  overflow-wrap:anywhere;
+  max-width:100%;
 }
 /* Staff-link orders. Not faded like the walk-up tag: the cashier has to notice
    it before approving, because approving decides whether RM5 sticks. */
 .pos-card-tag-staff{
   opacity:1;
   font-weight:700;
-  font-size:.72rem;
-  color:#1E40AF;
+  font-size:.75rem;
+  background:#DBEAFE;
+  color:var(--making-ink);         /* 7.15:1 on #DBEAFE */
 }
 /* Ministry pre-orders sit in the Pending tab from Wednesday to Sunday, and the
    ribbon is the primary way a volunteer spots one. Deliberately loud: a
@@ -1481,7 +1897,7 @@ header h1{
    with an unpaid walk-in during the Sunday rush. The matching left border makes
    the whole card identifiable even when it is scrolled half out of view. */
 .pos-card-preorder{
-  border-left-color:#7C3AED;
+  border-left-color:var(--preorder);
 }
 .pos-card-preorder-ribbon{
   display:block;
@@ -1490,29 +1906,52 @@ header h1{
   padding:9px 12px;
   border-top-left-radius:var(--radius);
   border-top-right-radius:var(--radius);
-  background:#7C3AED;
+  background:var(--preorder);
   color:#fff;
   font-size:.95rem;
   font-weight:800;
-  letter-spacing:.1em;
+  letter-spacing:.09em;
   text-transform:uppercase;
   text-align:center;
-  line-height:1.2;
+  line-height:1.25;
+  overflow-wrap:anywhere;
 }
 /* Pre-order for a later service: same shape, quieter shade, and it carries the
    date. Not part of the bulk release. */
 .pos-card-preorder-ribbon-later{
-  background:#C4B5FD;
-  color:#4C1D95;
+  background:var(--preorder-soft);
+  color:var(--preorder-soft-ink);  /* 5.93:1 */
 }
+/* The drinks are now the loud text on the card, because the drinks are what the
+   barista has to read. They also stopped being a single nowrap/ellipsis line:
+   a truncated order is not an order, and on a 257px lane the ellipsis was
+   eating the second item entirely. */
 .pos-card-items{
-  font-size:.85rem;
-  color:var(--text-light);
+  font-size:1.05rem;
+  font-weight:700;
+  color:var(--text);
+  line-height:1.3;
   margin-bottom:8px;
-  overflow:hidden;
-  text-overflow:ellipsis;
-  white-space:nowrap;
+  display:flex;
+  flex-direction:column;
+  gap:5px;
 }
+.pos-card-items>div{overflow-wrap:anywhere}
+.pos-card-qty{
+  display:inline-block;
+  min-width:2.1em;
+  color:var(--primary);
+  font-weight:800;
+  font-variant-numeric:tabular-nums;
+}
+.pos-card-variant{font-size:.86rem;font-weight:700;color:var(--ink-quiet)}
+/* On READY the drinks step back — they are a confirmation that the right cup is
+   being handed over, not an instruction. */
+.pos-card-ready .pos-card-items{font-size:.95rem;font-weight:600;color:var(--ink-quiet)}
+.pos-card-ready .pos-card-qty{color:var(--ink-quiet)}
+/* …and the wait line steps back with them, because on READY it reports how long
+   ago the drink was called rather than how long someone has been standing there. */
+.pos-card-ready .pos-card-wait{font-size:.88rem;font-weight:700}
 /* "✏️ modified" pill on PENDING cards whose customer just edited the order. */
 .pos-card-modified{
   display:inline-block;
@@ -1557,9 +1996,11 @@ header h1{
 }
 
 .pos-card-note{
-  font-size:.75rem;
-  color:#7C3AED;
-  margin-top:2px;
+  font-size:.85rem;
+  font-weight:700;
+  color:var(--note-ink);           /* 8.98:1 — customer-typed text, read it once */
+  margin-top:4px;
+  overflow-wrap:anywhere;
 }
 /* Per-ITEM note, on the queue card and in the order detail. Indented under its
    own item with a left rule so it reads as belonging to that drink, not to the
@@ -1573,25 +2014,29 @@ header h1{
   clear:both;
   white-space:normal;
   overflow-wrap:anywhere;
-  margin:2px 0 4px 14px;
+  margin:3px 0 2px 2.3em;
   padding-left:8px;
-  border-left:2px solid #C4B5FD;
-  font-size:.78rem;
-  font-weight:600;
-  color:#6D28D9;
+  /* 1px: a rule that groups the note under its drink, not a decorative accent
+     bar. Anything heavier competes with the card's own 5px status edge, which is
+     the only wide left border on this surface and means something. */
+  border-left:1px solid var(--preorder-soft);
+  font-size:.85rem;
+  font-weight:700;
+  color:var(--note-ink);           /* 8.98:1 */
 }
-/* Auto-archive countdown shown on READY cards. */
+/* Auto-archive countdown shown on READY cards. Its own line at full opacity:
+   at 257px "Ready 3m ago" plus "auto-archives in 12m" wrapped and orphaned a
+   word, and .85 opacity on .72rem text was doing the contrast no favours. */
 .pos-archive-hint{
-  font-size:.72rem;
-  color:#7A6355;
-  margin-top:4px;
+  font-size:.8rem;
+  font-weight:700;
+  color:var(--archive-ink);        /* 5.92:1 on the white card */
+  margin-top:7px;
   letter-spacing:.2px;
-  opacity:.85;
 }
 .pos-archive-hint-soon{
   color:#A85A1F;
-  font-weight:600;
-  opacity:1;
+  font-weight:700;
 }
 .pos-archive-hint-overdue{
   color:#C0392B;
@@ -1603,13 +2048,26 @@ header h1{
   0%, 100% { opacity:.7; }
   50%      { opacity:1; }
 }
+/* The wait time lived here at #9CA3AF — 2.54:1 on a white card, the single
+   worst-contrast text in the POS, and it is the number that decides who gets
+   served next. Note the source was a hardcoded grey, NOT --text-light. */
 .pos-card-footer{
   display:flex;
-  justify-content:space-between;
-  font-size:.78rem;
-  color:#9CA3AF;
-  font-weight:500;
+  flex-wrap:wrap;
+  align-items:baseline;
+  gap:4px 10px;
+  margin-top:9px;
+  padding-top:8px;
+  border-top:1px solid var(--cream-dark);
+  font-size:.9rem;
+  color:var(--ink-muted);          /* 6.89:1 */
+  font-weight:700;
 }
+.pos-card-price{margin-left:auto;font-weight:800;color:var(--text)}
+.pos-card-price s{color:var(--ink-muted);font-weight:600;margin-right:5px}
+/* The waited-too-long cue, on the card that is now FIRST in its lane rather than
+   sixth and 1100px below the fold. */
+.pos-card-wait-urgent{color:var(--urgent-ink);font-weight:800}
 
 /* Discount pill under the card footer — tells the cashier at a glance
    which discount type applies. Variants below map to each discountType. */
@@ -1636,14 +2094,19 @@ header h1{
 .discount-badge-preorder   { background:#CCFBF1; color:#115E59; }
 .discount-badge-voucher    { background:#FCE7F3; color:#9D174D; }
 .pos-card-actions{
-  margin-top:8px;
-  padding-top:8px;
+  margin-top:10px;
+  padding-top:9px;
   border-top:1px solid var(--cream-dark);
+  display:flex;
+  gap:8px;
 }
 .pos-card-actions .pos-btn{
+  flex:1;
   width:100%;
-  font-size:.85rem;
-  padding:8px;
+  font-size:.88rem;
+  font-weight:700;
+  padding:10px;
+  min-height:var(--tap);
 }
 
 /* === Modal === */
@@ -1681,8 +2144,10 @@ header h1{
   background:var(--cream);
   font-size:1.2rem;
   cursor:pointer;
-  min-width:40px;
-  min-height:40px;
+  /* 44px, not 40px: it is the dismiss control on every dialog in the POS and it is
+     tapped with a thumb. */
+  min-width:var(--tap);
+  min-height:var(--tap);
   border-radius:50%;
   display:flex;
   align-items:center;
@@ -1988,7 +2453,8 @@ header h1{
   align-items:center;
   gap:12px;
   font-size:.82rem;
-  color:#9CA3AF;
+  color:var(--ink-muted);          /* was #9CA3AF — 2.54:1 */
+  font-weight:600;
 }
 .pos-history-footer .pos-btn-sm{
   margin-left:auto;
@@ -2074,55 +2540,168 @@ header h1{
   padding-left:30px;
 }
 
-/* === Checklist === */
+/* === Checklist ===
+   The real open list is 12 items. At `max-height:50vh` with the global near-white
+   6px scrollbar, 8 showed and the four out of sight included "Enable menu items &
+   food quantities in POS" — so the café could be opened with the menu switched
+   off, and nothing on screen said there was more list. The panel now states how
+   many are done, how many are hidden, and how many are blocking the button. */
+.checklist-progress{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  margin:0 0 14px;
+}
+.pos-cl-count{font-size:.92rem;font-weight:800;color:var(--text);white-space:nowrap}
+.pos-cl-track{
+  flex:1;
+  /* display:block matters — as an inline span, height did nothing and the fill
+     silently never rendered. */
+  display:block;
+  height:8px;
+  background:var(--cream-dark);
+  border-radius:99px;
+  overflow:hidden;
+}
+/* Animates `transform`, not `width`: a width transition relayouts the bar on
+   every frame, which janks on the counter iPad. scaleX from a left origin is
+   composited instead. The fill is always full-width and scaled down, so the JS
+   sets --cl-progress (0-1) rather than a percentage width. */
+.pos-cl-fill{
+  display:block;
+  height:100%;
+  width:100%;
+  transform-origin:left center;
+  transform:scaleX(var(--cl-progress,0));
+  background:linear-gradient(90deg,var(--primary) 0%,var(--primary-light) 100%);
+  border-radius:99px;
+  transition:transform .25s ease;
+}
+@media(prefers-reduced-motion:reduce){
+  .pos-cl-fill{transition:none}
+}
+/* The checklist dialog is a flex column and the LIST is the only thing that
+   scrolls, so the progress counter, the "N more below" line and the submit button
+   are always on screen. That is the whole point of all three, and a `max-height:Nvh`
+   list inside an `overflow-y:auto` modal put the submit button below the fold at
+   1024×768 — two nested scrollports, neither of which could be seen to the end. */
+.pos-modal-checklist{
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+.pos-modal-checklist>h3,
+.pos-modal-checklist>p,
+.pos-modal-checklist>.checklist-progress,
+.pos-modal-checklist>.checklist-more{flex:0 0 auto}
+.pos-modal-checklist>div:last-child{flex:0 0 auto}
 .checklist-items{
-  max-height:50vh;
+  flex:1 1 auto;
+  min-height:120px;
   overflow-y:auto;
+  overscroll-behavior:contain;
+  border-top:1px solid var(--cream-dark);
 }
 .checklist-row{
   display:flex;
   justify-content:space-between;
   align-items:center;
-  padding:12px 0;
+  gap:10px;
+  min-height:52px;
+  padding:8px 4px;
   border-bottom:1px solid var(--cream-dark);
-  transition:var(--transition);
+  transition:background .15s ease,box-shadow .15s ease;
 }
-.checklist-row.done{opacity:.6}
+/* Done items recede by COLOUR only. `opacity:.6` on the whole row dimmed the
+   completed-by name to illegibility, and the eye wants the items that are still
+   open at full strength anyway. */
+.checklist-row.done{opacity:1}
+.checklist-row.done .checklist-label{color:var(--ink-muted);font-weight:500}
 .checklist-label{
   display:flex;
   align-items:center;
   gap:10px;
   cursor:pointer;
-  font-weight:500;
+  font-weight:600;
+  font-size:.95rem;
   flex:1;
+  min-width:0;
+  /* The label is the tap target, not just the 22px box inside it. */
+  min-height:var(--tap);
+  overflow-wrap:anywhere;
 }
 .checklist-label input[type=checkbox]{
-  width:22px;
-  height:22px;
+  width:26px;
+  height:26px;
+  flex:0 0 auto;
   accent-color:var(--primary);
   cursor:pointer;
 }
 .checklist-badge{
   font-size:.75rem;
-  background:var(--cream);
-  padding:2px 6px;
-  border-radius:10px;
+  background:var(--cream-dark);
+  color:var(--ink-quiet);
+  font-weight:700;
+  padding:3px 8px;
+  border-radius:8px;
   margin-left:4px;
+  flex:0 0 auto;
 }
 .checklist-meta{
-  font-size:.72rem;
-  color:#9CA3AF;
+  font-size:.76rem;
+  font-weight:700;
+  color:var(--ink-muted);          /* was #9CA3AF — 2.54:1 */
   white-space:nowrap;
   margin-left:8px;
+}
+/* Tapping a disabled "Open Café" scrolls to the first outstanding item and
+   flashes it, instead of doing nothing at all. */
+.checklist-row.is-nudge{
+  background:#FFF6E5;
+  box-shadow:inset 3px 0 0 var(--warning);
+}
+/* Explicit "there is more" affordance — honest count of what is off-screen,
+   worded so it cannot be misread as the "items left" count on the button. */
+.checklist-more{
+  padding:9px 12px;
+  background:var(--cream);
+  border-top:1px solid var(--cream-dark);
+  border-bottom:1px solid var(--cream-dark);
+  font-size:.85rem;
+  font-weight:800;
+  color:var(--pending-ink);
+  text-align:center;
+}
+.checklist-more.is-end{color:var(--ink-muted);font-weight:700}
+.checklist-hint{
+  flex:1 1 100%;
+  font-size:.85rem;
+  font-weight:700;
+  color:var(--ink-muted);
+  margin-top:2px;
 }
 
 /* === Flash animation === */
 .pos-flash{animation:posFlash .6s ease}
 @keyframes posFlash{0%,100%{background:var(--bg)}50%{background:var(--warning-bg)}}
 
-/* === Mobile responsive === */
+/* === Mobile responsive ===
+   The kanban stacks below 700px, NOT below 768px, and the breakpoint has to match
+   the `body.pos-shell` viewport lock exactly. Between the two values the board
+   would be a bounded-height flex child holding three stacked lanes with nothing
+   able to scroll, and lanes 2 and 3 would simply be clipped away. 768px portrait
+   — the counter tablet — therefore keeps all three lanes side by side. */
+@media(max-width:699px){
+  .pos-kanban{grid-template-columns:minmax(0,1fr);gap:14px;padding:12px}
+  /* Phones scroll the page, so the lanes give their scrolling back: three
+     internally-scrolling windows in a 600px-tall viewport is worse than the one
+     scroll it would replace. The headers stay sticky and now stick to the PAGE,
+     which is the right behaviour for a stacked list. */
+  .pos-col{max-height:none}
+  .pos-col-scroll{overflow:visible}
+  .pos-list-items{overflow:visible}
+}
 @media(max-width:768px){
-  .pos-kanban{grid-template-columns:1fr;gap:20px}
   .pos-modal-overlay{align-items:flex-end}
   .pos-modal{
     border-radius:var(--radius-xl) var(--radius-xl) 0 0;
@@ -2131,8 +2710,6 @@ header h1{
     animation:slideUp .3s ease;
   }
   .pos-modal-walkup{border-radius:0;height:100%;max-height:100vh;animation:none}
-  .pos-topbar{flex-wrap:wrap;gap:8px}
-  .pos-topbar .pos-btn-sm{font-size:.78rem;padding:7px 10px}
 }
 
 /* === Scrollbar styling === */
@@ -2146,15 +2723,16 @@ header h1{
 
 /* === Quick approve & prep view === */
 .pos-card-quick-approve{
-  margin-top:8px;
   width:100%;
-  font-size:.82rem;
-  padding:8px;
+  font-size:.88rem;
+  padding:10px;
 }
+/* A receipt that does not match the total. This is the one badge a cashier must
+   not misread, and it was --warning on --warning-bg: 2.95:1. */
 .pos-receipt-mismatch{
   background:var(--warning-bg);
-  color:var(--warning);
-  border:1px solid #F5D789;
+  color:var(--pending-ink);        /* 6.46:1 */
+  border:1px solid #E7C878;
 }
 
 /* === Menu Search/Filter === */
@@ -2167,10 +2745,10 @@ header h1{
 
 /* === POS Sidebar === */
 .pos-sidebar{
-  position:fixed;top:52px;left:0;bottom:0;width:220px;
+  position:fixed;top:var(--pos-hdr-h);left:0;bottom:0;width:220px;
   background:#fff;border-right:1px solid var(--cream-dark,#e8e0d8);
   z-index:150;transform:translateX(-100%);transition:transform .25s ease;
-  display:flex;flex-direction:column;overflow-y:auto;
+  display:flex;flex-direction:column;overflow-y:auto;overscroll-behavior:contain;
   box-shadow:2px 0 12px rgba(0,0,0,.08);
 }
 .pos-sidebar.open{transform:translateX(0)}
@@ -2178,16 +2756,21 @@ header h1{
   padding:20px 16px 12px;font-weight:800;font-size:1.1rem;color:var(--primary,#6B4226);
   border-bottom:1px solid var(--cream-dark,#e8e0d8);
 }
+/* Name on its own line, state under it: at 220px a name plus a status pill wraps
+   into an orphaned word, and this row is read at a glance to confirm who is on. */
 .pos-sidebar-user{
-  padding:32px 16px 12px;font-size:.85rem;color:var(--text-light,#7A6355);font-weight:600;
+  padding:12px 14px;font-size:.85rem;color:var(--primary,#6B4226);font-weight:700;
   border-bottom:1px solid var(--cream-dark,#e8e0d8);
+  display:flex;flex-direction:column;align-items:flex-start;gap:7px;
 }
 .pos-sidebar-nav{
-  flex:1;padding:12px 8px;display:flex;flex-direction:column;gap:4px;
+  flex:1;padding:4px 8px 12px;display:flex;flex-direction:column;gap:6px;
 }
 .pos-sidebar-btn{
-  display:block;width:100%;text-align:left;padding:12px 16px;
-  border:none;background:none;border-radius:8px;cursor:pointer;
+  display:flex;align-items:center;width:100%;text-align:left;padding:10px 14px;
+  min-height:var(--tap);
+  border:2px solid transparent;background:none;border-radius:9px;cursor:pointer;
+  font-family:inherit;
   font-size:.9rem;font-weight:600;color:var(--text,#3D2B1F);transition:all .15s;
 }
 .pos-sidebar-btn:hover{background:var(--cream,#f9f5f0)}
@@ -2203,20 +2786,37 @@ header h1{
   border-radius:8px;cursor:pointer;font-weight:600;font-size:.9rem;
 }
 .pos-sidebar-overlay{
-  position:fixed;inset:0;background:rgba(0,0,0,.3);
+  position:fixed;inset:var(--pos-hdr-h) 0 0 0;background:rgba(61,43,31,.5);
   z-index:140;display:none;
 }
 .pos-sidebar.open ~ .pos-sidebar-overlay{display:block}
 .pos-main{
-  margin-left:0;padding:12px;transition:margin-left .25s ease;
-  min-height:calc(100vh - 52px);
-}
-@media(min-width:900px){
-  .pos-sidebar.open ~ .pos-sidebar-overlay{display:none}
-  .pos-main{margin-left:220px}
+  margin-left:0;padding:0;transition:margin-left .25s ease;
+  min-height:calc(100dvh - var(--pos-hdr-h));
 }
 .pos-sidebar.open ~ .pos-main{margin-left:220px}
 .pos-sidebar:not(.open) ~ .pos-main{margin-left:0}
+
+/* Dock the sidebar at ≥900px.
+   This media query used to set `.pos-main{margin-left:220px}` and nothing else —
+   it reserved the space and never revealed the panel, which stayed at
+   translateX(-100%) at EVERY width. (It did not even reserve it reliably: the
+   `.pos-sidebar:not(.open) ~ .pos-main{margin-left:0}` rule immediately above
+   outranks a bare `.pos-main` on specificity, media query or not.) The result was
+   11 of 13 destinations hidden behind an unlabelled 37px glyph on a 1024px
+   screen with 220px of empty gutter beside them.
+   The selectors below therefore have to match or beat that `:not(.open)` rule,
+   hence the `.pos-sidebar` prefix on each. */
+@media(min-width:900px){
+  .pos-sidebar,
+  .pos-sidebar:not(.open){transform:none;box-shadow:none}
+  .pos-sidebar ~ .pos-main,
+  .pos-sidebar:not(.open) ~ .pos-main{margin-left:220px}
+  /* Nothing to overlay and nothing to open: the panel is simply there. */
+  .pos-sidebar ~ .pos-sidebar-overlay,
+  .pos-sidebar.open ~ .pos-sidebar-overlay{display:none}
+  .header-hamburger{display:none}
+}
 
 /* Training tour: dim the sidebar during steps that don't target it.
    The sidebar has z-index:150, above TourGuide's backdrop (z:99), so
@@ -2269,14 +2869,17 @@ body.training-active.training-target-sidebar .pos-sidebar{
 
 
 
-/* POS Sidebar sections */
-.pos-sidebar-section-label{padding:12px 16px 4px;font-size:.7rem;text-transform:uppercase;letter-spacing:.5px;color:var(--text-light,#7A6355);font-weight:700}
-.pos-sidebar-actions{padding:4px 8px 8px;display:flex;flex-direction:column;gap:6px;border-bottom:1px solid var(--cream-dark,#e8e0d8)}
-.pos-action-btn{display:block;width:100%;text-align:center;padding:10px 12px;border:2px solid transparent;border-radius:8px;cursor:pointer;font-size:.85rem;font-weight:700;transition:all .15s}
+/* POS Sidebar sections. More space above a section label than below it, so each
+   label groups with what follows rather than floating between the two. */
+.pos-sidebar-section-label{padding:20px 14px 6px;font-size:.68rem;text-transform:uppercase;letter-spacing:.09em;color:var(--ink-quiet);font-weight:800}
+.pos-sidebar-actions{padding:0 8px 10px;display:flex;flex-direction:column;gap:6px;border-bottom:1px solid var(--cream-dark,#e8e0d8)}
+.pos-action-btn{display:flex;align-items:center;justify-content:center;width:100%;text-align:center;padding:10px 12px;min-height:var(--tap);border:2px solid transparent;border-radius:9px;cursor:pointer;font-family:inherit;font-size:.85rem;font-weight:700;transition:all .15s}
 .pos-action-primary{background:var(--primary,#6B4226);color:#fff;border-color:var(--primary,#6B4226)}
 .pos-action-primary:hover{opacity:.9}
-.pos-action-toggle{background:#f4efe8;color:#8a7d6d;border-color:#e3dcd1;opacity:.9}
-.pos-action-toggle:hover{opacity:1}
+/* "Celebration: OFF" was #8a7d6d on #f4efe8 at .9 opacity — 3.51:1 before the
+   opacity, and it states which pricing mode the till is in. */
+.pos-action-toggle{background:#f4efe8;color:var(--ink-quiet);border-color:#e3dcd1}
+.pos-action-toggle:hover{background:var(--cream-dark)}
 .pos-action-toggle.active{background:linear-gradient(180deg,#FCD34D 0%,#F59E0B 100%);border-color:#B45309;color:#5C2E00;box-shadow:0 0 0 2px rgba(245,158,11,.35),0 2px 6px rgba(245,158,11,.35);text-shadow:0 1px 0 rgba(255,255,255,.4);animation:celeb-pulse 2s ease-in-out infinite}
 .pos-action-toggle.active:hover{opacity:.95;filter:brightness(1.05)}
 @keyframes celeb-pulse{0%,100%{box-shadow:0 0 0 2px rgba(245,158,11,.35),0 2px 6px rgba(245,158,11,.35)}50%{box-shadow:0 0 0 4px rgba(245,158,11,.5),0 2px 10px rgba(245,158,11,.5)}}
@@ -2316,78 +2919,166 @@ body.training-active.training-target-sidebar .pos-sidebar{
    OPEN. Sticks above the celebration banner (higher z-index + rendered
    first in DOM so both can coexist when needed). Pulsing animation
    ensures cashier notices they need to open before taking orders. */
+/* The banner used to read "Tap Open to start service" while the only ☀️ Open Café
+   button lived in the hidden sidebar at left:-212px — an instruction pointing at
+   something off-canvas. The primary action now sits INSIDE the band. */
 .pos-closed-banner{
   display:none;
-  background:linear-gradient(90deg,#DC2626 0%,#B91C1C 50%,#DC2626 100%);
-  color:#fff;
-  font-weight:800;
-  font-size:.95rem;
-  letter-spacing:.02em;
-  text-align:center;
-  padding:12px 14px;
-  border-bottom:2px solid #7F1D1D;
-  box-shadow:0 2px 8px rgba(220,38,38,.45);
-  text-shadow:0 1px 0 rgba(0,0,0,.25);
-  animation:closed-pulse 1.4s ease-in-out infinite;
-  position:sticky;
-  top:0;
+  background:var(--closed);
+  color:#fff;                      /* 7.87:1 */
+  padding:12px 16px;
+  border-bottom:2px solid #6E0E0E;
+  box-shadow:0 3px 10px rgba(122,20,20,.28);
+  text-align:left;
+  flex:0 0 auto;
   z-index:25;
 }
-.pos-closed-banner.visible{display:block}
-@keyframes closed-pulse{
-  0%,100%{filter:brightness(1);box-shadow:0 2px 8px rgba(220,38,38,.45)}
-  50%{filter:brightness(1.15);box-shadow:0 2px 14px rgba(220,38,38,.75)}
+.pos-closed-banner.visible{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:10px 16px;
 }
+.pos-closed-txt{flex:1 1 260px;min-width:0}
+.pos-closed-txt strong{
+  display:block;
+  font-size:1rem;
+  font-weight:800;
+  letter-spacing:.02em;
+}
+.pos-closed-txt span{font-size:.85rem;color:#FFE0DE}   /* 6.36:1 on --closed */
+/* White on the red band, so the one action is the brightest thing in it. */
+.pos-btn-open-cafe{
+  min-height:52px;
+  padding:12px 22px;
+  background:#fff;
+  color:#7F1D1D;                   /* 10.02:1 */
+  border:2px solid #fff;
+  border-radius:var(--radius);
+  font:inherit;
+  font-size:1rem;
+  font-weight:800;
+  cursor:pointer;
+  white-space:nowrap;
+  flex:0 0 auto;
+  box-shadow:0 3px 10px rgba(0,0,0,.22);
+}
+.pos-btn-open-cafe:hover{background:var(--cream);color:#7F1D1D}
+
+/* Connection lost / stale board — the P0.
+   `renderBoard()` used to be reachable only inside the try, the catch only
+   toasted, and `showError` auto-hid after 3s against a 7s poll — so a failed
+   fetch rendered an EMPTY board under a green OPEN badge, indistinguishable from
+   a quiet café, with the warning on screen 43% of the time. This band states
+   what happened, how old the data is, and that actions are paused; it does NOT
+   auto-hide, and it stays until a fetch succeeds. */
+.pos-stale-banner{
+  display:none;
+  background:var(--danger-bg);
+  color:var(--stale-ink);          /* 8.80:1 */
+  border-bottom:2px solid var(--danger);
+  padding:11px 16px;
+  flex:0 0 auto;
+  z-index:24;
+}
+.pos-stale-banner.visible{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:8px 16px;
+}
+.pos-stale-txt{flex:1 1 300px;min-width:0}
+.pos-stale-txt strong{display:block;font-size:.98rem;font-weight:800}
+.pos-stale-txt span{font-size:.85rem;font-weight:600}
+.pos-btn-retry{
+  min-height:var(--tap);
+  padding:10px 16px;
+  background:#fff;
+  color:var(--stale-ink);
+  border:2px solid var(--stale);
+  border-radius:10px;
+  font:inherit;
+  font-weight:800;
+  font-size:.85rem;
+  cursor:pointer;
+  white-space:nowrap;
+  flex:0 0 auto;
+}
+.pos-btn-retry:hover{background:var(--danger-bg);color:var(--stale-ink)}
+/* "Retrying…" as motion rather than a spinner: it is a background poll, not a
+   blocking wait, and the cashier should not read it as something to sit through. */
+.pos-retry-dots{display:inline-flex;gap:3px;margin-left:2px;vertical-align:middle}
+.pos-retry-dots i{
+  width:5px;height:5px;border-radius:50%;background:currentColor;
+  animation:posRetryDots 1.2s infinite;
+}
+.pos-retry-dots i:nth-child(2){animation-delay:.2s}
+.pos-retry-dots i:nth-child(3){animation-delay:.4s}
+@keyframes posRetryDots{0%,100%{opacity:.25}50%{opacity:1}}
 @media (prefers-reduced-motion: reduce){
-  .pos-closed-banner{animation:none;background:#B91C1C}
+  .pos-retry-dots i{animation:none;opacity:.7}
 }
 
-/* Header café-open badge — subtle reassurance in the top bar. Hidden
-   when the café is closed (the red banner is loud enough on its own). */
+/* Header café badge. Three states, because two were not enough: a green OPEN
+   badge over a board that had failed to load was the most dangerous thing on this
+   screen. When the poll is failing the badge stops asserting the present tense
+   and says LAST SEEN OPEN with the time. */
 .pos-header-badge{
   display:inline-flex;
   align-items:center;
-  gap:4px;
+  gap:5px;
   font-size:.72rem;
-  font-weight:700;
-  letter-spacing:.06em;
-  padding:3px 10px;
+  font-weight:800;
+  letter-spacing:.08em;
+  padding:6px 11px;
   border-radius:999px;
-  margin-left:10px;
+  margin-left:4px;
   color:transparent;
   background:transparent;
   border:1px solid transparent;
+  white-space:nowrap;
+  flex:0 0 auto;
   transition:background .2s ease,color .2s ease,border-color .2s ease;
+  font-variant-numeric:tabular-nums;
 }
 .pos-header-badge.is-open{
-  color:#065F46;
-  background:#D1FAE5;
+  color:#053C2C;
+  background:#B7F3D6;              /* 9.95:1 */
   border-color:#10B981;
-  box-shadow:0 0 0 2px rgba(16,185,129,.25);
 }
-
-/* Café-open sidebar action — reassuring green state */
-.pos-action-cafe-open{
-  background:#DC2626;
+.pos-header-badge.is-closed{
   color:#fff;
-  border-color:#B91C1C;
-  box-shadow:0 2px 6px rgba(220,38,38,.35);
+  background:var(--closed);        /* 7.87:1 */
+  border-color:#7F1D1D;
 }
-.pos-action-cafe-open:hover{background:#B91C1C}
+.pos-header-badge.is-stale{
+  color:#3B2A12;
+  background:var(--accent-light);  /* 8.71:1 */
+  border-color:#B98B4E;
+}
 
-/* Café-closed sidebar action — urgent red, matches the banner */
+/* Shown while the café IS open, so its label is "Close Café" — a destructive
+   action, hence outlined rather than a solid red slab competing with Voucher for
+   the eye. (White on #DC2626 was 4.83:1 for an 0.85rem label; the outline puts
+   the same red on white at 7.0:1.) */
+.pos-action-cafe-open{
+  background:#fff;
+  color:var(--closed);             /* 7.87:1 on white */
+  border-color:var(--closed);
+}
+.pos-action-cafe-open:hover{background:var(--danger-bg);color:var(--closed)}
+
+/* Shown while the café is CLOSED, so its label is "Open Café" — the one thing to
+   do next. It is no longer the only way to reach that action (the closed banner
+   now carries a primary ☀️ Open Café button), but it stays the affirmative green
+   here so the sidebar and the banner read as the same offer. 6.78:1. */
 .pos-action-cafe-closed{
   background:#D1FAE5;
   color:#065F46;
   border-color:#10B981;
-  box-shadow:inset 0 0 0 1px rgba(16,185,129,.4);
   animation:none;
 }
-.pos-action-cafe-closed:hover{background:#A7F3D0}
-@keyframes closed-btn-pulse{
-  0%,100%{box-shadow:0 2px 6px rgba(220,38,38,.35)}
-  50%{box-shadow:0 2px 12px rgba(220,38,38,.7)}
-}
+.pos-action-cafe-closed:hover{background:#A7F3D0;color:#065F46}
 @media (prefers-reduced-motion: reduce){
   .pos-action-cafe-closed{animation:none}
 }
@@ -2558,14 +3249,14 @@ body.training-active.training-target-sidebar .pos-sidebar{
   font-size:.75rem; opacity:.8; margin-top:4px;
 }
 
-/* Tutorial button in header */
+/* Tutorial button in header. Same 44px floor as its neighbours. */
 .header-tutorial{
-  background:none; border:1px solid rgba(255,255,255,.4);
-  color:#fff; padding:6px 12px; border-radius:8px;
-  font-size:.8rem; font-weight:500; cursor:pointer;
-  margin-right:8px;
+  background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.32);
+  color:#fff; padding:10px 14px; border-radius:9px;
+  font-size:.82rem; font-weight:700; cursor:pointer;
+  min-height:var(--tap); white-space:nowrap; flex:0 0 auto;
 }
-.header-tutorial:hover{ background:rgba(255,255,255,.15); }
+.header-tutorial:hover{ background:rgba(255,255,255,.2); }
 
 /* POS History — 2-column grid toggle */
 .pos-history-list.pos-history-grid {

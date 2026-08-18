@@ -1,6 +1,23 @@
 /* === Admin Panel Styles === */
 .admin-app{margin:0;padding:0}
 
+/* Keyboard focus, themed from the palette instead of left at the browser
+   default. style.css scopes its ring to `body.pos-shell`; this is the admin
+   shell's equivalent, and it is what makes the sortable table headers and the
+   dashboard accordion rows below visibly focusable. */
+.admin-app :focus-visible{
+  outline:3px solid var(--primary);
+  outline-offset:2px;
+  border-radius:4px;
+}
+/* A focus ring on a table row or header cell has nowhere to go outside the
+   cell, so it turns inward. */
+.admin-app .sortable-col:focus-visible,
+.admin-app .dash-row-toggle:focus-visible{outline-offset:-3px}
+.sortable-col{cursor:pointer;user-select:none}
+.sortable-col:hover{color:var(--text)}
+.dash-row-toggle:hover td:first-child{color:var(--primary)}
+
 /* Login */
 .admin-login{
   max-width:360px;
@@ -23,51 +40,126 @@
   font-size:.9rem;
 }
 
-/* Sidebar */
+/* Sidebar
+   ---------------------------------------------------------------------------
+   The sidebar is a THREE-PART FLEX COLUMN and only the middle part scrolls.
+   It used to be one `overflow-y:auto` column holding the identity row, all 14
+   nav buttons AND the footer: measured at 1024x768 (the counter iPad in
+   landscape) that was 977px of content in a 716px box, so Reports was
+   half-clipped at the fold and Settings, Verses, Go to POS and Logout — 245px
+   past it — were invisible with no scroll cue of any kind. Fine at 768x1024
+   and 1440x900, which is why it went unnoticed.
+
+   14 destinations at the 44px tap floor cannot all fit in 712px alongside a
+   footer, so the fix is not "make it fit": it is to pin the parts you must
+   always be able to reach (identity, Go to POS, Logout), scroll only the nav,
+   chunk it into three labelled groups so the list reads as three decisions,
+   and give the scroll an actual affordance. */
 .admin-sidebar{
-  position:fixed;top:52px;left:0;bottom:0;width:240px;
+  position:fixed;top:var(--pos-hdr-h);left:0;bottom:0;width:240px;
   background:#fff;border-right:1px solid var(--cream-dark,#e8e0d8);
   z-index:150;transform:translateX(-100%);transition:transform .25s ease;
-  display:flex;flex-direction:column;overflow-y:auto;
-  box-shadow:2px 0 12px rgba(0,0,0,.08);
+  display:flex;flex-direction:column;min-height:0;overflow:hidden;
+  box-shadow:2px 0 12px rgba(74,44,23,.09);
 }
 .admin-sidebar.open{transform:translateX(0)}
-.sidebar-header{
-  display:flex;justify-content:space-between;align-items:center;
-  padding:20px 16px 12px;border-bottom:1px solid var(--cream-dark,#e8e0d8);
-  font-weight:800;font-size:1.1rem;color:var(--primary,#6B4226);
+/* Pinned: who you are signed in as. Replaces the old "☕ Admin" title row,
+   which only repeated the page header two lines above it. */
+.sidebar-top{
+  flex:0 0 auto;display:flex;align-items:center;gap:8px;
+  padding:10px 8px 10px 14px;border-bottom:1px solid var(--cream-dark,#e8e0d8);
 }
-.sidebar-close{background:none;border:none;font-size:1.3rem;cursor:pointer;color:var(--text-light,#7A6355);padding:4px}
-.sidebar-user{
-  padding:12px 16px;font-size:.85rem;color:var(--text-light,#7A6355);font-weight:600;
-  border-bottom:1px solid var(--cream-dark,#e8e0d8);
+.sidebar-who{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.sidebar-who-name{
+  font-size:.9rem;font-weight:800;color:var(--primary);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
 }
+.sidebar-who-role{font-size:.72rem;font-weight:600;color:var(--ink-muted)}
+.sidebar-close{
+  flex:0 0 auto;width:var(--tap);height:var(--tap);
+  display:flex;align-items:center;justify-content:center;
+  background:none;border:none;border-radius:9px;
+  font-size:1.2rem;cursor:pointer;color:var(--ink-muted);padding:0;
+}
+.sidebar-close:hover{background:var(--cream);color:var(--text)}
+/* The ONLY scrolling part. The layered background is a scroll cue that appears
+   only when there is something past the edge (background-attachment:local for
+   the fades, scroll for the shadows). */
 .sidebar-nav{
-  flex:1;padding:12px 8px;display:flex;flex-direction:column;gap:4px;
+  flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;
+  padding:0 8px 10px;
+  scrollbar-width:thin;scrollbar-color:var(--accent) var(--cream-dark);
+  background:
+    linear-gradient(#fff 30%,rgba(255,255,255,0)) top/100% 26px no-repeat,
+    linear-gradient(rgba(255,255,255,0),#fff 70%) bottom/100% 26px no-repeat,
+    radial-gradient(farthest-side at 50% 0,rgba(74,44,23,.16),rgba(0,0,0,0)) top/100% 10px no-repeat,
+    radial-gradient(farthest-side at 50% 100%,rgba(74,44,23,.16),rgba(0,0,0,0)) bottom/100% 10px no-repeat;
+  background-attachment:local,local,scroll,scroll;
 }
+.sidebar-nav::-webkit-scrollbar{width:10px}
+.sidebar-nav::-webkit-scrollbar-track{background:var(--cream-dark)}
+.sidebar-nav::-webkit-scrollbar-thumb{
+  background:var(--accent);border-radius:99px;border:2px solid var(--cream-dark);
+}
+.sidebar-group-label{
+  /* More space above the heading than below it. */
+  padding:16px 8px 5px;margin:0;
+  font-size:.66rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--ink-quiet);
+}
+.sidebar-group{display:flex;flex-direction:column;gap:3px}
 .sidebar-nav button{
-  display:block;width:100%;text-align:left;padding:12px 16px;
-  border:none;background:none;border-radius:8px;cursor:pointer;
-  font-size:.9rem;font-weight:600;color:var(--text,#3D2B1F);transition:all .15s;
+  display:flex;align-items:center;gap:9px;
+  width:100%;text-align:left;min-height:var(--tap);padding:9px 11px;
+  border:2px solid transparent;background:none;border-radius:9px;cursor:pointer;
+  font-size:.88rem;font-weight:600;color:var(--text,#3D2B1F);transition:all .15s;
 }
 .sidebar-nav button:hover{background:var(--cream,#f9f5f0)}
-.sidebar-nav button.active{background:var(--primary,#6B4226);color:#fff}
+.sidebar-nav button.active{background:var(--primary,#6B4226);color:#fff;font-weight:700}
+.sidebar-nav .nav-ico{flex:0 0 1.15em;font-size:.98em}
+.sidebar-nav .nav-txt{flex:1;min-width:0}
+/* Unsaved-work marker: a tab you would lose work by leaving says so. */
+.nav-dot{
+  flex:0 0 auto;width:8px;height:8px;border-radius:50%;
+  background:var(--warning);box-shadow:0 0 0 2px #fff;
+}
+.sidebar-nav button.active .nav-dot{box-shadow:0 0 0 2px var(--primary)}
+/* Pinned: never below the fold, at any viewport height. */
 .sidebar-footer{
-  padding:16px;border-top:1px solid var(--cream-dark,#e8e0d8);
+  flex:0 0 auto;padding:10px 12px;background:#fff;
+  border-top:1px solid var(--cream-dark,#e8e0d8);
+  display:flex;flex-direction:column;gap:8px;
 }
 .sidebar-footer .nav-logout{
-  display:block;width:100%;text-align:center;padding:10px;
-  border:none;background:var(--danger-bg,#fef2f2);color:var(--danger,#DC2626);
-  border-radius:8px;cursor:pointer;font-weight:600;font-size:.9rem;
+  display:flex;align-items:center;justify-content:center;
+  width:100%;min-height:var(--tap);padding:10px;
+  border:1px solid var(--danger-bg);border-radius:9px;
+  background:var(--danger-bg,#fef2f2);
+  color:var(--stale-ink);            /* 8.80:1 on --danger-bg (was 4.63:1) */
+  cursor:pointer;font-weight:700;font-size:.88rem;
 }
+.sidebar-footer .nav-logout:hover{background:#FAD9D9}
 .admin-overlay{
-  position:fixed;inset:0;background:rgba(0,0,0,.3);
+  position:fixed;inset:0;background:rgba(61,43,31,.34);
   z-index:140;display:none;
 }
 .admin-sidebar.open ~ .admin-overlay{display:block}
 .admin-main{
   margin-left:0;padding:20px;transition:margin-left .25s ease;
-  min-height:calc(100vh - 52px);
+  min-height:calc(100vh - var(--pos-hdr-h));
+}
+/* The footer's update check is a real control on a tablet, not a caption: it
+   measured 91x14. Scoped here because style.css is shared with three other
+   pages that a concurrent pass owns. */
+.check-update-btn{
+  min-height:var(--tap);padding:0 10px;
+  display:inline-flex;align-items:center;
+}
+/* changelog.js turns `.app-version` into a real control (role=button,
+   tabindex=0) — 125x19 of it. Same scoping reason as above. */
+.app-version{
+  min-height:var(--tap);padding:0 4px;
+  display:inline-flex;align-items:center;
 }
 
 /* Desktop: sidebar open by default, hamburger toggles */
@@ -125,8 +217,10 @@
   text-transform:uppercase;
 }
 .badge-drink{background:#EDE9FE;color:#7C3AED}
-.badge-food{background:#FEF3C7;color:#D97706}
-.badge-active{background:var(--success-bg);color:var(--success)}
+/* Both of these were uppercase 12px on a tint at 2.86:1 (food) and 3.85:1
+   (active). The readable shades of the same hues already exist. */
+.badge-food{background:#FEF3C7;color:var(--pending-ink)}   /* 6.46:1 (was 2.86:1) */
+.badge-active{background:var(--success-bg);color:var(--ready-ink)} /* 6.77:1 (was 3.85:1) */
 .badge-inactive{background:var(--danger-bg);color:var(--danger)}
 .badge-admin{background:#EDE9FE;color:#7C3AED}
 .badge-cashier{background:var(--info-bg);color:var(--info)}
@@ -149,34 +243,62 @@
   min-width:64px;
 }
 
-/* Disabled card styling — used for soft-disabled menu items and disabled checklist rows */
-.admin-card.is-disabled{opacity:.55;background:#f7f5f2}
-.admin-card.is-disabled .admin-card-title{text-decoration:line-through;color:var(--text-light)}
+/* Disabled card styling — soft-disabled menu items, ingredients, checklist rows.
+   TINTED, never faded. `opacity:.55` over `#f7f5f2` composited the item NAME to
+   2.20:1 and the subtitle to 2.29:1 — the exact text you have to read to decide
+   whether to put the item back, and it dimmed the toggle that undoes the state
+   along with it. --disabled-bg/--disabled-ink already exist for this and measure
+   5.62:1. */
+.admin-card.is-disabled{background:var(--disabled-bg);border-color:var(--disabled-bd);box-shadow:none}
+.admin-card.is-disabled:hover{box-shadow:var(--shadow-sm)}
+.admin-card.is-disabled .admin-card-title{text-decoration:line-through;color:var(--disabled-ink)}
+.admin-card.is-disabled .admin-card-subtitle{color:var(--disabled-ink)}
 
-/* Checklist config rows (Admin > Checklist) — reorderable by drag handle or ▲▼ */
+/* Checklist config rows (Admin > Checklist) — reorderable by drag handle or ▲▼
+   ---------------------------------------------------------------------------
+   TWO LINES per row. Line 1 is the label input at full width; the controls sit
+   on line 2, indented to start under the input. `.cl-label{flex:1 1 180px}`
+   left ~110px of visible text at 1024x768 with the sidebar docked, so not one
+   of the 34 items could be read on the tab whose entire purpose is editing
+   their text. */
 .cl-row{
-  display:flex;
-  align-items:center;
-  gap:10px;
-  padding:12px 14px;
-  flex-wrap:wrap;
+  display:block;
+  padding:9px 11px;
+  margin-bottom:7px;
+  background:var(--cream);
 }
-.cl-row .cl-num{min-width:24px;color:var(--text-light);font-weight:600}
-.cl-row .cl-label{flex:1 1 180px;min-width:0;margin:0}
-.cl-row .cl-type{flex:0 0 120px;width:120px;margin:0}
+.cl-line1{display:flex;align-items:center;gap:9px}
+.cl-line2{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  margin-top:7px;
+  /* handle 44 + gap 9 + num 26 + gap 9 */
+  padding-left:88px;
+}
+.cl-row .cl-num{flex:0 0 26px;text-align:right;color:var(--ink-muted);font-weight:700;font-size:.85rem}
+.cl-row .cl-label{flex:1;min-width:0;margin:0;min-height:var(--tap);padding:9px 12px;background:#fff}
+.cl-row.is-disabled .cl-label{background:#F7F2EC;color:var(--disabled-ink)} /* 6.19:1 */
+.cl-row .cl-type{flex:0 0 148px;width:148px;margin:0;min-height:var(--tap);padding:8px 11px;font-size:.85rem}
 .cl-move-group{display:flex;gap:6px;flex-shrink:0}
-.cl-move{min-width:40px;padding:8px 8px}
-.cl-move:disabled{opacity:.3;cursor:default}
-.cl-move:disabled:hover{background:#fff;border-color:var(--cream-dark)}
+.cl-move{min-width:var(--tap);padding:8px}
+/* No disabled rule here on purpose: the shared `.pos-btn[disabled]` treatment in
+   style.css already tints these with --disabled-bg/--disabled-ink (and does it
+   with !important). What used to be here was `opacity:.3`, which the shared rule
+   does NOT override and which made the arrow glyph unreadable. */
+.cl-spacer{flex:1}
+/* The enable switch keeps its name beside it: "On the POS" / "Hidden" is the
+   whole meaning of the control and there is room for it on line 2. */
+.cl-enable{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+.cl-enable .admin-sw-cap{font-size:.66rem}
 .cl-handle{
   flex:0 0 auto;
   display:flex;
   align-items:center;
   justify-content:center;
-  width:30px;
-  min-height:40px;
+  /* The primary reorder gesture on a tablet; it was 30px wide. */
+  min-width:var(--tap);
+  min-height:var(--tap);
   border-radius:8px;
-  color:var(--text-light);
+  color:var(--ink-muted);
   font-size:1.2rem;
   line-height:1;
   cursor:grab;
@@ -187,7 +309,7 @@
   -webkit-user-select:none;
   -webkit-touch-callout:none;
 }
-.cl-handle:hover{background:var(--cream);color:var(--text)}
+.cl-handle:hover{background:var(--cream-dark);color:var(--text)}
 .cl-handle:active,.cl-row.is-dragging .cl-handle{cursor:grabbing}
 .cl-row.is-dragging{
   position:relative;
@@ -197,34 +319,202 @@
   box-shadow:var(--shadow-lg);
 }
 
-/* Toggle switch (used for isActive on menu items and enabled on checklist items) */
+/* Toggle switch — the primary admin control (menu items, ingredients, staff
+   link, checklist rows; ~130 instances on a loaded Menu tab).
+   The LABEL is the hit area and clears --tap in both axes; the switch art is a
+   52x30 track inside it. It measured 42x24 — the smallest target on the busiest
+   screen — and its art also disagreed with `.pos-switch` (52x30) which means the
+   same thing two tabs away. The art now matches; the classes stay separate only
+   because .pos-switch lives in shared style.css. */
 .toggle-switch{
   position:relative;
-  display:inline-block;
-  width:42px;
-  height:24px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:var(--tap);
+  min-height:var(--tap);
   cursor:pointer;
   flex-shrink:0;
   vertical-align:middle;
 }
 .toggle-switch input{opacity:0;width:0;height:0;position:absolute}
 .toggle-switch .toggle-slider{
-  position:absolute;inset:0;
-  background:#c9c2ba;
+  position:relative;
+  width:52px;height:30px;flex:0 0 52px;
+  background:#BFB4A7;
   transition:background .18s ease;
-  border-radius:24px;
+  border-radius:999px;
+  box-shadow:inset 0 1px 2px rgba(74,44,23,.18);
 }
 .toggle-switch .toggle-slider::before{
   position:absolute;content:'';
-  height:18px;width:18px;left:3px;top:3px;
+  height:24px;width:24px;left:3px;top:3px;
   background:#fff;
   transition:transform .18s ease;
   border-radius:50%;
-  box-shadow:0 1px 2px rgba(0,0,0,.15);
+  box-shadow:0 1px 3px rgba(74,44,23,.3);
 }
-.toggle-switch input:checked + .toggle-slider{background:var(--success)}
-.toggle-switch input:checked + .toggle-slider::before{transform:translateX(18px)}
-.toggle-switch input:focus-visible + .toggle-slider{box-shadow:0 0 0 2px var(--primary)}
+.toggle-switch input:checked + .toggle-slider{background:var(--ready-fill)}
+.toggle-switch input:checked + .toggle-slider::before{transform:translateX(22px)}
+.toggle-switch input:focus-visible + .toggle-slider{outline:3px solid var(--primary);outline-offset:2px}
+.toggle-switch input:disabled + .toggle-slider{background:var(--disabled-bd);cursor:not-allowed}
+
+/* A switch whose meaning has to be NAMED, because the screen carries two
+   different flags. The caption is part of the control, not a tooltip on a pill. */
+.admin-sw{display:flex;flex-direction:column;align-items:center;gap:2px;flex:0 0 auto}
+.admin-sw-cap{
+  font-size:.62rem;font-weight:800;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--ink-quiet);white-space:nowrap;
+}
+.admin-sw-cap.is-off{color:var(--ink-muted)}
+
+/* === Destructive actions, demoted ====================================
+   A Delete button is QUIET until you are on it. The Menu tab put 33 solid-red
+   Deletes within thumb reach of the switch a rushed volunteer actually came for,
+   which made the most dangerous control the loudest thing on the screen. */
+.pos-btn.admin-danger-quiet{
+  background:#fff;
+  border-color:var(--danger-bg);
+  color:var(--urgent-ink);           /* 6.96:1 on #fff */
+  box-shadow:none;
+}
+.pos-btn.admin-danger-quiet:hover,
+.pos-btn.admin-danger-quiet:focus-visible{
+  background:var(--danger);border-color:var(--danger);color:#fff;
+}
+/* Armed second tap. Used where a per-row confirm dialog would be 34 dialogs. */
+.pos-btn.admin-danger-armed{
+  background:var(--danger);border-color:var(--danger);color:#fff;font-weight:700;
+}
+.pos-btn.admin-danger-armed:hover{background:var(--danger);color:#fff}
+
+/* === State pills =====================================================
+   Three states, three surfaces, all named in words. "Serving today" is the
+   green one because it is the only one a customer can see; "Not today" is a
+   warm neutral because a day flag being off is not a broken thing; "Off the
+   menu" borrows the amber attention tint. */
+.admin-pill{
+  display:inline-flex;align-items:center;gap:4px;
+  padding:3px 9px;border-radius:999px;
+  font-size:.7rem;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
+  white-space:nowrap;
+}
+.admin-pill-live{background:var(--success-bg);color:var(--ready-ink)}     /* 6.77:1 */
+.admin-pill-off{background:var(--cream-dark);color:var(--ink-quiet)}      /* 6.99:1 */
+.admin-pill-shelved{background:var(--warning-bg);color:var(--pending-ink)}/* 6.46:1 */
+.admin-pill-qty{
+  background:#fff;border:1px solid var(--cream-dark);color:var(--ink-muted);
+  text-transform:none;letter-spacing:0;font-weight:700;
+  font-variant-numeric:tabular-nums;
+}
+
+/* A checkbox row where the whole label is the target. A bare
+   `<input type=checkbox>` renders 13px, and Settings → Pre-Order Templates
+   stacks 32 of them. */
+.admin-check-row{
+  display:flex;align-items:center;gap:10px;
+  min-height:var(--tap);padding:2px 6px;
+  border-radius:8px;font-weight:400;cursor:pointer;
+}
+.admin-check-row:hover{background:var(--cream)}
+.admin-check-row input[type="checkbox"]{
+  flex:0 0 auto;width:22px;height:22px;margin:0;
+  accent-color:var(--primary);cursor:pointer;
+}
+
+/* === Menu tab: the two-flag row ======================================
+   `isActive` (on the menu at all, permanent) and `isEnabledToday` (serving
+   today, reset every service) are two different flags with two different
+   lifetimes. The screen used to edit both — the row switch wrote one, the bulk
+   buttons wrote the other — while DRAWING only the first, so "Disable All"
+   produced no visible change whatsoever. Both are now drawn, named, and
+   separately switchable on every row. */
+.admin-menu-row .admin-card-header{align-items:flex-start;gap:14px;margin-bottom:0}
+.admin-menu-row .admin-card-actions{gap:12px;flex-wrap:wrap;justify-content:flex-end}
+.admin-menu-row .admin-card-id{flex:1;min-width:0}
+/* The option summary is clamped to one line — un-clamped, "Temperature:
+   Hot/Iced · Milk: Oat Milk" wrapped to three and made every drink row twice
+   the height of a food row. The full string is on the title attribute and in
+   the Edit form.
+   The item NAME is deliberately NOT clamped: it is the identifier, and at
+   1024px with the two switches and the state pill beside it, the longest name
+   in the catalogue ("🧀 Chicken Slice & Cheese Sandwich") overruns 274px of
+   column by 21px. One extra line beats a name you cannot read. */
+.admin-menu-row .admin-card-subtitle{
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.admin-menu-row .admin-card-subtitle{font-variant-numeric:tabular-nums}
+/* Why an item nobody can order is nevertheless "on the menu". */
+.admin-row-why{margin-top:4px;font-size:.78rem;font-weight:600;color:var(--ink-quiet)}
+.admin-count-line{
+  margin:10px 0 14px;font-size:.84rem;color:var(--ink-muted);font-weight:600;
+  font-variant-numeric:tabular-nums;
+}
+.admin-count-line strong{color:var(--text)}
+/* Drinks and food interleave by sortOrder in one flat 33-item list. */
+.admin-group-head{
+  position:sticky;top:0;z-index:5;
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  margin:26px 0 8px;padding:8px 12px;
+  background:var(--cream);border:1px solid var(--cream-dark);border-radius:10px;
+  font-size:.76rem;font-weight:800;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--primary);
+  box-shadow:0 1px 3px rgba(74,44,23,.08);
+}
+.admin-group-head .admin-group-n{
+  color:var(--ink-muted);font-weight:700;letter-spacing:0;text-transform:none;
+  font-size:.8rem;font-variant-numeric:tabular-nums;
+}
+/* Bulk day-flag actions. Two symmetric rows, so undoing "stop serving
+   everything" is one press and not two. */
+.admin-bulk{
+  padding:12px 14px;margin-bottom:14px;
+  background:#fff;border:1px solid var(--cream-dark);
+  border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);
+}
+.admin-bulk-row{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px}
+.admin-bulk-row:last-of-type{margin-bottom:0}
+.admin-bulk-label{
+  flex:0 0 132px;
+  font-size:.72rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--ink-quiet);
+}
+.admin-bulk-hint{margin-top:10px;font-size:.78rem;color:var(--ink-muted)}
+
+/* === Sticky save bar =================================================
+   Save Checklist sat at the bottom of a 3943px page, and nothing told you an
+   edit was pending. The bar carries the count and the two ways out. */
+.admin-save-bar{
+  position:sticky;bottom:0;z-index:12;
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  margin:18px -20px -24px;padding:12px 20px;
+  background:#fff;border-top:1px solid var(--cream-dark);
+  box-shadow:0 -4px 14px rgba(74,44,23,.1);
+}
+.admin-save-state{flex:1;min-width:0;font-size:.86rem;font-weight:600;color:var(--ink-muted)}
+.admin-save-state.is-dirty{color:var(--pending-ink)}   /* 7.19:1 on #fff */
+.admin-save-state strong{color:var(--text);font-variant-numeric:tabular-nums}
+.admin-save-bar .pos-btn-primary:disabled,
+.admin-save-bar .pos-btn-primary[disabled]{
+  background:var(--cream-dark);color:var(--ink-muted);border-color:var(--cream-dark);
+  box-shadow:none;
+}
+
+/* === Leave guard ===================================================== */
+.admin-guard-overlay{
+  position:fixed;inset:0;z-index:400;
+  display:flex;align-items:center;justify-content:center;padding:20px;
+  background:rgba(61,43,31,.42);
+}
+.admin-guard{
+  max-width:440px;width:100%;background:#fff;
+  border-radius:var(--radius-lg);padding:20px 22px;
+  box-shadow:0 12px 32px rgba(74,44,23,.3);
+}
+.admin-guard h3{font-size:1.05rem;color:var(--primary);margin-bottom:7px}
+.admin-guard p{font-size:.88rem;color:var(--ink-muted);margin-bottom:16px}
+.admin-guard p strong{color:var(--text);font-variant-numeric:tabular-nums}
+.admin-guard-actions{display:flex;gap:9px;flex-wrap:wrap}
 
 /* Form */
 .admin-form{
@@ -386,8 +676,12 @@
 .admin-setting-row:last-child{border:none}
 .admin-setting-info h4{font-size:.95rem;color:var(--text);margin-bottom:2px}
 .admin-setting-info p{font-size:.82rem;color:var(--text-light)}
-.admin-setting-control input{
-  width:80px;
+/* Typed against [type=number] on purpose: the unqualified selector also caught
+   the visually-hidden checkbox inside the switch beside it and gave it an 80px
+   width. */
+.admin-setting-control input[type="number"]{
+  width:96px;
+  min-height:var(--tap);
   padding:8px 12px;
   border:2px solid var(--cream-dark);
   border-radius:var(--radius);
@@ -426,13 +720,20 @@
    the analysis zone on white panels. All spacing comes from the scale below —
    no one-off inline values (that was the reason the old dashboard had no
    adjustable hierarchy). Rhythm rule: more space ABOVE a heading than below. */
-.admin-dashboard{
+/* The spacing scale is declared on `.admin-section` rather than on
+   `.admin-dashboard` so the Menu tab's day strip can reuse the live-strip
+   component instead of cloning it. `.admin-dashboard` IS an `.admin-section`
+   (`<div class="admin-section admin-dashboard">`), so every --dash-* value the
+   dashboard resolves is unchanged — the same element still declares them. */
+.admin-section{
   --dash-1:4px;
   --dash-2:8px;
   --dash-3:12px;
   --dash-4:16px;
   --dash-5:24px;
   --dash-6:32px;
+}
+.admin-dashboard{
   --dash-surface:#fff;
   --dash-rule:var(--cream-dark,#F5EDE4);
   --dash-bar-h:14px;
@@ -454,13 +755,18 @@
   padding:6px 10px;border-radius:6px;
   border:1px solid var(--cream-dark,#F5EDE4);
   background:#fff;color:var(--text);
-  font-size:.9rem;font-family:inherit;min-height:36px;
+  /* The one dashboard control below the tap floor (was 36px). Nothing else
+     about the v1.72.0 dashboard is touched. */
+  font-size:.9rem;font-family:inherit;min-height:var(--tap);
 }
 .dash-refresh{display:flex;align-items:center;gap:6px}
 
 /* ── Zone 1: the live strip. Dark surface so it never reads as analysis, and
       omitted entirely when a past Sunday is selected. Dense on purpose. ── */
-.dash-live{
+/* `.admin-daystrip` (Menu tab) shares this component: same question — what is
+   true right now — so it must not be a second dark strip with its own values. */
+.dash-live,
+.admin-daystrip{
   display:flex;align-items:center;flex-wrap:wrap;
   gap:var(--dash-2) var(--dash-5);
   padding:var(--dash-3) var(--dash-4);
@@ -480,6 +786,7 @@
   font-variant-numeric:tabular-nums;
 }
 .dash-live-label{font-size:.8rem;opacity:.85}
+.admin-daystrip{margin-bottom:var(--dash-4)}
 
 /* ── Zone 2: analysis. Generous spacing. ── */
 .dash-zone{margin-top:var(--dash-6)}
@@ -651,7 +958,10 @@
   display:inline-block;width:8px;height:8px;border-radius:2px;
   margin-right:var(--dash-2);vertical-align:middle;
 }
+/* A row that is a control has to be tappable like one: the 8px cell padding
+   made it 40px tall. Only the expandable rows change. */
 .dash-row-toggle{cursor:pointer}
+.dash-row-toggle td{padding-top:10px;padding-bottom:10px}
 .dash-row-static{cursor:default}
 .dash-breakdown td{
   padding:0 0 var(--dash-2) var(--dash-4);
@@ -687,6 +997,20 @@
 }
 
 /* Mobile */
+@media(max-width:899px){
+  /* The two named switches and the row's actions get their own line rather than
+     squeezing the item name to nothing. */
+  .admin-menu-row .admin-card-header{flex-wrap:wrap}
+  .admin-menu-row .admin-card-id{flex:1 1 100%}
+  .admin-menu-row .admin-card-actions{
+    width:100%;justify-content:flex-end;
+    border-top:1px solid var(--cream-dark);padding-top:9px;margin-top:9px;
+  }
+  .admin-menu-row.is-disabled .admin-card-actions{border-top-color:var(--disabled-bd)}
+  /* No sidebar to indent past. */
+  .cl-line2{padding-left:0}
+  .admin-bulk-label{flex:1 1 100%}
+}
 @media(max-width:768px){
   .admin-form-row{grid-template-columns:1fr}
   .admin-stats{grid-template-columns:1fr 1fr}

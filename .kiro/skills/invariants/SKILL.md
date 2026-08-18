@@ -1,6 +1,6 @@
 ---
 name: invariants
-description: Reviewable invariants for RLC Café POS — the do-not-duplicate list (including Malaysia-time date conversion and dead code left behind by an early return), storage conventions, who may authorise a discount (cashier-selected vs customer-requested vs system-only), the pre-order ISO expiresAt exception, create/edit parity (a restriction enforced on create must be re-enforced on edit), bulk mutating routes and collection-route dispatch, API response shape, path-parameter handling, no un-awaited work after a handler returns (Lambda freezes the sandbox) and date-keyed markers for at-most-once cron side effects, no silently-skipped feature when its config is missing (config in SSM, never a wipeable Lambda env default), auth and release rules, frontend HTML escaping (a customer-controlled string is escaped at every innerHTML render site, not just the newest one — and a textContent sink must not be escaped), and test teeth (a guard is untested unless a fixture reaches it; a test that depends on the machine timezone is not a test). Each is a checkable assertion with the production bug it prevents. Use when reviewing a diff, writing or judging tests, before deploying, or when adding code that touches money, discounts, order status, expiry, pre-orders, collection times, item notes, emails, background or scheduled work, timezones, versions, routing, or the rendering of customer-supplied text into the DOM.
+description: Reviewable invariants for RLC Café POS — the do-not-duplicate list (including Malaysia-time date conversion and dead code left behind by an early return), storage conventions, who may authorise a discount (cashier-selected vs customer-requested vs system-only), the pre-order ISO expiresAt exception, create/edit parity (a restriction enforced on create must be re-enforced on edit), bulk mutating routes and collection-route dispatch, API response shape, path-parameter handling, no un-awaited work after a handler returns (Lambda freezes the sandbox) and date-keyed markers for at-most-once cron side effects, no silently-skipped feature when its config is missing (config in SSM, never a wipeable Lambda env default), auth and release rules, frontend HTML escaping (a customer-controlled string is escaped at every innerHTML render site, not just the newest one — and a textContent sink must not be escaped; `escapeHtml`/`escapeAttr` in `admin.js` are canonical for the whole admin bundle, `mfEsc` is gone), frontend state and motion rules (a failure state must not render identically to an empty success state, two distinct persisted flags must not share one visual language, a `[disabled]` control must look disabled, animate transform/opacity and never a layout property), Malaysia-time dates on the admin frontend via `mytToday()`, and test teeth (a guard is untested unless a fixture reaches it; a test that depends on the machine timezone is not a test). Each is a checkable assertion with the production bug it prevents. Use when reviewing a diff, writing or judging tests, before deploying, or when adding code that touches money, discounts, order status, expiry, pre-orders, collection times, item notes, emails, background or scheduled work, timezones, versions, routing, or the rendering of customer-supplied text into the DOM.
 ---
 
 # Invariants
@@ -16,7 +16,8 @@ production bug in this repo. Violations are defects, not style opinions.
 | Variant selection UI | `frontend/js/variants.js` | inconsistent variant pricing between pages |
 | Phone normalisation | `backend/src/lib/phone.ts` | duplicate customer records |
 | Version numbers | `scripts/bump-version.mjs` | shipped a release with 4 of 6 markers stale |
-| Malaysia-time dates | `backend/src/lib/date.ts` | end-of-day emails headed "Saturday" for a Sunday service |
+| Malaysia-time dates (backend) | `backend/src/lib/date.ts` | end-of-day emails headed "Saturday" for a Sunday service |
+| Malaysia-time dates (admin frontend) | `mytToday()` in `frontend/js/admin.js` | eight `toISOString()` sites: before 08:00 MYT the admin showed the previous day, and `admin-preorder.js` could stamp `serviceDate` as Saturday |
 | Runtime config (`/rlc-cafe/` SSM) | `backend/src/lib/ssm-config.ts` | two separate readers of the same prefix, each with its own unpaginated fetch: web push died in production, the end-of-day email was three parameters from the same fate |
 
 `lib/date.ts` (`malaysiaToday` / `malaysiaClock` / `malaysiaDayStartUtc`) is the
@@ -27,14 +28,27 @@ imports keep working. **One copy remains outside it** —
 `now.getTime() + 8 * 60 * 60 * 1000`. That is a known follow-up, not a licence to
 add a second.
 
+`mytToday()` (`frontend/js/admin.js:109`) is the frontend counterpart, added in
+v1.75.0 with `isoAddDays` / `isoDayOfWeek` / `mytDayLabel` beside it: **`mytToday()`
+decides what day it is, then plain UTC arithmetic operates on that `YYYY-MM-DD`
+string.** Never mix the two — the original `computePastSundays` bug was reading the
+**local** day-of-week and then serialising through **UTC**, so it disagreed with
+itself. No `admin*.js` file may derive "today" from `new Date().toISOString()`
+again. The `toISOString()` calls that remain (`admin-ingredients.js:400`,
+`admin-vouchers.js:139`, `admin-preorder.js:33`, `:391-392`) are all either
+operating on a date the user picked or producing an **instant** for comparison
+against other ISO instants — neither of which is a "what day is it" decision. That
+is the line to check when reviewing a new one.
+
 `frontend/js/pricing.js` is a **display mirror only**. It may not be the basis of
 any persisted number.
 
 **One accepted exception:** the HTML escapers are per-page-bundle
-(`escapeHtmlPos`, `escHtml`, `prep.html`'s inline `esc()`, `admin`'s `mfEsc()`)
-because there is no shared frontend util module and adding one costs a new `SHELL`
-entry plus a script tag on every page. See **Frontend** below for the rules that
-make the duplication survivable.
+(`escapeHtmlPos`, `escHtml`, `prep.html`'s inline `esc()`, and `escapeHtml` /
+`escapeAttr` in `admin.js` for the whole `admin*.js` bundle) because there is no
+shared frontend util module and adding one costs a new `SHELL` entry plus a script
+tag on every page. See **Frontend** below for the rules that make the duplication
+survivable.
 
 - ☐ **When a handler gains an early-return branch, the code it supersedes is
   deleted in the SAME change.** Found in v1.71 by an independent audit:
@@ -301,6 +315,33 @@ or into an excluded paid option.
   array in `frontend/sw.js`, or it is never precached. `npm run version:check`
   enforces this; `reports.js` and `reports.html` went unprecached for months.
 - ☐ POS-specific CSS prefixed `.pos-`.
+- ☐ **A failure state must not render identically to an empty success state.**
+  Found in v1.75.0 on the POS board: `renderBoard()` sat inside the `try`, the
+  `catch` only toasted, and the toast auto-hid after 3s against a 7s poll — so a
+  dropped connection showed **an empty queue under a green OPEN badge**, visually
+  identical to a quiet morning, with a warning present ≈43% of the time. A cashier
+  cannot act on data they believe is fresh and isn't. The fix pattern: keep the
+  last-known data on screen, say **how old it is**, offer a retry, and make
+  mutating controls inert — a transient toast is not a system-status indicator.
+- ☐ **Two distinct persisted flags must not share one visual language.** Found in
+  v1.75.0 on the admin Menu tab: the row switch wrote `isActive` (permanent
+  catalogue), the bulk buttons wrote `isEnabledToday` (today only), and every
+  badge, count and filter drew `isActive` alone. "Disable All" therefore produced
+  **no visible change and no toast**, and a filter reading "Enabled Only (32)" was
+  read by the operator as "32 serving today". If a screen can write two flags, both
+  are **named** and **drawn** wherever either is editable, and every count says
+  which one it is counting.
+- ☐ **A `[disabled]` control must look disabled.** The POS had exactly one
+  `[disabled]` rule (`.pos-btn-preorder-release`), so every other disabled primary
+  rendered as a full brown gradient with `cursor:pointer` — indistinguishable from
+  enabled, and tapped repeatedly. Style `:disabled` generically, not per button.
+- ☐ **Animate `transform` / `opacity`, never a layout property.** `width`,
+  `margin-left` and friends relayout every frame and jank on the counter iPad. The
+  v1.75.0 checklist progress bar scales an always-full-width fill via
+  `transform:scaleX(var(--cl-progress))` from a left origin rather than animating
+  `width`, and pairs it with a `prefers-reduced-motion:reduce` escape. Two known
+  offenders remain — `.admin-main` and `.pos-main` both transition `margin-left`
+  (follow-up (a)).
 - ☐ **A customer-controlled string interpolated into `innerHTML` is escaped at
   EVERY render site, not just the newest one.** Escaping is a property of the
   *site*, not of the field: the same field being escaped somewhere else in the
@@ -333,13 +374,23 @@ or into an excluded paid option.
   Judge the sink, not the field.
 - ☐ **The escapers are per-page-bundle by necessity.** `app.js`, `track.js`,
   `pos.js` and `prep.html` each carry their own (`prep.html` inline, because its
-  script is self-contained and it loads only `js/config.js`); `admin*.js` uses
-  `mfEsc()` and is being consolidated separately. There is no shared frontend
-  util module, and adding one is not free: it means a **new file in the `sw.js`
-  `SHELL` array** plus a `<script>` tag on every page. So duplicated escapers are
-  an accepted exception to the do-not-duplicate list above — but each copy must
-  cover all five characters, and each page's sites must all use it. See
-  follow-up (e) in `docs/update-20260817.md` for the admin half.
+  script is self-contained and it loads only `js/config.js`). **The whole
+  `admin*.js` bundle shares one canonical pair — `escapeHtml` / `escapeAttr` in
+  `admin.js` (`:79`, `:86`), canonical since v1.74.0.** `mfEsc()` no longer
+  exists: it lived in `admin-menu.js` only to work around script ordering, and the
+  three byte-identical admin copies were consolidated when follow-up (e) was
+  addressed. Do not reintroduce a local admin escaper — add the call, not a copy.
+  There is no shared *cross-page* util module, and adding one is not free: it
+  means a **new file in the `sw.js` `SHELL` array** plus a `<script>` tag on every
+  page. So the remaining per-bundle escapers are an accepted exception to the
+  do-not-duplicate list above — but each copy must cover all five characters, and
+  each page's sites must all use it.
+
+  **Still true, and it undercuts the consolidation:** `reports.js` defines its own
+  `escapeHtml` and loads at `admin.html:45`, *after* every admin module, so on the
+  admin page its global shadows the canonical one for every later caller. Harmless
+  only while the two implementations stay identical. Follow-up (s) in
+  `docs/update-20260817.md`.
 
 ## Release
 

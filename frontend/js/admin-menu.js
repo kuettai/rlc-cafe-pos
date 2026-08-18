@@ -12,95 +12,232 @@ async function loadMenu(container){
   } catch(e){ container.innerHTML = '<div class="admin-empty"><p>Failed to load menu</p></div>'; }
 }
 
-// Persisted across re-renders so a toggle-active click (which reloads the
-// menu list) doesn't reset the operator's filter selection.
+// Persisted across re-renders so a toggle click (which reloads the menu list)
+// doesn't reset the operator's filter selection.
 let menuCategoryFilter = 'ALL';   // ALL | DRINK | FOOD
-let menuStatusFilter   = 'ALL';   // ALL | ACTIVE | INACTIVE
+let menuStateFilter    = 'ALL';   // ALL | TODAY | NOT_TODAY | OFF_MENU
+
+/**
+ * TWO FLAGS, NAMED, on every row.
+ *
+ * This screen edits two different things with two different lifetimes:
+ *
+ *   isActive        "On the menu"   — the permanent catalogue. Survives the day.
+ *                                     PUT /api/admin/menu/{id}/toggle-active
+ *   isEnabledToday  "Serving today" — reset every service by the cashier.
+ *                                     PUT /api/pos/menu/{id}/toggle
+ *
+ * It used to edit BOTH with one visual language and DRAW only the first: the
+ * row switch wrote `isActive`, the three bulk buttons wrote `isEnabledToday`,
+ * and every badge, count, filter and grey-out rendered `isActive` alone. So
+ * "❌ Disable All" silently changed all 33 items with no confirmation, no toast
+ * and not one pixel of visible difference; "Enabled Only (32)" counted
+ * catalogue items, which an operator reasonably read as "32 are being served
+ * today"; and an item could be `isActive:true` yet invisible to customers with
+ * nothing on the screen able to say why.
+ *
+ * Both flags are read with `=== true`, not `!== false`, because that is what
+ * decides whether a customer can order the item: `GET /api/menu` filters
+ * `isActive = true AND isEnabledToday = true`, so a record MISSING either
+ * attribute is invisible to customers and must not be drawn as available here.
+ */
+const onTheMenu   = item => item.isActive === true;
+const servingNow  = item => item.isActive === true && item.isEnabledToday === true;
+const offForToday = item => item.isActive === true && item.isEnabledToday !== true;
+
+function menuItemState(item){
+  if(!onTheMenu(item)) return 'OFF_MENU';
+  return servingNow(item) ? 'TODAY' : 'NOT_TODAY';
+}
+
+/** One row: the item, both flags, and the reason it is or is not orderable. */
+function menuRowHtml(item){
+  const state = menuItemState(item);
+  const id = item.menuItemId || item.id;
+  // Summarise the live option groups, e.g. "Temperature: Hot/Iced".
+  // This line previously read only the legacy flat `variants` array, so
+  // every drink on the menu showed nothing — none of them use it.
+  // Both summaries stay PLAIN TEXT and are escaped once where they are
+  // interpolated below — so a group or option name containing < or " cannot
+  // reach innerHTML raw.
+  const groupSummary = (item.variantGroups||[])
+    .map(g => `${g.group}: ${(g.options||[]).map(o=>o.name).join('/')}`)
+    .join(' · ');
+  const legacySummary = (item.variants||[]).map(v=>v.name||v).join(', ');
+  const variants = groupSummary || legacySummary;
+  // Celebration eligibility rides in the meta line rather than as a badge. The
+  // "No 🎉" badge it replaces sat on a danger tint, so an ordinary
+  // full-price drink read as an error — and the two badges beside it (category,
+  // eligibility) crowded the item NAME into an ellipsis at 1024px. The category
+  // badge is gone entirely: the rows are grouped under a category header now,
+  // so it repeated the heading eight rows above it.
+  const meta = `RM ${(item.basePrice||0).toFixed(2)}`
+    + (variants ? ` · ${variants}` : '')
+    + (item.celebrationEligible === true ? ' · 🎉 RM5 on celebration day' : '');
+
+  const pill = state === 'OFF_MENU'
+    ? '<span class="admin-pill admin-pill-shelved">Off the menu</span>'
+    : state === 'TODAY'
+      ? '<span class="admin-pill admin-pill-live">Serving today</span>'
+      : '<span class="admin-pill admin-pill-off">Not today</span>';
+
+  // The cashier sets these in the POS; showing them here explains why a food
+  // item that is switched on can still be unavailable.
+  const qty = (item.category === 'FOOD' && state === 'TODAY')
+    ? `<span class="admin-pill admin-pill-qty">${Number(item.foodQuantityToday||0)} left${
+        Number(item.foodReserved||0) ? ` · ${Number(item.foodReserved)} reserved` : ''}</span>`
+    : '';
+
+  // The whole point of naming the flags: say why an item nobody can order is
+  // nevertheless sitting in the catalogue.
+  const why = state === 'OFF_MENU'
+    ? '<div class="admin-row-why">Off the menu entirely — put it back before it can be served.</div>'
+    : state === 'NOT_TODAY'
+      ? '<div class="admin-row-why">On the menu, but not being served today — customers cannot order it.</div>'
+      : '';
+
+  return `<div class="admin-card admin-menu-row ${state === 'OFF_MENU' ? 'is-disabled' : ''}">
+    <div class="admin-card-header">
+      <div class="admin-card-id">
+        <div class="admin-card-title" title="${escapeAttr(item.name)}">${escapeHtml(item.name)}</div>
+        <div class="admin-card-subtitle" title="${escapeAttr(meta)}">${escapeHtml(meta)}</div>
+        ${why}
+      </div>
+      <div class="admin-card-actions">
+        ${qty}
+        ${pill}
+        <span class="admin-sw">
+          <label class="toggle-switch" title="${onTheMenu(item)?'On the menu — switch off to remove it from the catalogue':'Off the menu — switch on to put it back'}">
+            <input type="checkbox" data-toggle-active="${escapeAttr(id)}"
+              aria-label="Keep ${escapeAttr(item.name)} on the menu" ${onTheMenu(item)?'checked':''}>
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="admin-sw-cap">On menu</span>
+        </span>
+        <span class="admin-sw">
+          <label class="toggle-switch" title="${onTheMenu(item)
+            ? (servingNow(item) ? 'Being served today — switch off to stop for today only' : 'Not being served today — switch on to serve it')
+            : 'Put it back on the menu first'}">
+            <input type="checkbox" data-toggle-today="${escapeAttr(id)}"
+              aria-label="Serve ${escapeAttr(item.name)} today"
+              ${servingNow(item)?'checked':''} ${onTheMenu(item)?'':'disabled'}>
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="admin-sw-cap${onTheMenu(item)?'':' is-off'}">Today</span>
+        </span>
+        <button class="pos-btn pos-btn-sm" data-edit-menu="${escapeAttr(id)}">Edit</button>
+        <button class="pos-btn pos-btn-sm admin-danger-quiet" data-del-menu="${escapeAttr(id)}">Delete</button>
+      </div>
+    </div>
+  </div>`;
+}
 
 function renderMenuSection(container, items){
   const filteredItems = items.filter(item => {
     if (menuCategoryFilter !== 'ALL' && item.category !== menuCategoryFilter) return false;
-    const isActive = item.isActive !== false;
-    if (menuStatusFilter === 'ACTIVE'   && !isActive) return false;
-    if (menuStatusFilter === 'INACTIVE' &&  isActive) return false;
+    if (menuStateFilter !== 'ALL' && menuItemState(item) !== menuStateFilter) return false;
     return true;
   });
 
-  const drinkCount   = items.filter(i => i.category === 'DRINK').length;
-  const foodCount    = items.filter(i => i.category === 'FOOD').length;
-  const activeCount  = items.filter(i => i.isActive !== false).length;
-  const inactiveCount = items.length - activeCount;
+  const drinkCount = items.filter(i => i.category === 'DRINK').length;
+  const foodCount  = items.filter(i => i.category === 'FOOD').length;
+  // Counts say WHICH flag they count. All three are over the whole menu; the
+  // "Showing" line below the filters is the one that follows the filters.
+  const servingCount  = items.filter(servingNow).length;
+  const notTodayCount = items.filter(offForToday).length;
+  const offMenuCount  = items.filter(i => !onTheMenu(i)).length;
+
+  const chip = (on) => `pos-btn pos-btn-sm ${on ? 'pos-btn-primary' : ''}`;
 
   let html = `<div class="admin-section">
     <div class="admin-section-header">
-      <h2>Menu Items</h2>
+      <h2>🍽️ Menu</h2>
       <button class="pos-btn pos-btn-primary" id="btnAddMenu">+ Add Item</button>
     </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
-      <button class="pos-btn pos-btn-sm" id="btnEnableDrinks">✅ Enable All Drinks</button>
-      <button class="pos-btn pos-btn-sm" id="btnEnableFood">✅ Enable All Food</button>
-      <button class="pos-btn pos-btn-sm pos-btn-danger" id="btnDisableAll">❌ Disable All</button>
+    <p class="admin-form-hint" style="margin:-8px 0 14px;max-width:70ch">Two separate things:
+      whether an item is <strong>on the menu at all</strong>, and whether it is
+      <strong>being served today</strong>. Customers only see an item when both are on.</p>
+
+    <div class="admin-daystrip">
+      <span class="dash-live-title">${escapeHtml(mytDayLabel(mytToday()))}</span>
+      <div class="dash-live-metrics">
+        <div class="dash-live-metric"><span class="dash-live-value">${servingCount}</span><span class="dash-live-label">serving today</span></div>
+        <div class="dash-live-metric"><span class="dash-live-value">${notTodayCount}</span><span class="dash-live-label">on the menu, off today</span></div>
+        <div class="dash-live-metric"><span class="dash-live-value">${offMenuCount}</span><span class="dash-live-label">off the menu</span></div>
+      </div>
     </div>
+
+    <div class="admin-bulk">
+      <div class="admin-bulk-row">
+        <span class="admin-bulk-label">Serve today</span>
+        <button class="pos-btn pos-btn-sm" data-bulk="on:DRINK">🥤 All drinks</button>
+        <button class="pos-btn pos-btn-sm" data-bulk="on:FOOD">🍔 All food</button>
+        <button class="pos-btn pos-btn-sm" data-bulk="on:">Everything</button>
+      </div>
+      <div class="admin-bulk-row">
+        <span class="admin-bulk-label">Stop serving today</span>
+        <button class="pos-btn pos-btn-sm admin-danger-quiet" data-bulk="off:DRINK">🥤 All drinks</button>
+        <button class="pos-btn pos-btn-sm admin-danger-quiet" data-bulk="off:FOOD">🍔 All food</button>
+        <button class="pos-btn pos-btn-sm admin-danger-quiet" data-bulk="off:">Everything</button>
+      </div>
+      <p class="admin-bulk-hint">These six change the <strong>Today</strong> switch only. The catalogue is
+        untouched — an item taken off the menu stays off.</p>
+    </div>
+
     <div class="admin-filter-row">
       <span class="admin-filter-label">Category</span>
-      <button class="pos-btn pos-btn-sm ${menuCategoryFilter==='ALL'?'pos-btn-primary':''}"   data-menu-cat="ALL">All (${items.length})</button>
-      <button class="pos-btn pos-btn-sm ${menuCategoryFilter==='DRINK'?'pos-btn-primary':''}" data-menu-cat="DRINK">🥤 Drinks Only (${drinkCount})</button>
-      <button class="pos-btn pos-btn-sm ${menuCategoryFilter==='FOOD'?'pos-btn-primary':''}"  data-menu-cat="FOOD">🍔 Foods Only (${foodCount})</button>
+      <button class="${chip(menuCategoryFilter==='ALL')}"   data-menu-cat="ALL">All (${items.length})</button>
+      <button class="${chip(menuCategoryFilter==='DRINK')}" data-menu-cat="DRINK">🥤 Drinks (${drinkCount})</button>
+      <button class="${chip(menuCategoryFilter==='FOOD')}"  data-menu-cat="FOOD">🍔 Food (${foodCount})</button>
     </div>
-    <div class="admin-filter-row" style="margin-bottom:16px">
-      <span class="admin-filter-label">Status</span>
-      <button class="pos-btn pos-btn-sm ${menuStatusFilter==='ALL'?'pos-btn-primary':''}"      data-menu-status="ALL">All</button>
-      <button class="pos-btn pos-btn-sm ${menuStatusFilter==='ACTIVE'?'pos-btn-primary':''}"   data-menu-status="ACTIVE">✅ Enabled Only (${activeCount})</button>
-      <button class="pos-btn pos-btn-sm ${menuStatusFilter==='INACTIVE'?'pos-btn-primary':''}" data-menu-status="INACTIVE">❌ Disabled Only (${inactiveCount})</button>
+    <div class="admin-filter-row">
+      <span class="admin-filter-label">State</span>
+      <button class="${chip(menuStateFilter==='ALL')}"       data-menu-state="ALL">All</button>
+      <button class="${chip(menuStateFilter==='TODAY')}"     data-menu-state="TODAY">Serving today (${servingCount})</button>
+      <button class="${chip(menuStateFilter==='NOT_TODAY')}" data-menu-state="NOT_TODAY">Not today (${notTodayCount})</button>
+      <button class="${chip(menuStateFilter==='OFF_MENU')}"  data-menu-state="OFF_MENU">Off the menu (${offMenuCount})</button>
     </div>`;
+
   if(!items.length){
     html += '<div class="admin-empty"><p>No menu items yet</p></div>';
   } else if (!filteredItems.length){
-    html += `<div class="admin-empty"><p>No items match the current filters.<br><button class="pos-btn pos-btn-sm" id="menuFilterReset" style="margin-top:8px">Reset filters</button></p></div>`;
+    html += `<div class="admin-empty">
+      <p>No items match <strong>${escapeHtml(filterDescription())}</strong>.</p>
+      <button class="pos-btn pos-btn-sm" id="menuFilterReset">Show every item</button>
+    </div>`;
   } else {
-    filteredItems.forEach(item=>{
-      const badge = item.category === 'DRINK' ? 'badge-drink' : 'badge-food';
-      // Summarise the live option groups, e.g. "Temperature: Hot/Iced".
-      // This line previously read only the legacy flat `variants` array, so
-      // every drink on the menu showed nothing — none of them use it.
-      // Both summaries stay PLAIN TEXT and are escaped once where they are
-      // interpolated below — so a group or option name containing < or " cannot
-      // reach innerHTML raw.
-      const groupSummary = (item.variantGroups||[])
-        .map(g => `${g.group}: ${(g.options||[]).map(o=>o.name).join('/')}`)
-        .join(' · ');
-      const legacySummary = (item.variants||[]).map(v=>v.name||v).join(', ');
-      const variants = groupSummary || legacySummary;
-      const isActive = item.isActive !== false;
-      const id = item.menuItemId || item.id;
-      html += `<div class="admin-card ${isActive?'':'is-disabled'}">
-        <div class="admin-card-header">
-          <div>
-            <div class="admin-card-title">${escapeHtml(item.name)}</div>
-            <div class="admin-card-subtitle">RM ${(item.basePrice||0).toFixed(2)}${variants ? ' · '+escapeHtml(variants) : ''}</div>
-          </div>
-          <div class="admin-card-actions">
-            <span class="admin-card-badge ${badge}">${escapeHtml(item.category)}</span>
-            ${item.category==='DRINK' ? `<span class="admin-card-badge ${item.celebrationEligible===true?'badge-active':'badge-inactive'}">${item.celebrationEligible===true?'🎉 RM5':'No 🎉'}</span>` : ''}
-            ${isActive ? '' : '<span class="admin-card-badge badge-disabled">Disabled</span>'}
-            <label class="toggle-switch" title="${isActive?'Click to disable':'Click to enable'}">
-              <input type="checkbox" data-toggle-menu="${escapeAttr(id)}" ${isActive?'checked':''}>
-              <span class="toggle-slider"></span>
-            </label>
-            <button class="pos-btn pos-btn-sm" data-edit-menu="${escapeAttr(id)}">Edit</button>
-            <button class="pos-btn pos-btn-sm pos-btn-danger" data-del-menu="${escapeAttr(id)}">Delete</button>
-          </div>
-        </div>
+    html += `<p class="admin-count-line">Showing <strong>${filteredItems.length}</strong> item${filteredItems.length===1?'':'s'}
+      · <strong>${filteredItems.filter(onTheMenu).length}</strong> on the menu
+      · <strong>${filteredItems.filter(servingNow).length}</strong> serving today</p>`;
+
+    // Drinks and food interleave by sortOrder in one flat list, so group them
+    // under sticky headers rather than making the operator scan for the badge.
+    for (const [category, label] of [['DRINK','🥤 Drinks'], ['FOOD','🍔 Food']]) {
+      const group = filteredItems.filter(i => i.category === category);
+      if (!group.length) continue;
+      html += `<div class="admin-group-head">
+        <span>${label}</span>
+        <span class="admin-group-n">${group.filter(servingNow).length} of ${group.length} serving today</span>
       </div>`;
-    });
+      html += group.map(menuRowHtml).join('');
+    }
+    // Anything with an unexpected category still has to be reachable.
+    const other = filteredItems.filter(i => i.category !== 'DRINK' && i.category !== 'FOOD');
+    if (other.length) {
+      html += `<div class="admin-group-head"><span>Uncategorised</span>
+        <span class="admin-group-n">${other.length} item${other.length===1?'':'s'}</span></div>`;
+      html += other.map(menuRowHtml).join('');
+    }
   }
   html += '</div>';
   container.innerHTML = html;
 
   $('#btnAddMenu').onclick = ()=> openMenuForm(container, null, items);
-  $('#btnEnableDrinks').onclick = async()=>{ try{ await api('PUT','/api/admin/menu/bulk-toggle',{enable:true,category:'DRINK'}); loadMenu(container); }catch(e){ showError('Failed'); } };
-  $('#btnEnableFood').onclick = async()=>{ try{ await api('PUT','/api/admin/menu/bulk-toggle',{enable:true,category:'FOOD'}); loadMenu(container); }catch(e){ showError('Failed'); } };
-  $('#btnDisableAll').onclick = async()=>{ try{ await api('PUT','/api/admin/menu/bulk-toggle',{enable:false}); loadMenu(container); }catch(e){ showError('Failed'); } };
+
+  container.querySelectorAll('[data-bulk]').forEach(btn=>{
+    const [dir, category] = btn.dataset.bulk.split(':');
+    btn.onclick = ()=> bulkSetServingToday(container, items, dir === 'on', category || null);
+  });
 
   container.querySelectorAll('[data-menu-cat]').forEach(btn=>{
     btn.onclick = ()=>{
@@ -108,43 +245,122 @@ function renderMenuSection(container, items){
       renderMenuSection(container, items);
     };
   });
-  container.querySelectorAll('[data-menu-status]').forEach(btn=>{
+  container.querySelectorAll('[data-menu-state]').forEach(btn=>{
     btn.onclick = ()=>{
-      menuStatusFilter = btn.dataset.menuStatus;
+      menuStateFilter = btn.dataset.menuState;
       renderMenuSection(container, items);
     };
   });
   const resetBtn = container.querySelector('#menuFilterReset');
   if (resetBtn) resetBtn.onclick = ()=>{
     menuCategoryFilter = 'ALL';
-    menuStatusFilter = 'ALL';
+    menuStateFilter = 'ALL';
     renderMenuSection(container, items);
   };
 
-  container.querySelectorAll('[data-toggle-menu]').forEach(input=>{
-    input.onchange = async()=>{
-      const id = input.dataset.toggleMenu;
-      // Optimistically disable to prevent double-click
-      input.disabled = true;
-      try{
-        await api('PUT',`/api/admin/menu/${id}/toggle-active`, {});
-        loadMenu(container);
-      } catch(e){
-        showError('Toggle failed');
-        input.checked = !input.checked;
-        input.disabled = false;
-      }
-    };
+  // "On menu" — the permanent catalogue flag.
+  container.querySelectorAll('[data-toggle-active]').forEach(input=>{
+    input.onchange = ()=> runRowToggle(container, input,
+      `/api/admin/menu/${input.dataset.toggleActive}/toggle-active`);
   });
+  // "Today" — the per-service flag. Deliberately the SAME endpoint the POS
+  // uses, because that one also flags PENDING orders containing the item when
+  // it goes off; writing isEnabledToday through the generic admin PUT would
+  // skip that and strand orders the barista can no longer make.
+  container.querySelectorAll('[data-toggle-today]').forEach(input=>{
+    input.onchange = ()=> runRowToggle(container, input,
+      `/api/pos/menu/${input.dataset.toggleToday}/toggle`);
+  });
+
   container.querySelectorAll('[data-edit-menu]').forEach(btn=>{
     btn.onclick=()=>{ const item=items.find(i=>(i.menuItemId||i.id)===btn.dataset.editMenu); openMenuForm(container, item, items); };
   });
   container.querySelectorAll('[data-del-menu]').forEach(btn=>{
     btn.onclick=async()=>{
-      if(!confirm('Delete this menu item?')) return;
-      try{ await api('DELETE',`/api/admin/menu/${btn.dataset.delMenu}`); loadMenu(container); } catch(e){ showError('Delete failed'); }
+      const item = items.find(i=>(i.menuItemId||i.id)===btn.dataset.delMenu);
+      const name = (item && item.name) || 'this item';
+      // Names the item, and names the alternative — most "deletes" here only
+      // meant "not today", and one of these sits on every one of 33 rows.
+      if(!confirm(`Delete "${name}" permanently?\n\nThis removes the item, its price and its option groups from the catalogue. `
+        + `To stop serving it just for today, switch "Today" off instead.`)) return;
+      try{
+        await api('DELETE',`/api/admin/menu/${btn.dataset.delMenu}`);
+        showSuccess(`"${name}" deleted`);
+        loadMenu(container);
+      } catch(e){ showError(`Could not delete "${name}"`); }
     };
   });
+}
+
+/** Human description of the active filters, for the empty state. */
+function filterDescription(){
+  const cat = { ALL:'', DRINK:'drinks', FOOD:'food' }[menuCategoryFilter] || '';
+  const state = {
+    ALL:'', TODAY:'serving today', NOT_TODAY:'on the menu but not today', OFF_MENU:'off the menu',
+  }[menuStateFilter] || '';
+  if (cat && state) return `${cat} ${state}`;
+  return cat || state || 'these filters';
+}
+
+/**
+ * One row switch → one request → reload.
+ *
+ * The checkbox is disabled while in flight (a double tap used to send two
+ * toggles, which for a toggle endpoint means landing back where you started),
+ * and reverted in place on failure so the row never shows a state the server
+ * did not accept.
+ */
+async function runRowToggle(container, input, path){
+  input.disabled = true;
+  try{
+    await api('PUT', path, {});
+    loadMenu(container);
+  } catch(e){
+    showError('Could not change that — nothing was saved');
+    input.checked = !input.checked;
+    input.disabled = false;
+  }
+}
+
+/**
+ * Bulk day-flag change. Confirms in the destructive direction and always says
+ * what happened afterwards.
+ *
+ * The old "❌ Disable All" was a single unconfirmed press that set the day flag
+ * on every item, drew no change at all, and needed TWO presses to undo (drinks,
+ * then food). Both directions now take a category, so every one of these has a
+ * one-press inverse sitting directly above or below it.
+ */
+async function bulkSetServingToday(container, items, enable, category){
+  // The endpoint matches on category alone, so this is exactly its scope —
+  // including items that are off the menu, whose day flag changes invisibly.
+  const affected = items.filter(i => !category || i.category === category);
+  const scope = category === 'DRINK' ? 'drink' : category === 'FOOD' ? 'food item' : 'item';
+  const n = affected.length;
+  const visible = affected.filter(servingNow).length;
+
+  // Naming the number ALREADY off is the honest case the old button hid: it
+  // reported nothing, changed nothing visible, and left the operator guessing.
+  const effect = visible === 0
+    ? `Nothing is being served today, so this changes nothing that customers can see.`
+    : `${visible} ${visible === 1 ? 'item is' : 'items are'} being served right now and will stop, `
+      + `so customers cannot order ${visible === 1 ? 'it' : 'them'} until "Today" is switched back on.`;
+  if (!enable && !confirm(`Stop serving ${n} ${scope}${n === 1 ? '' : 's'} today?\n\n`
+    + `${effect} Nothing is removed from the catalogue.`)) return;
+
+  try{
+    const body = { enable };
+    if (category) body.category = category;
+    const res = await api('PUT','/api/admin/menu/bulk-toggle', body);
+    const updated = Number.isFinite(res && res.updated) ? res.updated : n;
+    showSuccess(enable
+      ? `Now serving ${updated} ${scope}${updated === 1 ? '' : 's'} today`
+      : `Stopped serving ${updated} ${scope}${updated === 1 ? '' : 's'} today`);
+    loadMenu(container);
+  } catch(e){
+    showError(enable ? 'Could not switch those on — nothing changed'
+                     : 'Could not switch those off — nothing changed');
+  }
 }
 
 /**

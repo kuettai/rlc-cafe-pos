@@ -26,12 +26,11 @@ function sanitizeStaffCode(value) {
     .slice(0, STAFF_CODE_MAX);
 }
 
-/** Local YYYY-MM-DD. Local, not UTC: the café runs in MYT (UTC+8), where a
- *  UTC date would report "yesterday" all morning. */
+/** Today's date in the café's own day. Delegates to `mytToday()` (admin.js),
+ *  which is the one place this bundle converts: this used to read the MACHINE's
+ *  local date, which is right on the counter iPad and wrong anywhere else. */
 function staffTodayIso() {
-  const d = new Date();
-  const pad = n => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return mytToday();
 }
 
 /**

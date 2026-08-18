@@ -33,7 +33,9 @@ function slideStatus(slide, todayIso){
 }
 
 function renderDisplaySection(container, slides, settings){
-  const todayIso = new Date().toISOString().split('T')[0];
+  // MYT (see mytToday in admin.js): a slide's startDate/expiryDate are café
+  // calendar dates, so "is it live" must be asked in the café's day.
+  const todayIso = mytToday();
   const fallbackUrl = settings.displayFallbackVideoUrl || '';
 
   let html = `<div class="admin-section">
@@ -130,9 +132,9 @@ function renderDisplaySection(container, slides, settings){
 
 // --- Upload form ---
 function openSlideUploadForm(container){
-  const today = new Date().toISOString().split('T')[0];
+  const today = mytToday();
   // Default expiry: 30 days out. Admins usually want a limited-run promo.
-  const monthOut = new Date(Date.now() + 30 * 86400_000).toISOString().split('T')[0];
+  const monthOut = isoAddDays(today, 30);
 
   const form = document.createElement('form');
   form.className = 'admin-form';
