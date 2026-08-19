@@ -1,6 +1,6 @@
 ---
 name: db-schemas
-description: DynamoDB table schemas for RLC Café POS — orders, menu, ingredients, users, settings, customers, vouchers. Includes partition/sort keys, GSIs, TTL attributes, and the single-table record types stored in the settings table (pre-order codes, staff codes, checklists, slides). Use when reading or writing DynamoDB records, adding attributes, or designing queries.
+description: DynamoDB table schemas for RLC Café POS — orders, menu, ingredients, users, settings, customers, vouchers. Includes partition/sort keys, GSIs, TTL attributes, and the single-table record types stored in the settings table (main config including the `openingHours` schedule, pre-order codes, staff codes, checklists, slides). Use when reading or writing DynamoDB records, adding attributes, designing queries, or asking where the café's opening hours / service days are stored.
 ---
 
 # DynamoDB Table Schemas
@@ -107,6 +107,57 @@ This table stores multiple record types using a single-table design pattern:
 | archiveAfterMinutes | number | Ready→Archive timeout (default 15) |
 | pushEnabled | boolean | Push notifications enabled |
 | onboardingEnabled | boolean | New user onboarding flow enabled |
+| openingHours | map | When the café is scheduled to open. **Descriptive only — never a gate.** See below |
+
+**`openingHours`** — the single source of truth for the café's schedule, owned by
+`backend/src/lib/opening-hours.ts`:
+
+```
+openingHours: {
+  serviceDays: number[],   // MYT day-of-week, 0=Sun … 6=Sat. 1–7 entries, unique, ascending
+  sessions: [{ label: string, opensAt: 'HH:MM', closesAt: 'HH:MM' }]   // 1–4, ascending, non-overlapping, closesAt > opensAt
+}
+```
+
+Every `HH:MM` is **Malaysian wall-clock time, 24-hour, and carries no timezone by
+design** — it is what the volunteer reads off the roster, it is unambiguous, and
+zero-padded `HH:MM` sorts lexicographically, which is what makes the ordering and
+overlap checks exact one-liners. Turning one into an instant goes **only** through
+`malaysiaTimeUtc()` in `lib/date.ts`; there is no `+08:00` literal and no
+`8 * 60 * 60 * 1000` in `opening-hours.ts`, and there must not be. The boundary
+that earns this: **00:30 Sunday MYT is still Saturday in UTC**, so a UTC-derived
+day-of-week reports "not a service day" for the eight hours before 08:00 MYT on the
+one day the café opens — the same fault that headed the 2026-08-02 and 2026-08-09
+summary emails "Saturday".
+
+Read it with `readOpeningHours(settingsItem)`, never `item.openingHours` directly.
+The two fallback paths are deliberately different:
+
+- **Absent → `DEFAULT_OPENING_HOURS`, silently.** This is the legitimate initial
+  state of **every** settings record that exists today: the attribute is new, no
+  admin has saved one, and the default *is* the café's real schedule
+  (`serviceDays:[0]`; 10:15–11:30 "After 1st service" and 12:45–13:30 "After 2nd
+  service"). **Nothing needs backfilling and no migration script was written** — a
+  warning here would fire on every request forever and train everyone to ignore
+  the log.
+- **Present but invalid → the default, LOUDLY.** A stored value that fails
+  `validateOpeningHours()` means customers are being shown times nobody
+  configured, which is a feature silently degrading on bad config. The
+  `console.warn` names the validation error *and* the `PK`/`SK` of the record, so
+  it is diagnosable from CloudWatch alone; the API response stays minimal.
+
+Both fallbacks return the **shared deep-frozen** `DEFAULT_OPENING_HOURS` by
+reference. A Lambda sandbox is reused across requests, so one caller pushing onto
+`.sessions` would otherwise alter what every later request in that sandbox sees;
+frozen means the mutation throws where it happens instead of corrupting a warm
+production sandbox hours later.
+
+Written only by `PUT /api/admin/settings`, which validates it before the write and
+persists the **normalised** value (days sorted, labels trimmed, unknown session
+keys dropped) — so every reader gets the shape it expects without re-normalising.
+Two shape limitations are accepted by design: all sessions apply to every service
+day (Sunday and a hypothetical Wednesday cannot differ), and `serviceDays` is a
+plain weekly recurrence with **no holiday exceptions**.
 
 ### Record Type 2: Checklist Config
 - PK=`CHECKLIST_CONFIG`, SK=`META`

@@ -113,7 +113,9 @@
 
 ```
 GET    /api/menu                    → Active menu items + availability
-GET    /api/cafe/status             → Open/closed, queue size
+GET    /api/cafe/status             → Open/closed, queue size, celebration mode,
+                                      featured drink, opening hours + opening state
+                                      (descriptive; cafeStatus is the only gate)
 POST   /api/orders                  → Submit new order
 GET    /api/orders/{id}             → Get order status (polling)
 PUT    /api/orders/{id}             → Modify/cancel own order (while Pending)

@@ -1,6 +1,6 @@
 ---
 name: invariants
-description: Reviewable invariants for RLC Café POS — the do-not-duplicate list (including Malaysia-time date conversion and dead code left behind by an early return), storage conventions, who may authorise a discount (cashier-selected vs customer-requested vs system-only), the pre-order ISO expiresAt exception, create/edit parity (a restriction enforced on create must be re-enforced on edit), bulk mutating routes and collection-route dispatch, API response shape, path-parameter handling, no un-awaited work after a handler returns (Lambda freezes the sandbox) and date-keyed markers for at-most-once cron side effects, no silently-skipped feature when its config is missing (config in SSM, never a wipeable Lambda env default), auth and release rules, frontend HTML escaping (a customer-controlled string is escaped at every innerHTML render site, not just the newest one — and a textContent sink must not be escaped; a partial escaper that covers only some of the five characters is more dangerous than a missing one, so audit escaper bodies and not call sites; `escapeHtml`/`escapeAttr` in `admin.js` are canonical for the whole admin bundle, `mfEsc` is gone, and `variants.js` keeps a module-private escaper because it loads on three pages whose bundles name theirs differently), frontend state and motion rules (a failure state must not render identically to an empty success state, two distinct persisted flags must not share one visual language, a `[disabled]` control must look disabled, animate transform/opacity and never a layout property — no layout-property transitions remain as of v1.77.0), colour and contrast rules (every CSS custom property must be **defined** and never supplied by a `var(--tok,#hex)` fallback, since 261 such fallbacks had drifted into a second palette and three tokens existed only as fallbacks; `--brand` burnt orange is banned from the POS board except the header wordmark because it collides with `--warning` and `--danger` for deutan vision; a status needs a non-colour channel — a word, and for "receipt sent" a 2px outline plus band, because the old pre-order violet and preparing blue measured ΔE 0.4 deutan; the receipt indigo is deliberately un-harmonised; measured floors for control borders and placeholders and why `opacity` on text is a contrast change; mock deviations are recorded with their measurement), user-visible copy rules (copy asserting a domain fact is gated on the state that makes it true; the house payment fact — payment is QR-ONLY, no cash and no card, and the DuitNow QR is physical and printed on the café tables, so no surface may say "pay at the counter"; a pending feature is deleted rather than commented out, placeholder assets and READMEs included), Malaysia-time dates on the admin frontend via `mytToday()`, and test teeth (a guard is untested unless a fixture reaches it; a test that depends on the machine timezone is not a test). Each is a checkable assertion with the production bug it prevents. Use when reviewing a diff, writing or judging tests, before deploying, or when adding code that touches money, discounts, order status, expiry, pre-orders, collection times, item notes, emails, background or scheduled work, timezones, versions, routing, customer-facing payment copy, the rendering of customer-supplied text into the DOM, or any colour, CSS custom property, palette, theme, contrast, status badge or animated property in `frontend/css/`.
+description: Reviewable invariants for RLC Café POS — the do-not-duplicate list (including Malaysia-time date conversion, the café's opening hours / service days in `lib/opening-hours.ts` — descriptive, never a gate — the withdrawn "no shared frontend util module" claim now that `config.js` is known to be one, and dead code left behind by an early return), storage conventions, who may authorise a discount (cashier-selected vs customer-requested vs system-only), the pre-order ISO expiresAt exception, create/edit parity (a restriction enforced on create must be re-enforced on edit), bulk mutating routes and collection-route dispatch, API response shape, path-parameter handling, no un-awaited work after a handler returns (Lambda freezes the sandbox) and date-keyed markers for at-most-once cron side effects, no silently-skipped feature when its config is missing (config in SSM, never a wipeable Lambda env default), no validated-and-stored config field that nothing reads (untestable by construction — a stored `closesAt` no phase read made the closed screen quote a 2.5-hour wait), auth and release rules, frontend HTML escaping (a customer-controlled string is escaped at every innerHTML render site, not just the newest one — and a textContent sink must not be escaped; a partial escaper that covers only some of the five characters is more dangerous than a missing one, so audit escaper bodies and not call sites; `escapeHtml`/`escapeAttr` in `admin.js` are canonical for the whole admin bundle, `mfEsc` is gone, and `variants.js` keeps a module-private escaper because it loads on three pages whose bundles name theirs differently), frontend state and motion rules (a failure state must not render identically to an empty success state, two distinct persisted flags must not share one visual language, a `[disabled]` control must look disabled, animate transform/opacity and never a layout property — no layout-property transitions remain as of v1.77.0), colour and contrast rules (every CSS custom property must be **defined** and never supplied by a `var(--tok,#hex)` fallback, since 261 such fallbacks had drifted into a second palette and three tokens existed only as fallbacks; `--brand` burnt orange is banned from the POS board except the header wordmark because it collides with `--warning` and `--danger` for deutan vision; a status needs a non-colour channel — a word, and for "receipt sent" a 2px outline plus band, because the old pre-order violet and preparing blue measured ΔE 0.4 deutan; the receipt indigo is deliberately un-harmonised; measured floors for control borders and placeholders and why `opacity` on text is a contrast change; mock deviations are recorded with their measurement), user-visible copy rules (copy asserting a domain fact is gated on the state that makes it true; the house payment fact — payment is QR-ONLY, no cash and no card, and the DuitNow QR is physical and printed on the café tables, so no surface may say "pay at the counter"; a pending feature is deleted rather than commented out, placeholder assets and READMEs included), Malaysia-time dates on the admin frontend via `mytToday()`, and test teeth (a guard is untested unless a fixture reaches it; a test that depends on the machine timezone is not a test; a green suite on a warm ts-jest cache is not evidence the suite even compiles — a whole file can be dropped, cold-cache only). Each is a checkable assertion with the production bug it prevents. Use when reviewing a diff, writing or judging tests, before deploying, or when adding code that touches money, discounts, order status, expiry, pre-orders, collection times, item notes, emails, background or scheduled work, timezones, opening hours or service days, a stored settings/config field, versions, routing, customer-facing payment copy, the rendering of customer-supplied text into the DOM, or any colour, CSS custom property, palette, theme, contrast, status badge or animated property in `frontend/css/`.
 ---
 
 # Invariants
@@ -18,6 +18,7 @@ production bug in this repo. Violations are defects, not style opinions.
 | Version numbers | `scripts/bump-version.mjs` | shipped a release with 4 of 6 markers stale |
 | Malaysia-time dates (backend) | `backend/src/lib/date.ts` | end-of-day emails headed "Saturday" for a Sunday service |
 | Malaysia-time dates (admin frontend) | `mytToday()` in `frontend/js/admin.js` | eight `toISOString()` sites: before 08:00 MYT the admin showed the previous day, and `admin-preorder.js` could stamp `serviceDate` as Saturday |
+| Opening hours / service days | `backend/src/lib/opening-hours.ts` (stored on `PK=SETTINGS, SK=CONFIG`) | **five** disagreeing notions of when the café opens — three hardcoded strings in the frontend, an 8:00–14:00 bucketing in the sessions report, and a dashboard heading that contradicts the numbers under it. Two of the five are still live: follow-ups (a) and (b) in `docs/update-20260819.md` |
 | Runtime config (`/rlc-cafe/` SSM) | `backend/src/lib/ssm-config.ts` | two separate readers of the same prefix, each with its own unpaginated fetch: web push died in production, the end-of-day email was three parameters from the same fate |
 | Colour values | the `:root` block in `frontend/css/style.css` (admin-only tokens in `frontend/css/admin.css`) | **261** `var(--tok,#hex)` fallbacks had become a second, drifted palette — `--cream-dark` alone carried six different values — and three tokens existed *only* as fallbacks. See **Colour and contrast** |
 
@@ -44,13 +45,72 @@ is the line to check when reviewing a new one.
 `frontend/js/pricing.js` is a **display mirror only**. It may not be the basis of
 any persisted number.
 
+`opening-hours.ts` holds the whole schedule decision — the times, the service
+days, the phase, and every rendered label — and imports `malaysiaTimeUtc()` from
+`lib/date.ts` rather than repeating the offset. Since v1.78.0 `malaysiaDayStartUtc`
+is just the `'00:00'` case of `malaysiaTimeUtc`, so **inside `lib/date.ts` the
+`+08:00` designator is written exactly once.** A second copy of that offset is
+exactly how the "Saturday" emails happened. **Opening hours are descriptive and may
+never gate an order** — see **Backend shape**.
+
+> **Correction (v1.78.0): "the `+08:00` literal appears exactly once in the
+> backend" was false and is withdrawn.** It was written in the v1.78.0 pass and
+> repeated in `.kiro/steering/project.md`, `docs/feature-history.md` and the
+> `lib/date.ts` doc comment. Counted: the literal appears **5 times in
+> `backend/src/`** — one canonical (`lib/date.ts:59`) and **four outside it.** The
+> consolidation is real but **partial**, and the claim mattered because it would
+> tell the next agent the sweep was finished and there was nothing left to look for.
+>
+> | Site | Form | Verdict |
+> |---|---|---|
+> | `lib/date.ts:59` (`malaysiaTimeUtc`) | `` `${dateIso}T${hhmm}:00+08:00` `` | **canonical** |
+> | `lib/email.ts:194` (`formatDate`) | `dateStr + 'T00:00:00+08:00'` | **a straight duplicate of `malaysiaDayStartUtc(dateStr)`** — same shape, same purpose, and this is the very function whose date bug produced the "Saturday" subject lines. Should call the helper |
+> | `routes/receipt.ts:103`, `:155`, `:174` | `dateStr + '+08:00'` | interpreting a **timezone-less third-party timestamp** off a bank receipt, not a "what day is it" decision. A defensible distinct case, but it still hardcodes the offset three times |
+>
+> Two further non-literal copies of the same offset live outside `lib/date.ts`:
+> `routes/preorder.ts:108` (`+ 8 * 60 * 60 * 1000`, noted above) and
+> `routes/admin.ts:481`/`:498` (`(utcHour + 8) % 24`, follow-up (a) in
+> `docs/update-20260819.md`). **Total: eight offset sites in `backend/src/`, one of
+> which is the source of truth.**
+>
+> Say "`lib/date.ts` owns the conversion" — which is true and is the rule. Do not
+> say "it appears once", which invites nobody to check.
+
 **One accepted exception:** the HTML escapers are per-page-bundle
 (`escapeHtmlPos`, `escHtml`, `prep.html`'s inline `esc()`, `escapeHtml` /
 `escapeAttr` in `admin.js` for the whole `admin*.js` bundle, and — 5th, added in
-v1.76.0 — a module-private `esc()` in `variants.js`) because there is no
-shared frontend util module and adding one costs a new `SHELL` entry plus a script
-tag on every page. See **Frontend** below for the rules that make the duplication
-survivable.
+v1.76.0 — a module-private `esc()` in `variants.js`). See **Frontend** below for
+the rules that make the duplication survivable.
+
+> **Correction (v1.77.0): the stated reason for that exception was false.** This
+> skill claimed "there is no shared frontend util module and adding one costs a new
+> `SHELL` entry plus a script tag on every page". **`frontend/js/config.js` is that
+> module.** Checked: it is the **first** `<script src="js/config.js">` on **all
+> eight** HTML pages (`index`, `pos`, `admin`, `reports`, `display`, `track`,
+> `prep`, `seed-ingredients`) **and** it is already listed in the `sw.js` `SHELL`
+> array. So a genuinely shared frontend helper costs **zero** new `SHELL` entries
+> and **zero** new script tags — the cost that was used to justify five copies of
+> the escaper does not exist. The per-bundle escapers may stay (they are audited
+> and each covers all five characters, and `variants.js` has its own separate
+> naming reason above), but **do not cite "no shared util module" to justify a new
+> copy of anything.** Put it in `config.js`.
+>
+> The same false claim is still in two code comments —
+> `frontend/js/app.js:28-29` and `frontend/js/admin.js:100-104` — recorded as
+> follow-up (g) in `docs/update-20260819.md` rather than edited in that pass. **A
+> rule never survives in two copies, comments included**, so those two are defects,
+> not documentation.
+>
+> **But prefer the pattern that needed no frontend helper at all.** The v1.77.0
+> customer closed screen makes a Malaysia wall-clock decision and added **no**
+> frontend MYT code: `describeOpeningState()` decides the phase server-side in
+> `lib/opening-hours.ts` (on top of `lib/date.ts`) and returns finished strings —
+> `nextOpenTimeLabel`, `nextOpenDayLabel`, `serviceDaysLabel` — which the frontend
+> only renders. A server-side decision is testable under `TZ=UTC jest` with an
+> injected clock; a browser-side copy is not. **When a wall-clock or money decision
+> is needed in the UI, move the decision to the backend and send the label — reach
+> for a shared frontend helper only when the decision genuinely cannot leave the
+> browser.**
 
 **Why `variants.js` gets its own, and why consolidating it reintroduces a bug:**
 `variants.js` is itself a single source of truth (row 2 of the table above) and is
@@ -304,6 +364,38 @@ or into an excluded paid option.
   counterpart lets the browser subscribe successfully and be undeliverable
   forever — worse than an honest 500, because it burns the one permission prompt
   the customer will ever grant.
+- ☐ **A CONFIG FIELD THAT IS VALIDATED, NORMALISED AND STORED BUT THAT NOTHING
+  READS IS UNTESTABLE BY CONSTRUCTION.** Not merely dead — *unfalsifiable*: a
+  mistyped value passes validation, round-trips through the admin UI, and has zero
+  observable effect anywhere, so no test can fail on it and no reviewer can catch
+  it. Whenever a diff adds a stored field, grep for a **reader** in the same
+  change. If there is none, either wire it up or do not store it.
+
+  Why it matters: v1.77.0's first cut of `openingHours` validated, normalised and
+  persisted `closesAt` while `describeOpeningState()` keyed **only** off `opensAt`.
+  The phases did not just omit information, they actively **lied** — at 10:20, five
+  minutes into session 1, `phase` read `BETWEEN_SESSIONS`; at 13:29, inside session
+  2, it read `AFTER_LAST_TODAY`. The customer-visible consequence: the closed screen
+  told a congregant standing there at 10:20 on a Sunday that the café opens at
+  **12:45** — a 2.5-hour wait — because the volunteers were five minutes late
+  unlocking the counter. Fixed by adding the `WITHIN_SESSION` phase, whose
+  `hours.sessions.find(s => s.opensAt <= now && now < s.closesAt)` is the **only**
+  reader of `closesAt` in the codebase. That half-open interval `[opensAt, closesAt)`
+  is load-bearing: it makes two adjacent sessions unambiguous at the shared
+  boundary and leaves no one-minute gap.
+
+  Corollary, and the reason `WITHIN_SESSION` is worded carefully: the schedule
+  saying "open" and `cafeStatus` saying `CLOSED` is the **ordinary** case (late to
+  open, or closed early having run out). The payload cannot distinguish them, so no
+  copy may assert "running late" — `currentSessionClosesLabel` exists precisely so
+  the screen can say something true in both directions.
+- ☐ **Opening hours are DESCRIPTIVE. They may never gate an order.** `cafeStatus`,
+  flipped by a human in the POS, stays the only thing that decides whether an order
+  is accepted. Nothing in `lib/opening-hours.ts` may refuse an order and no route
+  may start comparing the clock against `openingHours` to decide whether the café is
+  open. This is the obvious next "improvement" and it is wrong: a service that runs
+  late, an extended session or a one-off event would lock real customers out of a
+  café whose door is open and whose volunteers are behind the counter.
 - ☐ **A paged AWS list call is paginated, even when today's count is under the
   page size.** `GetParametersByPath` returns 10 per call and `/rlc-cafe/` already
   holds 7; a truncated read is indistinguishable from "never configured", i.e.
@@ -455,11 +547,18 @@ or into an excluded paid option.
   exists: it lived in `admin-menu.js` only to work around script ordering, and the
   three byte-identical admin copies were consolidated when follow-up (e) was
   addressed. Do not reintroduce a local admin escaper — add the call, not a copy.
-  There is no shared *cross-page* util module, and adding one is not free: it
-  means a **new file in the `sw.js` `SHELL` array** plus a `<script>` tag on every
-  page. So the remaining per-bundle escapers are an accepted exception to the
+  The remaining per-bundle escapers are an accepted exception to the
   do-not-duplicate list above — but each copy must cover all five characters, and
   each page's sites must all use it.
+
+  **The old justification for that exception has been withdrawn.** This section
+  used to say "there is no shared *cross-page* util module, and adding one is not
+  free: a new file in the `sw.js` `SHELL` array plus a `<script>` tag on every
+  page." That is **false and checkable**: `frontend/js/config.js` loads first on all
+  eight HTML pages and is already in the `SHELL` array, so a shared helper costs
+  nothing new. The duplication survives on the strength of the audit rules above,
+  not on a cost that does not exist. See the correction in **Single sources of
+  truth** — and do not use that reason for any *new* copy.
 
   **Still true, and it undercuts the consolidation:** `reports.js` defines its own
   `escapeHtml` and loads at `admin.html:45`, *after* every admin module, so on the
@@ -634,6 +733,36 @@ caught by reading a diff, or not at all.
   pin entirely; `tests/setup.ts` warns when the resolved zone is not UTC. Anything
   genuinely timezone-sensitive converts explicitly via `lib/date.ts` instead of
   relying on the ambient zone.
+- ☐ **A GREEN SUITE ON A WARM ts-jest CACHE IS NOT EVIDENCE THAT THE SUITE
+  COMPILES.** A whole test file can be silently dropped from the run while the
+  local output stays green, because the diagnostic only appears on a **cold**
+  cache — i.e. on CI's clean checkout, and on your machine exactly once, the first
+  time. So the numbers you trust are the ones you never see.
+
+  Why it matters: **eleven** files in `backend/tests/` had no top-level
+  `import`/`export`, so TypeScript compiled them as **global scripts** rather than
+  modules, and every top-level `const` shared one scope across all of them. Every
+  suite here opens with the same mock boilerplate, so `mockDbSend`, `handleOrders`
+  and `LATTE` were each declared several times over —
+  `TS2451: Cannot redeclare block-scoped variable`. It also **picks its victim by
+  compile order**, so the file that fails is not stable: on 2026-08-19 it was
+  `daily-summary.test.ts` (7 tests lost, 421 → 414 passing), and after two
+  unrelated files were added it moved to `preorder-excluded-options.test.ts`. CI on
+  a clean checkout was therefore losing a whole suite while every warm local run
+  looked green. **Every test count reported for this repo before 2026-08-19 was a
+  warm-cache number.** Fixed by adding `export {};` to each file, which emits
+  nothing at runtime and only moves the declarations out of the global scope.
+
+  The check, and both halves are required — **the two must AGREE**:
+
+  ```bash
+  cd backend && npx jest --clearCache && npm test    # cold
+  cd backend && npm test                             # warm
+  ```
+
+  Run the cold one after adding or renaming a test file, and before trusting any
+  test count you intend to write down. The authoritative version of this rule,
+  including the module requirement for new files, is in the `test-suites` skill.
 
 ## Test data
 

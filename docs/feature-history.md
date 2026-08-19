@@ -266,6 +266,65 @@ behavioural one and `git revert` stays a real option. Session detail:
   (ag); and pill/stepper resting borders sit at 1.87:1, below 1.4.11, consistently
   by design (ah)
 
+### Completed (2026-08-19 Sprint — v1.78.0)
+Customer closed-screen redesign + opening times as a single source of truth.
+Spans four trees (`backend/src`, `backend/tests`, `frontend`, docs/skills), so
+**the backend must deploy first** — the closed screen consumes `openingState`.
+Session detail: `docs/update-20260819.md`.
+
+- ✅ **`backend/src/lib/opening-hours.ts` — the one place the café's schedule
+  lives.** Types, a deep-frozen `DEFAULT_OPENING_HOURS`, `validateOpeningHours`
+  (write path), `readOpeningHours` (read path) and `describeOpeningState(hours,
+  now)`, plus label helpers that build every customer-facing string from the data.
+  Stored as `openingHours` on `PK=SETTINGS, SK=CONFIG`: `serviceDays` (MYT
+  day-of-week) + 1–4 ascending, non-overlapping `sessions`. **Absent → the default
+  silently** (the legitimate state of every existing record — nothing needed
+  backfilling and no migration script was written); **present but invalid → the
+  default plus a loud `console.warn` naming the error and the record**
+- ✅ **Descriptive, never a gate.** `cafeStatus` remains the only thing that decides
+  whether an order is accepted — a late or extended service must not lock out a
+  customer standing at an open counter
+- ✅ **`GET /api/cafe/status` now returns `openingHours` + `openingState`**
+  (`phase`, `opensLaterToday`, `nextOpenAt`, and finished MYT labels), and
+  `PUT /api/admin/settings` validates `openingHours` before the write, returning
+  `400 {error}` with an admin-readable message. Both additive and
+  backwards-compatible, so an old cached service-worker shell is unaffected
+- ✅ **`lib/date.ts` gained `malaysiaTimeUtc(dateIso, hhmm)` and `addDaysIso`**, and
+  `malaysiaDayStartUtc` now delegates to the `'00:00'` case, so the offset is
+  written once *inside the module that owns it*. **Correction made during the
+  release pass:** the claim that "`+08:00` now appears exactly once in the backend"
+  was **false** — it appears **5** times in `backend/src/`, four of them outside
+  `lib/date.ts` (`lib/email.ts:194`, `routes/receipt.ts:103/155/174`), plus two
+  non-literal offset copies. Withdrawn in the `invariants` skill, which now carries
+  the full count. Follow-up (i)
+- ✅ **The closed screen** (`frontend/js/app.js` `renderClosedScreen`) replaces
+  three hardcoded lines, re-checks every 60s and hands back to the menu when
+  `cafeStatus` flips to OPEN; a new **Opening Times editor** in Admin → Settings is
+  wired into the v1.75.0 unsaved-work leave guard and sends `openingHours` only when
+  it changed. **No new frontend file, so no `sw.js` `SHELL` entry was needed** —
+  verified by `npm run version:check`
+- 🐛 **A phase bug caught by the "nothing reads this field" test.** The first cut
+  validated and stored `closesAt` while `describeOpeningState` keyed only off
+  `opensAt`, so the phases actively lied: at 10:20, inside session 1, `phase` read
+  `BETWEEN_SESSIONS`. The customer-visible result was the screen telling a
+  congregant at 10:20 on a Sunday that the café opens at **12:45** — a 2.5-hour
+  wait — when the volunteers were five minutes late. Fixed by the `WITHIN_SESSION`
+  phase, now the only reader of `closesAt`. Recorded as an invariant
+- 🐛 **A repo-wide test bug fixed: CI was silently losing a whole suite.** Eleven
+  files in `backend/tests/` had no top-level `import`/`export`, so ts-jest compiled
+  them as global scripts whose `const`s redeclared each other (`TS2451`). The
+  diagnostic appears **only on a cold cache**, so warm local runs looked green while
+  a clean CI checkout dropped a file — and the victim moved with compile order.
+  Each got `export {};`. Cold and warm now agree for the first time: **22 suites /
+  599 passed / 18 skipped**, up from 20 / 421 / 18. All 18 skips are
+  `integration.test.ts`. Every test count reported for this repo before 2026-08-19
+  was a warm-cache number
+- ⚠️ **Two more disagreeing notions of opening times left in place on purpose:**
+  `/api/admin/reports/sessions` buckets by a hardcoded 8:00–14:00 MYT with its own
+  `(utcHour + 8) % 24` conversions, and the dashboard's Session Comparison cards
+  label that data `Session 1 (10:15-11:30)` / `Session 2 (12:45-13:30)` — so today
+  the heading and the numbers under it disagree. Follow-ups (a) and (b)
+
 ### TODO — Remaining
 - ✅ Email notifications — low stock alert (Sunday last run + Wednesday midweek) and end-of-day summary to admin (expiry cron, gated + exactly-once as of v1.72.0)
 - ✅ Customer order modify UI (change items while order is still PENDING) — Tier 1 (race-safe + cashier indicators), Tier 2 (add items + notes), Tier 3 (variant editing via shared variants.js)
@@ -275,7 +334,12 @@ behavioural one and `git revert` stays a real option. Session detail:
 - [ ] Better error handling, loading states
 
 ## Important Context
-- Church café operates Sundays only: 10:15-11:30 and 12:45-13:30
+- Church café operates Sundays only: 10:15-11:30 and 12:45-13:30 — but since the
+  2026-08-19 sprint this is the **configurable default**
+  (`DEFAULT_OPENING_HOURS`), not a constant. The truth is the `openingHours`
+  attribute of `PK=SETTINGS, SK=CONFIG`, owned by
+  `backend/src/lib/opening-hours.ts` and edited in Admin → Settings. Never hardcode
+  a time again
 - ~2-3 volunteers per shift (1 cashier, 1-2 baristas)
 - Payment: **QR only — no cash, no card.** A Maybank DuitNow QR **printed on the
   café tables**; the app never renders one. The customer scans it, then either

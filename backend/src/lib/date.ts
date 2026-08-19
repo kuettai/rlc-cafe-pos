@@ -43,6 +43,29 @@ export function malaysiaClock(now: Date = new Date()): Date {
 }
 
 /**
+ * The UTC ISO instant of a Malaysian WALL-CLOCK time on a Malaysian calendar
+ * date. `('2026-08-16', '10:15')` → `'2026-08-16T02:15:00.000Z'`.
+ *
+ * Within THIS module the `+08:00` designator is written only here, and
+ * `malaysiaDayStartUtc` is the `'00:00'` case of it. It is **not** the only place
+ * in `backend/src` — `lib/email.ts:194` and `routes/receipt.ts:103/155/174` still
+ * hardcode the offset, and `email.ts` in particular is a straight duplicate of
+ * `malaysiaDayStartUtc`. Do not read this comment as "the sweep is done"; the
+ * count is kept in the `invariants` skill.
+ *
+ * Anything that needs "what instant is 10:15 in the
+ * café on that date" (opening hours, session boundaries) goes through here rather
+ * than repeating the offset — a second copy of the offset is exactly how the
+ * "Saturday" summary emails happened.
+ *
+ * @param dateIso `YYYY-MM-DD`, a Malaysian calendar date
+ * @param hhmm    24-hour `HH:MM` Malaysian wall-clock time
+ */
+export function malaysiaTimeUtc(dateIso: string, hhmm: string): string {
+  return new Date(`${dateIso}T${hhmm}:00+08:00`).toISOString();
+}
+
+/**
  * The instant a Malaysian calendar date began, as a UTC ISO string.
  * `'2026-08-16'` → `'2026-08-15T16:00:00.000Z'`.
  *
@@ -54,5 +77,26 @@ export function malaysiaClock(now: Date = new Date()): Date {
  * which is valid as long as both sides are UTC and zero-padded.
  */
 export function malaysiaDayStartUtc(date: string): string {
-  return new Date(`${date}T00:00:00+08:00`).toISOString();
+  return malaysiaTimeUtc(date, '00:00');
+}
+
+/**
+ * Calendar arithmetic on a `YYYY-MM-DD` string, anchored at explicit UTC
+ * midnight. `('2026-08-16', 1)` → `'2026-08-17'`.
+ *
+ * **Deliberately NOT a timezone conversion.** It carries no offset and does not
+ * know about MYT: `malaysiaToday()` decides what day it is, and this then
+ * operates on the resulting string. That split is what keeps the two halves from
+ * disagreeing with each other — the original `computePastSundays` bug on the
+ * admin frontend read the *local* day-of-week and then serialised through *UTC*.
+ * The admin bundle documents the same split at `frontend/js/admin.js:114-123`
+ * (`isoAddDays`), which this is the backend counterpart of.
+ *
+ * Anchoring at `T00:00:00Z` rather than using the local `Date` constructor is
+ * what makes it safe on a machine in any timezone, DST included.
+ */
+export function addDaysIso(dateIso: string, days: number): string {
+  const d = new Date(`${dateIso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
 }

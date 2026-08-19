@@ -5,6 +5,11 @@
 A Progressive Web App (PWA) replacing the current Loyverse POS for the church café at Oasis of Care (RLC), Petaling Jaya. The system enables customer self-ordering, real-time order management, recipe-based inventory tracking, and end-of-day reconciliation.
 
 **Operating schedule:** Sundays only, two windows — 10:15–11:30 and 12:45–13:30.
+This is now the **default**, not a hardcoded fact: the schedule is stored as
+`openingHours` on `PK=SETTINGS, SK=CONFIG`, edited in Admin → Settings → Opening
+Times, and owned by `backend/src/lib/opening-hours.ts`. It is **descriptive only** —
+`cafeStatus`, toggled by a volunteer in the POS, remains the sole gate on whether
+orders are accepted.
 
 ## 2. Users & Roles
 

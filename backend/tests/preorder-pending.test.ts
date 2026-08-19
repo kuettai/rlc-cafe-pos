@@ -1284,3 +1284,11 @@ describe('getShiftSummary — a pre-order created before today is still visible'
     expect(b.totalRevenue).toBe(0);     // pre-orders are RM0 net
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Marks this file as a MODULE. Without it TypeScript treats the file as a global
+// script and its top-level `const`s collide with the other script-mode suites
+// (`TS2451: Cannot redeclare block-scoped variable`), which fails the suite on a
+// cold ts-jest cache while a warm local run passes. See tests/README.md.
+// ─────────────────────────────────────────────────────────────────────────────
+export {};

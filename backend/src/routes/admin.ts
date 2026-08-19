@@ -10,6 +10,9 @@ import { isNewcomerOrder } from '../lib/pricing';
 // Shared with the per-link field so a template and a link can never disagree
 // about what a valid "Group:Option" exclusion key looks like.
 import { normalizeExcludedOptions } from './preorder';
+// Opening times have exactly one validator; the admin write path must not grow
+// its own copy of the rules.
+import { validateOpeningHours } from '../lib/opening-hours';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
@@ -314,10 +317,25 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
     }
 
     if (method === 'PUT' && path.endsWith('/admin/settings')) {
+      // This branch writes every key of the body straight through. `openingHours`
+      // is validated because a malformed one is not merely a bad setting — it is
+      // the customer-facing "when do you open" answer, and `readOpeningHours()`
+      // would have to fall back to the default and warn on every single request.
+      // Validate BEFORE the UpdateCommand so a rejected value writes nothing at
+      // all, and persist the NORMALISED value (sorted days, trimmed labels) so
+      // the stored record is already in the shape every reader expects.
+      // (The other fields have no validation; that is tracked as a follow-up.)
+      const settingsBody: Record<string, unknown> = { ...body };
+      if (settingsBody.openingHours !== undefined) {
+        const check = validateOpeningHours(settingsBody.openingHours);
+        if (!check.ok) return res(400, { error: check.error });
+        settingsBody.openingHours = check.value;
+      }
+
       const fields: string[] = [];
       const names: Record<string, string> = {};
       const values: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(body)) {
+      for (const [k, v] of Object.entries(settingsBody)) {
         fields.push(`#${k} = :${k}`);
         names[`#${k}`] = k;
         values[`:${k}`] = v;

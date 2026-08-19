@@ -715,6 +715,115 @@
   font-size:.95rem;
 }
 
+/* === Settings → Opening Times ==========================================
+   The one row on this tab that cannot use the label-left / control-right split:
+   a seven-day picker plus up to four session rows needs the full width.
+   Everything below is measured against the white `.admin-form` ground. */
+.admin-setting-row-stack{display:block}
+.admin-setting-row-stack .admin-setting-info{margin-bottom:14px}
+.admin-opening{display:flex;flex-direction:column;gap:20px}
+.admin-opening-block{display:flex;flex-direction:column;align-items:flex-start;gap:9px}
+.admin-opening-label{
+  font-size:.85rem;
+  font-weight:700;
+  color:var(--ink-quiet);            /* 9.17:1 on white */
+}
+/* Never saved: the editor is showing defaults, and says so rather than looking
+   like a stored value. */
+.admin-opening-seed{
+  font-size:.85rem;
+  font-weight:600;
+  color:var(--pending-ink);          /* 6.65:1 on white */
+  line-height:1.45;
+  max-width:60ch;
+}
+
+/* Day picker. `aria-pressed` carries the state for assistive tech; visually the
+   selected day inverts to a filled pill, so the channel is fill-vs-outline and
+   not hue alone. --brand is wanted here — the ban on it is the POS board's. */
+.admin-opening-days{display:flex;flex-wrap:wrap;gap:8px}
+.admin-day{
+  min-width:58px;
+  min-height:var(--tap);
+  padding:0 14px;
+  border:2px solid var(--field-bd);  /* 4.33:1 — 1.4.11 wants 3:1 on a control */
+  border-radius:999px;
+  background:var(--card);
+  color:var(--ink-quiet);            /* 9.17:1 */
+  font-family:inherit;
+  font-size:.9rem;
+  font-weight:700;
+  cursor:pointer;
+  transition:transform .12s ease,background .15s ease,color .15s ease,border-color .15s ease;
+}
+.admin-day:hover{background:var(--quiet);border-color:var(--brand)}
+.admin-day:active{transform:scale(.96)}
+.admin-day.is-on{
+  background:var(--brand);
+  border-color:var(--brand);
+  color:var(--on-brand);             /* 5.01:1 on --brand */
+}
+.admin-day.is-on:hover{background:var(--brand-deep);border-color:var(--brand-deep)}
+@media (prefers-reduced-motion:reduce){
+  .admin-day{transition:none}
+  .admin-day:active{transform:none}
+}
+
+/* Session rows.
+   MOBILE-FIRST, and the arrow is the reason. `opens → closes` only reads as a
+   sequence while the row is a single line; once it wraps, the `→` sits beside
+   the OPENS field with CLOSES underneath, pointing at the wrong thing — worse
+   than no arrow. So the default form carries a visible word per field and no
+   arrow, and the arrow is restored only at >=900px, where the row is `nowrap`
+   and cannot separate it from its neighbours. The words are `aria-hidden`
+   because each input already carries a full `aria-label`. */
+.admin-opening-sessions{display:flex;flex-direction:column;gap:10px;width:100%}
+.admin-opening-session{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.admin-opening-session .pos-input{margin-bottom:0}
+.admin-session-name{flex:1 1 100%;min-width:0}
+.admin-session-field{display:flex;align-items:center;gap:8px;flex:1 1 100%;min-width:0}
+.admin-session-fieldlabel{
+  flex:0 0 54px;
+  font-size:.82rem;
+  font-weight:600;
+  color:var(--ink-quiet);            /* 9.17:1 on white */
+}
+.admin-session-time{flex:1 1 auto;width:auto;min-width:120px}
+.admin-session-sep{display:none}
+@media (min-width:900px){
+  /* One line, guaranteed: nothing may wrap, so the arrow is always between the
+     two times it describes. The name shrinks (min-width:0) rather than pushing
+     a field onto a second row. */
+  .admin-opening-session{flex-wrap:nowrap}
+  .admin-session-name{flex:1 1 160px}
+  .admin-session-field{flex:0 0 auto}
+  .admin-session-fieldlabel{display:none}
+  .admin-session-sep{display:inline;color:var(--ink-quiet);font-weight:700}
+}
+
+/* Which field is wrong, and why — kept beside the field rather than only in the
+   4s toast, because a transient toast is not a status indicator. */
+.admin-field-error{
+  font-size:.85rem;
+  font-weight:600;
+  color:var(--urgent-ink);           /* 9.55:1 on white */
+  line-height:1.45;
+  max-width:62ch;
+  margin-top:2px;
+}
+/* The mark on the offending control. Colour is the SECONDARY channel here: the
+   sentence above and the focus that lands on the field are what carry it. */
+.admin-opening .is-invalid{border-color:var(--danger)}
+.admin-opening-days.is-invalid{
+  outline:2px solid var(--danger);
+  outline-offset:5px;
+  border-radius:999px;
+}
+/* Why a control is inert. Same size as a hint, but it is an explanation of a
+   disabled state, so it takes the ink of a live instruction rather than the
+   quieter hint colour. */
+.admin-opening-note{color:var(--ink-quiet);font-weight:600}   /* 9.17:1 on white */
+
 /* Empty state */
 .admin-empty{
   text-align:center;

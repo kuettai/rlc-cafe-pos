@@ -32,7 +32,13 @@ backend/src/     index.ts (router), expiry.ts (EventBridge cron — Sundays
                  01:00-09:00 UTC every 30min, + a Wednesday stock run; expiry,
                  auto-archive, low-stock alert, end-of-day revenue summary)
   lib/           db, auth (JWT/PIN), audit, phone, push, email, pricing,
-                 date (Malaysia UTC+8 — the only place that conversion lives),
+                 date (Malaysia UTC+8 — owns that conversion; malaysiaTimeUtc is
+                 the one place inside it that writes +08:00. NOT the only place
+                 in backend/src: email.ts + receipt.ts still hardcode it — see
+                 the invariants skill for the count),
+                 opening-hours (the only source of truth for service days and
+                 session times — validate/read/describe; DESCRIPTIVE, never a
+                 gate on ordering),
                  daily-summary (end-of-day revenue email body + send),
                  ssm-config (the only reader of /rlc-cafe/ runtime config —
                  one paginated, 5-min-cached fetch shared by email + VAPID)
@@ -47,7 +53,15 @@ docs/            requirements, architecture, deployment, update-YYYYMMDD.md
 ```
 
 ## Operating context
-- Sundays only: 10:15–11:30 (S1) and 12:45–13:30 (S2)
+- **Opening hours are configurable data, not a fact of the code.** They live in the
+  `openingHours` attribute of `PK=SETTINGS, SK=CONFIG`, are edited in
+  Admin → Settings → Opening Times, and are owned by
+  `backend/src/lib/opening-hours.ts` (`db-schemas` skill → Main Config for the
+  shape). Sundays only, 10:15–11:30 (S1) and 12:45–13:30 (S2) is the
+  **`DEFAULT_OPENING_HOURS`** — what every record that has never been saved falls
+  back to, and currently what the café actually does, but no longer the truth to
+  code against. Read it via `readOpeningHours()`; never hardcode a time.
+  Descriptive only: `cafeStatus` remains the sole gate on ordering.
 - 2–3 volunteers per shift (1 cashier, 1–2 baristas)
 - Payment: **QR only — no cash, no card.** The Maybank DuitNow QR is **physical,
   printed on the café tables**; the app has never rendered one and must not claim

@@ -1,6 +1,6 @@
 ---
 name: api-reference
-description: Complete HTTP endpoint reference for the RLC Café POS API — public, display, POS (CASHIER/ADMIN) and ADMIN routes, with paths and auth requirements. Use when adding, calling, or debugging an API route.
+description: Complete HTTP endpoint reference for the RLC Café POS API — public, display, POS (CASHIER/ADMIN) and ADMIN routes, with paths and auth requirements, including the full `GET /api/cafe/status` payload (café status, celebration mode, featured drink, opening hours and the derived opening state) and which `PUT /api/admin/settings` keys are validated. Use when adding, calling, or debugging an API route, or when asking what a route returns.
 ---
 
 # API Reference
@@ -11,7 +11,7 @@ Base URL: `https://hcydppml1a.execute-api.ap-southeast-5.amazonaws.com/prod`
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | /api/cafe/status | Returns {cafeStatus, queueSize} |
+| GET | /api/cafe/status | Returns `{cafeStatus, queueSize, celebrationMode, celebrationPrice, featuredDrink, openingHours, openingState}`. (`celebrationMode`, `celebrationPrice` and `featuredDrink` had shipped long before they were documented here — `featuredDrink` is `null` or `{menuItemId, name, basePrice, imageUrl, category}`.) `openingHours` is the stored schedule or the default (see `db-schemas` → Main Config); `openingState` is `describeOpeningState()` from `lib/opening-hours.ts` evaluated server-side at request time: `{phase, opensLaterToday, nextOpenAt, minutesUntilNextOpen, nextOpenTimeLabel, nextOpenDayLabel, nextServiceSessionsLabel, serviceDaysLabel, currentSessionLabel, currentSessionClosesLabel}`. `phase` ∈ `BEFORE_FIRST_TODAY \| WITHIN_SESSION \| BETWEEN_SESSIONS \| AFTER_LAST_TODAY \| NOT_SERVICE_DAY`; `currentSessionLabel` and `currentSessionClosesLabel` are `null` in every phase except `WITHIN_SESSION`. **`openingState` is DESCRIPTIVE and must never gate anything** — `cafeStatus` remains the only thing that decides whether an order is accepted, because a late-starting or extended service would otherwise lock out customers standing at an open counter. Every label is computed here, in MYT, so the frontend renders server-computed strings and needs no timezone code of its own. `openingHours`/`openingState` are **additive**: an old cached service-worker shell ignores them |
 | GET | /api/menu | Returns active menu items |
 | POST | /api/orders | Create order. Optional `preorderCode` or `staffCode` (supplying **both** is a 400). With `preorderCode` the order is created **PENDING** (v1.71; it used to be PREPARING) so the customer can still edit it, is free (`totalAmount` 0, `discountType: 'MINISTRY_PREORDER'`), skips the café-open check and is drinks-only. Each `items[]` entry may carry an optional **`note`** — a per-item special request, max **80 chars measured trimmed** (`ITEM_NOTE_MAX_LENGTH`), separate from and additional to the per-order `notes`; `400 {error:'Item note must be a string'}` / `{error:'Item note cannot exceed 80 characters'}`, both raised before any DynamoDB write so a rejected note cannot leave `foodReserved` moved. On a pre-order, `collectionTime` is now **validated** against the link's own `collectionOptions` (falling back to `DEFAULT_COLLECTION_OPTIONS`): off-list is `400 {error:'Invalid collection time'}`, non-string `400 {error:'collectionTime must be a string'}`. It previously accepted any string, so leaving create permissive would have made the same check on edit pointless — no legitimate client is affected, since the customer page only ever submits a value from that same list |
 | GET | /api/orders/{id} | Get order status. Also returns `isPreOrder`, `preorderCode`, `discountType`, `discountOffset` and `grossAmount` so `track.html` can tell a free ministry pre-order from an ordinary PENDING order (`totalAmount` is NET, i.e. 0, while the items carry full prices). **Only when `isPreOrder === true`** it additionally returns `collectionTime` (string, parsed out of the stored notes prefix by `parsePreorderCollectionTime`; `''` when the order has no prefix) and `collectionOptions` (`string[]`, the link's own list or the defaults) so `track.html` can render and preselect the collection-time picker. Served from here rather than `GET /api/preorder/validate` because that endpoint enforces the link's ordering window and would refuse to describe a closed link — losing the picker on a legitimate edit, since the edit window is the **order's** PENDING status, not the link's. The extra DynamoDB read is guarded behind the `isPreOrder` flag because `track.html` polls this handler every 7s |
@@ -123,7 +123,7 @@ Base URL: `https://hcydppml1a.execute-api.ap-southeast-5.amazonaws.com/prod`
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | /api/admin/settings | Get settings |
-| PUT | /api/admin/settings | Update settings |
+| PUT | /api/admin/settings | Update settings. Writes every body key straight through into one `UpdateExpression`. **`openingHours` is the one validated key**: `validateOpeningHours()` runs *before* the `UpdateCommand`, so a rejected value writes nothing at all, returns `400 {error}` with an admin-readable message naming the session and field (e.g. `Session 2 ("After 2nd service"): closesAt (12:30) must be after opensAt (12:45)`), and the **normalised** value is what gets persisted (`serviceDays` sorted, labels trimmed, unknown session keys dropped). Returns `200 {updated: [keys]}`. **Every other key is still unvalidated**, `cafeStatus` included — the route now *looks* validated because one key is; see follow-up (d) in `docs/update-20260819.md` |
 | GET | /api/admin/settings/preorder-templates | Get pre-order defaults |
 | PUT | /api/admin/settings/preorder-templates | Update pre-order defaults |
 
@@ -138,7 +138,7 @@ Base URL: `https://hcydppml1a.execute-api.ap-southeast-5.amazonaws.com/prod`
 | GET | /api/admin/reports/inventory | Low stock report |
 | GET | /api/admin/reports/restock | Restock recommendation |
 | GET | /api/admin/reports/discounts | Discount breakdown report |
-| GET | /api/admin/reports/sessions | Session 1 vs Session 2 breakdown |
+| GET | /api/admin/reports/sessions | Session 1 vs Session 2 breakdown. **Does not use `lib/opening-hours.ts`** — it buckets orders by a hardcoded `8:00 – 14:00 MYT` span split at the handover-checklist completion time (default `splitMinutes = 690`, i.e. 11:30), with its own open-coded `(utcHour + 8) % 24` conversions. So its `timeRange` strings are genuinely 8:00-based and do **not** match the configured opening hours; the admin dashboard nonetheless labels these cards `Session 1 (10:15-11:30)` / `Session 2 (12:45-13:30)`, so heading and numbers disagree. Follow-ups (a) and (b) in `docs/update-20260819.md` |
 | GET | /api/admin/activity-log | Activity log |
 
 ### Featured Drink

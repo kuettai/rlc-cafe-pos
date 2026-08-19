@@ -187,3 +187,11 @@ describe('createOrder — pre-order excluded options', () => {
     expect(res.statusCode).toBe(201);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Marks this file as a MODULE. Without it TypeScript treats the file as a global
+// script and its top-level `const`s collide with the other script-mode suites
+// (`TS2451: Cannot redeclare block-scoped variable`), which fails the suite on a
+// cold ts-jest cache while a warm local run passes. See tests/README.md.
+// ─────────────────────────────────────────────────────────────────────────────
+export {};

@@ -1,6 +1,6 @@
 ---
 name: test-suites
-description: How to run the RLC Café POS test suites safely — which are offline and which write to the live production café, why it must be `npm test` (`TZ=UTC jest`) and never a bare `npx jest`, the ZZTEST_ prefix every test-created record must carry, the reserved test phone range, the Sunday-afternoon end-of-day-email hazard, why a Playwright `page.route()` block does NOT stop writes (service workers bypass it — this already took a menu item off the live customer menu) and the `serviceWorkers:'block'` + positive-control harness rule, and the cleanup procedure afterwards. Use before running any test, adding a suite that writes data, driving any frontend page in a real browser against the live API, or cleaning up after a live run.
+description: How to run the RLC Café POS test suites safely — which are offline and which write to the live production café (and the 3 ungated read-only live GETs in `integration.test.ts` that run on every `npm test`), why every test file must be a MODULE (`export {};`) or ts-jest silently drops a whole suite on a cold cache while warm runs stay green, why it must be `npm test` (`TZ=UTC jest`) and never a bare `npx jest`, the ZZTEST_ prefix every test-created record must carry, the reserved test phone range, the Sunday-afternoon end-of-day-email hazard, why a Playwright `page.route()` block does NOT stop writes (service workers bypass it — this already took a menu item off the live customer menu) and the `serviceWorkers:'block'` + positive-control harness rule, and the cleanup procedure afterwards. Use before running any test, adding a suite that writes data, driving any frontend page in a real browser against the live API, or cleaning up after a live run.
 ---
 
 # Test Suites
@@ -47,6 +47,15 @@ real volunteers use on Sunday mornings. There is no staging environment.
 >
 > A frontend probe against the live API is a **category-2 activity**: say what it
 > may write, get explicit confirmation, and check afterwards.
+>
+> **The harness rule works as documented — confirmed 2026-08-19.** The customer
+> closed-screen probe ran under `serviceWorkers: 'block'` with the positive control
+> above, and a **second independent control** counting requests by host: 34 requests
+> intercepted (so interception demonstrably fired), **0** of them to the production
+> API host, and 0 non-GET attempted. Nothing was written to production and no
+> cleanup was needed. Two controls, not one: the positive control proves the
+> interceptor was consulted, and the host counter proves what it saw — the 2026-08-18
+> Latte incident was invisible to the first check alone.
 
 ## Category 1 — safe, offline, run freely
 
@@ -56,6 +65,50 @@ cd backend && npm test                                         # all suites (int
 cd backend && TZ=UTC npx jest --testPathIgnorePatterns integration   # unit suites only
 npm run version:check                                          # six markers + SHELL
 ```
+
+> ### Every test file must be a MODULE, not a global script
+>
+> **If a test file has no top-level `import` or `export`, add `export {};` at the
+> bottom.** This is the authoritative statement of the rule;
+> `backend/tests/README.md` is a pointer to it.
+>
+> TypeScript decides module-vs-script per file, purely on whether the file has a
+> top-level `import`/`export`. A file with neither is a **global script**, and every
+> top-level `const` in it shares one scope with every other script-mode file in the
+> program. Every suite here opens with the same mock boilerplate, so they collide
+> immediately:
+>
+> ```
+> tests/daily-summary.test.ts:14 - error TS2451: Cannot redeclare block-scoped
+>                                  variable 'mockDbSend'.
+>   tests/daily-summary-cron.test.ts:21
+>     'mockDbSend' was also declared here.
+> ```
+>
+> `mockDbSend`, `handleOrders` and `LATTE` were each declared in several suites.
+> **Eleven** files were affected and were fixed on 2026-08-19.
+>
+> **The cold-cache trap — why this hid for months.** The diagnostic appears only on
+> a **cold ts-jest cache**. A warm run — every run after the first — passes, so CI
+> on a clean checkout was silently **losing a whole suite** while local runs looked
+> green. It also picks its victim by **compile order**, so the failing file is not
+> stable between runs: on 2026-08-19 it was `daily-summary.test.ts` (dropping 7
+> tests, 421 → 414 passing), and after two unrelated files were added it moved to
+> `preorder-excluded-options.test.ts`. **Every test count reported for this repo
+> before 2026-08-19 was a warm-cache number.**
+>
+> Reproduce, and verify a fix — **the two must AGREE**:
+>
+> ```bash
+> cd backend && npx jest --clearCache && npm test    # cold
+> cd backend && npm test                             # warm
+> ```
+>
+> Run the cold check after adding or renaming any test file, and before writing
+> down a test count. `export {};` emits nothing at runtime; it only moves the
+> declarations out of the global scope, where they never belonged. One consequence:
+> a module is compiled in **strict mode**, so a file that relied on sloppy-mode
+> behaviour starts failing honestly.
 
 **Always `npm test`, never a bare `npx jest`.** `npm test` is `TZ=UTC jest`, and
 the `TZ` is load-bearing: Lambda runs in UTC, the dev machines are in
@@ -85,6 +138,8 @@ it.
 | `push-vapid.test.ts` | web push VAPID config — read from SSM (`/rlc-cafe/VAPID_*`) and cached, paginated, env fallback, and above all that a **missing or malformed config LOGS instead of returning silently**; plus the `vapid-public-key` route, including its refusal to serve a public key whose private counterpart is missing. SSM, DynamoDB and `web-push` are all mocked — nothing is sent, nothing is read for real |
 | `item-notes.test.ts` | per-item special requests — `validateItemNote` / `ITEM_NOTE_MAX_LENGTH` (80 chars **measured trimmed**), the create/edit parity of the cap and its two 400 messages, and that `note` is persisted **only when non-empty** so a note-free order's items stay byte-identical to the pre-feature shape. Also that a rejected note returns before any write, so `foodReserved` is never left moved. 31 tests |
 | `preorder-collection-time.test.ts` | editable pre-order collection times — `resolveCollectionTime` against the link's `collectionOptions` (and the `DEFAULT_COLLECTION_OPTIONS` fallback, including the hard-deleted-link fail-closed case), `parsePreorderCollectionTime`, `createOrder` now validating the field it used to accept as free text, `modifyOrder` rebuilding the prefix with the code taken from the **stored record** rather than the body, the `notes = :n` clause being emitted for a time-only change, a validated time **creating** a prefix that did not exist, `getOrder`'s two pre-order-only response fields, and that `expiresAt` is still untouched. 70 tests |
+| `opening-hours.test.ts` | `lib/opening-hours.ts` in isolation — `validateOpeningHours` rule by rule, `readOpeningHours`'s silent absent-fallback vs loud invalid-fallback, the deep freeze, and `describeOpeningState` across all five phases with an **injected clock**, including the UTC/MYT boundary (00:30 Sunday MYT is Saturday in UTC) and the half-open `[opensAt, closesAt)` session edges |
+| `opening-hours-routes.test.ts` | the two routes that carry it — `GET /api/cafe/status` returning `openingHours` + `openingState`, and `PUT /api/admin/settings` rejecting a malformed `openingHours` with a `400` **before** any write while persisting the normalised value |
 | `test-markers.test.ts` | the test-data marker contract (below) |
 
 These mock DynamoDB. They touch nothing real.
@@ -117,6 +172,28 @@ TEST_ADMIN_USER=... TEST_ADMIN_PIN=... RUN_LIVE_WRITE_TESTS=1 \
 
 Credentials alone are not enough. Without `RUN_LIVE_WRITE_TESTS=1` the Order Flow
 group skips and warns.
+
+### `integration.test.ts` is not entirely opt-in — 3 tests hit the live API on every run
+
+The gate covers the **writes**, not the whole file. Three tests in the
+`Public Endpoints` group (`integration.test.ts:86`, `:94`, `:101`) are **ungated**
+and run on **every `npm test`**, with no credentials and no `RUN_LIVE_WRITE_TESTS`:
+
+| Line | Request |
+|---|---|
+| 86 | `GET /api/cafe/status` |
+| 94 | `GET /api/menu` |
+| 101 | `GET /api/menu` (field-shape assertions) |
+
+Three GETs against production, **read-only — no writes, no records created,
+nothing to clean up.** Recorded because the distinction matters twice over: a
+`npm test` on a plane or behind a firewall can fail for network reasons that have
+nothing to do with your diff, and any claim that "`npm test` touches nothing real"
+is wrong as stated. Verified by request-level interception on 2026-08-19, not
+inferred from the source.
+
+Note also what the 18 skips are: **all 18 are `integration.test.ts`** (credentials
+and `RUN_LIVE_WRITE_TESTS` unset). A skip is not a pass.
 
 **Before running either category-2 suite:** state what will be created, get
 explicit confirmation, and confirm the café is OPEN (the order flow needs it).
@@ -233,6 +310,8 @@ sent. The script prints this list every run — read it.
 
 ## Writing tests
 
+- **A new file needs a top-level `import`/`export` — add `export {};` if it has
+  neither**, then verify with a cold-cache run. See the module box at the top.
 - Match the existing suite's style; fixtures in `backend/tests/fixtures`.
 - A discount rule change lands in `pricing.test.ts` **first** — it is the spec.
 - A new endpoint needs a `router.test.ts` dispatch case plus a behaviour test.

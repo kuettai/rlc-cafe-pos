@@ -225,6 +225,235 @@ function renderLoadFailure(kind) {
   });
 }
 
+// ─── Closed screen ──────────────────────────────────────────────────
+//
+// The state the page is in six days out of seven, so it is the screen most
+// people see. It used to be four hardcoded lines ending in "See you next
+// Sunday!" — which is what a congregant read at 09:50 on a Sunday, 25 minutes
+// before the café opened.
+//
+// EVERY wall-clock decision and every label below is computed by the backend
+// (`lib/date.ts`, surfaced as `openingState` on GET /api/cafe/status). This file
+// has no Malaysia-time helper and must not gain one: MYT conversion is on the
+// do-not-duplicate list, and the clock on a shared phone in a foyer is not
+// trustworthy — so `minutesUntilNextOpen` is rendered exactly as the server sent
+// it rather than re-derived from Date.now().
+//
+// The session labels are admin-editable (Admin → Settings → Opening Times) and
+// land in innerHTML, so every interpolated payload string goes through escHtml.
+const CLOSED_RECHECK_MS = 60000;
+let closedRecheckTimer = null;
+/** Last payload the closed screen rendered — non-null exactly while it is up. */
+let closedStatus = null;
+
+const CLOSED_WHERE = 'Lot 5, Jalan 51A/221, 46100 Petaling Jaya';
+// Payment is QR-ONLY — no cash, no card — and the DuitNow QR is PHYSICAL,
+// printed on the café tables; nothing in this app renders one. v1.75.1 had to
+// correct a "pay at the counter" claim in three shipped places at once, so do
+// not reintroduce cash, card or a counter transaction here.
+const CLOSED_PAYING = 'DuitNow QR on the table — the only method';
+// Categories only, deliberately. On a closed day GET /api/menu returns ZERO
+// items (every item is isEnabledToday:false), so there is nothing live to list
+// from — and a hardcoded list of drinks drifts the first time the menu changes.
+const CLOSED_SERVED = 'Coffee, tea and a few light bites';
+
+/** Leave the closed screen: stop its poll. Called from every exit path. */
+function stopClosedRecheck() {
+  clearTimeout(closedRecheckTimer);
+  closedRecheckTimer = null;
+  closedStatus = null;
+}
+
+function scheduleClosedRecheck() {
+  clearTimeout(closedRecheckTimer);
+  closedRecheckTimer = setTimeout(recheckClosed, CLOSED_RECHECK_MS);
+}
+
+/**
+ * Re-ask the API roughly every minute while the closed screen is displayed.
+ *
+ * The closed branch used to `return` with nothing ever re-checking, so someone
+ * who opened the page at 09:50 and waited watched nothing happen at 10:15 —
+ * which undercuts the entire "opens in 25 minutes" message. Deliberately NOT a
+ * call to `init()`: that would re-validate the `?code=` param every minute and
+ * re-toast an invalid link.
+ */
+async function recheckClosed() {
+  if (!closedStatus) return;                      // screen already left
+  const last = closedStatus;
+  try {
+    const status = await apiFetch('/api/cafe/status');
+    if (!closedStatus) return;                    // left while the fetch was in flight
+    if (status.cafeStatus !== 'CLOSED') {
+      init();                                     // open now — init() clears this timer
+      return;
+    }
+    renderClosedScreen(status);
+  } catch (e) {
+    // Keep the last-known screen: the address, the payment line and the session
+    // times do not go stale. But stop asserting a countdown we can no longer
+    // refresh, and say so — a frozen "about 3 minutes" is worse than no number.
+    renderClosedScreen(last, true);
+  }
+}
+
+/**
+ * The relative clause on the "not open yet" lede, from the SERVER's minute
+ * count. Dropped beyond 90 minutes ("about 340 minutes" is not a countdown),
+ * when the number is missing, and while the screen is stale.
+ */
+function closedMinutesClause(mins) {
+  if (mins == null || mins === '') return '';
+  const n = Math.round(Number(mins));
+  if (!Number.isFinite(n) || n > 90) return '';
+  if (n <= 0) return ' — any minute now';
+  if (n === 1) return ' — in a minute';
+  return ` — in about ${n} minutes`;
+}
+
+/**
+ * Heading + lede, entirely from `openingState`. `lede` is escaped HTML.
+ *
+ * Branches on `phase`, not on `opensLaterToday` alone. The backend keeps those
+ * two deliberately independent — they answer "where am I now" and "is there
+ * another opening to wait for" — so at 11:45, with session 1 (10:15–11:30)
+ * finished and session 2 opening at 12:45, `opensLaterToday` is true while the
+ * café has already been open and closed once today. "Not open yet" there is a
+ * false statement during the busiest 75 minutes this screen has, which is the
+ * repo's standing rule: copy asserting a domain fact is gated on the state that
+ * makes it true.
+ *
+ * `currentSessionLabel` is deliberately never rendered. "The After 1st service
+ * window" is café-internal wording to a congregant, and a nullable field that no
+ * sink reads is a null that can never open a gap in a sentence.
+ */
+function closedCopy(st, stale) {
+  const timeLabel = st && st.nextOpenTimeLabel ? escHtml(st.nextOpenTimeLabel) : '';
+  if (!st || typeof st.opensLaterToday !== 'boolean' || !timeLabel) {
+    // A stale cached shell against an older API, or a payload shape this build
+    // does not recognise. Say only what is true in every state — never "see you
+    // next Sunday", which is the sentence this screen exists to stop printing.
+    return { heading: 'Café is closed', lede: 'We open on Sunday mornings, after each service.' };
+  }
+
+  const clause = stale ? '' : closedMinutesClause(st.minutesUntilNextOpen);
+  const time = `<strong class="closed-time">${timeLabel}</strong>`;
+  const day = st.nextOpenDayLabel ? escHtml(st.nextOpenDayLabel) : '';
+  // Naming the day only when there is one, so a missing label can never render
+  // as "Open again  at 10:15 AM".
+  const openAgain = day
+    ? `Open again <strong class="closed-time">${day} at ${timeLabel}</strong>.`
+    : `Open again at ${time}.`;
+
+  switch (st.phase) {
+    case 'BEFORE_FIRST_TODAY':
+      return { heading: 'Not open yet', lede: `We open at ${time}${clause}.` };
+
+    case 'WITHIN_SESSION': {
+      // The schedule says serving; `cafeStatus` — the only real answer — says
+      // CLOSED. The payload cannot tell volunteers-a-few-minutes-late from
+      // closed-early, so the sentence has to be true of both: never "running
+      // late". `currentSessionClosesLabel` is what makes that possible, and it
+      // is nullable, so the sentence has a form that works without it.
+      const until = st.currentSessionClosesLabel
+        ? ` until <strong class="closed-time">${escHtml(st.currentSessionClosesLabel)}</strong>`
+        : ' right now';
+      // Inside the LAST session `opensLaterToday` is false and the next opening
+      // is a later day — name it, rather than leaving a dead end.
+      const next = st.opensLaterToday ? `Open again at ${time}.` : openAgain;
+      return {
+        heading: 'Closed right now',
+        lede: `We’re scheduled to be open${until}, but the counter is closed at the moment. ${next}`,
+      };
+    }
+
+    case 'BETWEEN_SESSIONS':
+      return { heading: 'Closed between services', lede: `Open again at ${time}${clause}.` };
+
+    // "Closed for today" means you have just missed it; "Closed today" means
+    // wrong day. That distinction is the point of the whole screen.
+    case 'AFTER_LAST_TODAY':
+      return { heading: 'Closed for today', lede: openAgain };
+
+    case 'NOT_SERVICE_DAY':
+      return { heading: 'Closed today', lede: openAgain };
+
+    default:
+      // A phase this shell has never heard of (newer API, cached shell). Fall
+      // back to the one field whose meaning cannot drift, and to a heading that
+      // is true in every phase.
+      return st.opensLaterToday
+        ? { heading: 'Not open yet', lede: `We open at ${time}${clause}.` }
+        : { heading: 'Café is closed', lede: openAgain };
+  }
+}
+
+/** The "when" row's value: the server's own sentence, or a fallback that names
+ *  no times rather than restating hardcoded ones. */
+function closedSessionsLabel(st) {
+  if (st && st.nextServiceSessionsLabel) return st.nextServiceSessionsLabel;
+  if (st && st.serviceDaysLabel) return `${st.serviceDaysLabel}, after each service`;
+  return 'Sunday mornings, after each service';
+}
+
+/**
+ * Draw (or refresh) the closed screen.
+ *
+ * @param {Object} status  a GET /api/cafe/status payload
+ * @param {boolean} [stale] the last re-check failed — show what we have, and
+ *   admit that the countdown is no longer being refreshed.
+ */
+function renderClosedScreen(status, stale) {
+  closedStatus = status || {};
+  const st = (status && status.openingState) || null;
+  const copy = closedCopy(st, stale);
+  const whenLabel = st && st.nextOpenDayLabel === 'today' ? 'Today' : 'When';
+  const whenValue = escHtml(closedSessionsLabel(st));
+  const note = stale
+    ? `<p>We couldn’t check with the café just now, so the time above may have moved on.</p>
+       <button type="button" id="closedRetryBtn" class="closed-btn-ghost">Check again</button>`
+    : '';
+
+  const existing = app.querySelector('.closed-msg');
+  if (existing) {
+    // Patch only the values that can change instead of rebuilding the block:
+    // this runs every 60s, and a full re-render would replay the entrance
+    // animation and drop keyboard focus off the Track link once a minute.
+    // Every sink here is innerHTML, so every payload string is escaped — the
+    // same rule as the build path below, with no textContent exception to keep
+    // straight.
+    existing.querySelector('#closedHeading').innerHTML = copy.heading;
+    existing.querySelector('#closedLede').innerHTML = copy.lede;
+    existing.querySelector('#closedWhenLabel').innerHTML = whenLabel;
+    existing.querySelector('#closedWhenValue').innerHTML = whenValue;
+    existing.querySelector('#closedNote').innerHTML = note;
+  } else {
+    app.innerHTML = `<div class="closed-msg closed-enter">
+      <div class="closed-icon" aria-hidden="true">☕</div>
+      <h2 id="closedHeading">${copy.heading}</h2>
+      <p class="closed-lede" id="closedLede">${copy.lede}</p>
+      <dl class="closed-facts">
+        <dt id="closedWhenLabel">${whenLabel}</dt><dd id="closedWhenValue">${whenValue}</dd>
+        <dt>Where</dt><dd>${CLOSED_WHERE}</dd>
+        <dt>Paying</dt><dd>${CLOSED_PAYING}</dd>
+        <dt>Served</dt><dd>${CLOSED_SERVED}</dd>
+      </dl>
+      <div class="closed-acts">
+        <a class="closed-btn-ghost" href="track">Track an existing order →</a>
+      </div>
+      <div class="closed-stale" id="closedNote" role="status">${note}</div>
+    </div>`;
+  }
+
+  const retry = app.querySelector('#closedRetryBtn');
+  if (retry) retry.addEventListener('click', () => {
+    retry.disabled = true;
+    retry.textContent = 'Checking…';
+    recheckClosed();
+  });
+  scheduleClosedRecheck();
+}
+
 function getAvailable(item) {
   return item.category === 'FOOD' ? (item.foodQuantityToday || 0) - (item.foodReserved || 0) : Infinity;
 }
@@ -864,6 +1093,11 @@ async function validateLinkCode(path, code) {
 }
 
 async function init() {
+  // Every entry into init() leaves the closed screen — the initial load, the 3s
+  // load-failure retry, and the closed screen's own "café is open now" hand-back
+  // — so its 60s poll is stopped here, before we decide what to render. The
+  // load-failure retry (`initRetryTimer`) is a separate timer on purpose.
+  stopClosedRecheck();
   try {
     // One ?code= param, two namespaces. Pre-order codes are checked first so
     // existing links behave exactly as before; only a code the pre-order
@@ -906,13 +1140,7 @@ async function init() {
     loadFailureKind = null;
     clearTimeout(initRetryTimer);
     if (!preorderMode && status.cafeStatus === 'CLOSED') {
-      app.innerHTML = `<div class="closed-msg">
-        <h2>Café is closed</h2>
-        <p>See you next Sunday! ☕</p>
-        <p style="margin-top:16px;font-size:.9rem;color:var(--text-light)">⏰ Opens 10:15 AM & 12:45 PM</p>
-        <p style="margin-top:8px;font-size:.85rem">📍 Lot 5, Jalan 51A/221, 46100 PJ</p>
-        <p style="margin-top:20px"><a href="track" style="color:var(--brand-ink);font-weight:600;text-decoration:underline">Track an existing order →</a></p>
-      </div>`;
+      renderClosedScreen(status);
       return;
     }
     await loadMenu();

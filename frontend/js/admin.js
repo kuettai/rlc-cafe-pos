@@ -55,6 +55,30 @@ async function api(method, path, body){
 function showError(msg){ const b=$('#errorBanner'); b.textContent=msg; b.classList.add('show'); setTimeout(()=>b.classList.remove('show'),4000); }
 
 /**
+ * The server's own message out of an `api()` rejection, when there is one.
+ *
+ * `api()` rejects with `new Error(await res.text())`, so a validation 400 whose
+ * body is `{"error":"sessions[1]: closesAt must be after opensAt"}` arrives as
+ * that JSON text. A blanket `showError('Failed to save …')` throws away exactly
+ * the sentence that tells the operator which value to fix, and leaves them
+ * re-pressing Save. Anything that is not a JSON `{error|message}` body — an
+ * HTML error page, an empty body, the 401 `Unauthorized` — falls back.
+ *
+ * @param {Error} err
+ * @param {String} fallback shown when the server said nothing usable
+ */
+function serverMessage(err, fallback){
+  const raw = err && err.message ? String(err.message).trim() : '';
+  if(!raw) return fallback;
+  try{
+    const parsed = JSON.parse(raw);
+    const msg = parsed && (parsed.error || parsed.message);
+    if(typeof msg === 'string' && msg.trim()) return msg.trim();
+  } catch(e){ /* not JSON */ }
+  return fallback;
+}
+
+/**
  * HTML escaping — the ONE escaper for every admin module.
  *
  * It lives here because admin.js is the first admin script on the page, so any
@@ -649,6 +673,335 @@ async function loadSettings(container){
   } catch(e){ container.innerHTML = '<div class="admin-empty"><p>Failed to load settings</p></div>'; }
 }
 
+// ─── Opening Times (Admin → Settings) ───────────────────────────────
+//
+// The value the customer page's closed screen reads through
+// GET /api/cafe/status: which days the café serves, and the sessions inside a
+// service day. Before this editor existed the times were hardcoded in
+// `frontend/js/app.js`, and the only way to change them would have been a
+// script — worse than the hardcoding, because nothing on any screen said so.
+//
+// Wall-clock arithmetic is NOT done here. The admin stores `HH:MM` strings and
+// the day numbers; the backend (`lib/date.ts`) owns every Malaysia-time decision
+// and composes every customer-facing label from them.
+
+// Working state for the editor, mirroring the `_preorderTpl*` pattern below.
+// Reset on every render so a nested render cannot leak into the next one.
+let _openingServiceDays = [];
+let _openingSessions = [];
+
+const OPENING_MAX_SESSIONS = 4;
+
+/**
+ * Seed for a café that has never saved this setting.
+ *
+ * Deliberately NOT a second source of truth: the backend supplies the effective
+ * value, and the row says out loud when it is showing an unsaved default rather
+ * than a stored one. It matches the café's shipped hours so the first save is a
+ * no-op rather than a change nobody intended.
+ */
+const OPENING_HOURS_SEED = {
+  serviceDays: [0],
+  sessions: [
+    { label: 'After 1st service', opensAt: '10:15', closesAt: '11:30' },
+    { label: 'After 2nd service', opensAt: '12:45', closesAt: '13:30' },
+  ],
+};
+
+/** Normalise whatever the settings record holds into the editor's shape. */
+function openingHoursFromSettings(stored){
+  const src = stored && typeof stored === 'object' ? stored : {};
+  const days = (Array.isArray(src.serviceDays) ? src.serviceDays : [])
+    .map(Number).filter(d => Number.isInteger(d) && d >= 0 && d <= 6);
+  const sessions = (Array.isArray(src.sessions) ? src.sessions : [])
+    .slice(0, OPENING_MAX_SESSIONS)
+    .map(s => ({
+      label: String((s && s.label) || ''),
+      opensAt: String((s && s.opensAt) || ''),
+      closesAt: String((s && s.closesAt) || ''),
+    }));
+  return { serviceDays: days, sessions };
+}
+
+/**
+ * Draw the day picker and the session rows into `host`.
+ *
+ * Day toggles and add/remove are BUTTONS, which fire neither `input` nor
+ * `change`, so each handler calls `renderUnsavedIndicators()` itself — the
+ * container-level listeners in renderSettingsSection only catch field edits.
+ */
+function renderOpeningHoursEditor(host, unsaved){
+  if(!host) return;
+  host.innerHTML = `
+    ${unsaved ? `<p class="admin-opening-seed">Not stored yet — these are the café's current defaults. Press
+      <strong>Save Settings</strong> to keep them, or edit them first.</p>` : ''}
+    <div class="admin-opening-block">
+      <span class="admin-opening-label" id="openingDaysLabel">Service days</span>
+      <!-- tabindex="-1" so a validation failure can move focus to the GROUP;
+           "pick a day" is about the set, not about one of the seven buttons. -->
+      <div class="admin-opening-days" role="group" aria-labelledby="openingDaysLabel"
+        id="openingDays" tabindex="-1"></div>
+      <p class="admin-field-error" id="openingDaysError" hidden></p>
+    </div>
+    <div class="admin-opening-block">
+      <span class="admin-opening-label">Sessions</span>
+      <div class="admin-opening-sessions" id="openingSessions"></div>
+      <p class="admin-field-error" id="openingSessionsError" hidden></p>
+      <button type="button" class="pos-btn pos-btn-sm" id="openingAddSession">+ Add session</button>
+      <!-- Why a control is inert, as VISIBLE text. A title= tooltip is
+           unreachable on the counter iPad, so a disabled remove or add button
+           would otherwise be inert with no stated reason. -->
+      <p class="admin-form-hint admin-opening-note" id="openingSessionsNote" hidden></p>
+      <p class="admin-form-hint">The name is what customers read — "After 1st service". Up to
+        ${OPENING_MAX_SESSIONS} sessions per service day.</p>
+    </div>`;
+
+  const daysEl = host.querySelector('#openingDays');
+  const sessionsEl = host.querySelector('#openingSessions');
+  const addBtn = host.querySelector('#openingAddSession');
+  const noteEl = host.querySelector('#openingSessionsNote');
+
+  // A message about a field that has just been edited is stale, and a stale
+  // error contradicting the field beside it is worse than none.
+  host.addEventListener('input', () => clearOpeningErrors(host));
+
+  const renderDays = () => {
+    daysEl.innerHTML = ADMIN_DAYS.map((name, d) => {
+      const on = _openingServiceDays.includes(d);
+      return `<button type="button" class="admin-day${on ? ' is-on' : ''}" data-open-day="${d}"
+        aria-pressed="${on ? 'true' : 'false'}">${escapeHtml(name)}</button>`;
+    }).join('');
+    daysEl.querySelectorAll('[data-open-day]').forEach(btn => {
+      btn.onclick = () => {
+        const d = +btn.dataset.openDay;
+        const at = _openingServiceDays.indexOf(d);
+        if(at === -1) _openingServiceDays.push(d); else _openingServiceDays.splice(at, 1);
+        clearOpeningErrors(host);
+        renderDays();
+        renderUnsavedIndicators();
+      };
+    });
+  };
+
+  const renderSessions = () => {
+    const only = _openingSessions.length <= 1;
+    // The `→` between the two times only means "opens → closes" while the row is
+    // one line. It is hidden by default and restored at >=900px, where the row
+    // is `nowrap` and the arrow cannot end up beside the wrong field; below that
+    // each time carries a visible word instead. See admin.css.
+    sessionsEl.innerHTML = _openingSessions.map((s, i) => `
+      <div class="admin-opening-session">
+        <input class="pos-input admin-session-name" data-sess-label="${i}" maxlength="40"
+          value="${escapeAttr(s.label)}" placeholder="e.g. After 1st service"
+          aria-label="Session ${i + 1} name">
+        <span class="admin-session-field">
+          <span class="admin-session-fieldlabel" aria-hidden="true">Opens</span>
+          <input class="pos-input admin-session-time" type="time" data-sess-open="${i}"
+            value="${escapeAttr(s.opensAt)}" aria-label="Session ${i + 1} opens at">
+        </span>
+        <span class="admin-session-sep" aria-hidden="true">→</span>
+        <span class="admin-session-field">
+          <span class="admin-session-fieldlabel" aria-hidden="true">Closes</span>
+          <input class="pos-input admin-session-time" type="time" data-sess-close="${i}"
+            value="${escapeAttr(s.closesAt)}" aria-label="Session ${i + 1} closes at">
+        </span>
+        <button type="button" class="pos-btn pos-btn-sm admin-danger-quiet" data-sess-remove="${i}"
+          aria-label="Remove session ${i + 1}"${only ? ' disabled title="One session is the minimum"' : ''}>✕</button>
+      </div>`).join('');
+
+    sessionsEl.querySelectorAll('[data-sess-label]').forEach(inp => {
+      inp.oninput = () => { _openingSessions[+inp.dataset.sessLabel].label = inp.value; };
+    });
+    sessionsEl.querySelectorAll('[data-sess-open]').forEach(inp => {
+      inp.oninput = () => { _openingSessions[+inp.dataset.sessOpen].opensAt = inp.value; };
+    });
+    sessionsEl.querySelectorAll('[data-sess-close]').forEach(inp => {
+      inp.oninput = () => { _openingSessions[+inp.dataset.sessClose].closesAt = inp.value; };
+    });
+    sessionsEl.querySelectorAll('[data-sess-remove]').forEach(btn => {
+      btn.onclick = () => {
+        _openingSessions.splice(+btn.dataset.sessRemove, 1);
+        clearOpeningErrors(host);
+        renderSessions();
+        renderUnsavedIndicators();
+      };
+    });
+
+    addBtn.disabled = _openingSessions.length >= OPENING_MAX_SESSIONS;
+    addBtn.title = addBtn.disabled ? `${OPENING_MAX_SESSIONS} sessions is the maximum` : '';
+
+    // Both limits, spelled out on screen. Each names the bound AND which control
+    // it has switched off, because the operator is looking at the control and not
+    // at the count.
+    const notes = [];
+    if(only) notes.push('One session is the minimum, so ✕ is unavailable.');
+    if(addBtn.disabled) notes.push(`${OPENING_MAX_SESSIONS} sessions is the maximum, so "+ Add session" is unavailable.`);
+    noteEl.textContent = notes.join(' ');
+    noteEl.hidden = notes.length === 0;
+  };
+
+  addBtn.onclick = () => {
+    if(_openingSessions.length >= OPENING_MAX_SESSIONS) return;
+    _openingSessions.push({ label:'', opensAt:'', closesAt:'' });
+    clearOpeningErrors(host);
+    renderSessions();
+    renderUnsavedIndicators();
+    const names = sessionsEl.querySelectorAll('.admin-session-name');
+    names[names.length - 1]?.focus();
+  };
+
+  renderDays();
+  renderSessions();
+}
+
+// ─── Reporting a bad opening time ───────────────────────────────────
+//
+// `showError` alone is not enough here, and that is a named invariant rather
+// than a preference: a transient toast is not a system-status indicator. The
+// toast is gone in 4s, and these are the longest sentences in the app — so the
+// message ALSO stays beside the field, the offending input is marked and given
+// `aria-invalid`, and focus moves to it. Without the mark, a dismissed toast
+// leaves no trace of which of six fields to fix.
+//
+// The inline copy deliberately carries NO `role="alert"`: `#errorBanner` already
+// has one, and a screen reader would otherwise announce the same sentence twice.
+// It reaches assistive tech the other way — focus lands on the field and
+// `aria-describedby` points at this message.
+
+/** Drop every error mark and message in the Opening Times editor. */
+function clearOpeningErrors(host){
+  if(!host) return;
+  host.querySelectorAll('.is-invalid').forEach(el => {
+    el.classList.remove('is-invalid');
+    el.removeAttribute('aria-invalid');
+    el.removeAttribute('aria-describedby');
+  });
+  host.querySelectorAll('.admin-field-error').forEach(el => {
+    el.textContent = '';
+    el.hidden = true;
+  });
+}
+
+/**
+ * Report one validation failure and return `null`, so a validator can
+ * `return failOpeningHours(...)` in a single line.
+ *
+ * @param {HTMLElement|null} host  the `#openingEditor` element
+ * @param {String} regionSel  where the sentence lives — `'#openingDaysError'`
+ *   or `'#openingSessionsError'`; adjacency is the point, so it goes in the
+ *   block that owns the field, not at the bottom of the form
+ * @param {String} message  names the problem AND the fix
+ * @param {String} [fieldSel]  the input (or group) to mark and focus
+ */
+function failOpeningHours(host, regionSel, message, fieldSel){
+  showError(message);
+  if(!host) return null;
+  const box = host.querySelector(regionSel);
+  if(box){
+    box.textContent = message;     // textContent sink — deliberately NOT escaped
+    box.hidden = false;
+  }
+  const field = fieldSel ? host.querySelector(fieldSel) : null;
+  if(field){
+    field.classList.add('is-invalid');
+    field.setAttribute('aria-invalid', 'true');
+    if(box && box.id) field.setAttribute('aria-describedby', box.id);
+    // Colour is not the channel here: the sentence beside the field and the
+    // focus landing on it are, which is what survives a colour-blind operator
+    // and a screen reader respectively.
+    if(typeof field.focus === 'function') field.focus();
+  }
+  return null;
+}
+
+/**
+ * The editor's current value in ONE canonical shape.
+ *
+ * This is the single definition of "what the Opening Times editor holds", used
+ * by three callers that must not be allowed to disagree:
+ *   - `readSettingsState()`, whose snapshot the leave guard diffs;
+ *   - the change test that decides whether to SEND `openingHours` at all;
+ *   - the re-baseline after a successful save.
+ * If the change test and the guard computed this differently, one of them would
+ * think the tab was clean while the other thought it was dirty.
+ *
+ * Deep-copied and normalised for ORDER only (days ascending). Labels are NOT
+ * trimmed here — the live field content is what the guard must compare, or
+ * typing a trailing space would look like "no change" to the guard and like a
+ * change to the save path.
+ */
+function openingHoursSnapshot(){
+  return {
+    serviceDays: _openingServiceDays.slice().sort((a,b)=>a-b),
+    sessions: _openingSessions.map(s => ({
+      label: s.label, opensAt: s.opensAt, closesAt: s.closesAt,
+    })),
+  };
+}
+
+/** The snapshot as a comparable string. Key order is fixed by the mapper above. */
+function openingHoursSnapshotJson(){ return JSON.stringify(openingHoursSnapshot()); }
+
+/**
+ * The `openingHours` value to send, or `null` when the operator has to fix
+ * something first (already reported, naming the row and the recovery).
+ *
+ * `validateOpeningHours` in `backend/src/lib/opening-hours.ts` is authoritative
+ * and re-checks everything. The three checks below are a fast-feedback mirror of
+ * its cheapest rules only, to save a round trip on an obviously-empty field.
+ * The rules NOT mirrored — session ordering and overlap, the label length cap,
+ * malformed `HH:MM` — are deliberately left to the server rather than copied
+ * here, and its message is what the operator sees (see `serverMessage`).
+ *
+ * Times are `HH:MM` from `type="time"`, so a plain string compare orders them.
+ *
+ * @param {HTMLElement|null} host  the `#openingEditor` element, so a failure can
+ *   mark the field it is about. Passing nothing still validates; it just cannot
+ *   point at anything.
+ */
+function collectOpeningHours(host){
+  clearOpeningErrors(host);
+  const serviceDays = _openingServiceDays.slice().sort((a, b) => a - b);
+  if(!serviceDays.length){
+    return failOpeningHours(host, '#openingDaysError',
+      'Pick at least one service day — the customer page has to say when the café next opens.',
+      '.admin-opening-days');
+  }
+  if(!_openingSessions.length){
+    return failOpeningHours(host, '#openingSessionsError',
+      'Add at least one session — a service day with no sessions never opens.',
+      '#openingAddSession');
+  }
+  const sessions = [];
+  for(let i = 0; i < _openingSessions.length; i++){
+    const s = _openingSessions[i];
+    const label = String(s.label || '').trim();
+    const opensAt = String(s.opensAt || '').trim();
+    const closesAt = String(s.closesAt || '').trim();
+    const which = label || `Session ${i + 1}`;
+    if(!label){
+      return failOpeningHours(host, '#openingSessionsError',
+        `Session ${i + 1} needs a name — it is the text customers read, e.g. "After 1st service".`,
+        `[data-sess-label="${i}"]`);
+    }
+    if(!opensAt){
+      return failOpeningHours(host, '#openingSessionsError',
+        `"${which}" needs an opening time.`, `[data-sess-open="${i}"]`);
+    }
+    if(!closesAt){
+      return failOpeningHours(host, '#openingSessionsError',
+        `"${which}" needs a closing time.`, `[data-sess-close="${i}"]`);
+    }
+    if(closesAt <= opensAt){
+      return failOpeningHours(host, '#openingSessionsError',
+        `"${which}" closes at ${closesAt}, before it opens at ${opensAt} — set a closing time later than ${opensAt}.`,
+        `[data-sess-close="${i}"]`);
+    }
+    sessions.push({ label, opensAt, closesAt });
+  }
+  return { serviceDays, sessions };
+}
+
 function renderSettingsSection(container, settings, templates){
   container.innerHTML = `<div class="admin-section">
     <div class="admin-section-header"><h2>Settings</h2></div>
@@ -680,12 +1033,35 @@ function renderSettingsSection(container, settings, templates){
         <div class="admin-setting-info"><h4>Archive After (minutes)</h4><p>How long ready orders stay visible</p></div>
         <div class="admin-setting-control"><input id="setArchive" type="number" value="${settings.archiveAfterMinutes||15}"></div>
       </div>
+      <div class="admin-setting-row admin-setting-row-stack">
+        <div class="admin-setting-info">
+          <h4>Opening Times</h4>
+          <p>What the customer page says while the café is closed: when it opens next, and how long until then. Descriptive only — Café Status above is still what opens and closes ordering.</p>
+        </div>
+        <div class="admin-opening" id="openingEditor"></div>
+      </div>
       <div class="admin-form-actions" style="margin-top:24px;border-top:1px solid var(--cream-dark);padding-top:20px">
         <button class="pos-btn pos-btn-primary" id="btnSaveSettings">Save Settings</button>
       </div>
     </div>
   </div>
   <div class="admin-section" id="preorderTemplatesSection" style="margin-top:24px"></div>`;
+
+  // Opening Times shares the Save Settings button rather than adding a third
+  // one. Seeded from the stored value; when there isn't one the editor says so
+  // instead of showing a blank picker.
+  const storedOpening = openingHoursFromSettings(settings.openingHours);
+  const openingUnsaved = !storedOpening.serviceDays.length || !storedOpening.sessions.length;
+  const openingSeed = openingUnsaved ? OPENING_HOURS_SEED : storedOpening;
+  _openingServiceDays = openingSeed.serviceDays.slice();
+  _openingSessions = openingSeed.sessions.map(s => ({ ...s }));
+  renderOpeningHoursEditor(container.querySelector('#openingEditor'), openingUnsaved);
+  // What this tab loaded (or seeded), in the SAME canonical form the leave guard
+  // will baseline a few lines below from `readSettingsState()`. Taken here rather
+  // than read out of the guard: nothing mutates the editor state between this
+  // line and `watchUnsaved()`, so the two baselines are equal by construction,
+  // and this one survives the guard being cleared or re-registered.
+  let _openingBaselineJson = openingHoursSnapshotJson();
 
   $('#btnSaveSettings').onclick = async()=>{
     const body = {
@@ -695,12 +1071,62 @@ function renderSettingsSection(container, settings, templates){
       orderExpiryMinutes: +container.querySelector('#setExpiry').value,
       archiveAfterMinutes: +container.querySelector('#setArchive').value
     };
+    const savedKeys = ['cafeStatus','celebrationMode','celebrationPrice',
+                       'orderExpiryMinutes','archiveAfterMinutes'];
+
+    // `openingHours` is sent ONLY when the editor differs from what the tab
+    // loaded. Two reasons, both about a field nobody was looking at:
+    //
+    //   1. It must not be able to block an unrelated save. Café Status lives on
+    //      this same form, and "the café cannot be opened because a session
+    //      label is empty" is a fault that would only ever appear at 10:10 on a
+    //      Sunday. Untouched, it cannot fail validation because it is not
+    //      validated.
+    //   2. Sending the seed would WRITE the defaults into the settings record as
+    //      though an admin had chosen them. The backend deliberately separates
+    //      "absent → fall back to DEFAULT_OPENING_HOURS, silently" from
+    //      "stored", and only a stored-but-invalid value logs loudly. Persisting
+    //      the defaults as a side effect of saving Celebration Price erases that
+    //      distinction and makes the editor's own "Not stored yet" note false
+    //      for a reason the operator never caused.
+    //
+    // Validation is unchanged — it just moves inside the branch that has
+    // something to validate.
+    const openingChanged = openingHoursSnapshotJson() !== _openingBaselineJson;
+    if(openingChanged){
+      // Reported beside the offending field, which is also marked and focused.
+      const openingHours = collectOpeningHours(container.querySelector('#openingEditor'));
+      if(!openingHours) return;
+      body.openingHours = openingHours;
+      savedKeys.push('openingHours');
+    }
+
     try{
       await api('PUT','/api/admin/settings', body);
       showSuccess('Settings saved');
-      markUnsavedSaved(['cafeStatus','celebrationMode','celebrationPrice',
-                        'orderExpiryMinutes','archiveAfterMinutes']);
-    } catch(e){ showError('Failed to save settings'); }
+      // Re-baseline only what was actually written. `markUnsavedSaved` is
+      // per-key precisely because this tab has two Save buttons, and the same
+      // reasoning applies within one button: a key we did not send is not saved
+      // work, so it keeps its old baseline.
+      if(openingChanged) _openingBaselineJson = openingHoursSnapshotJson();
+      markUnsavedSaved(savedKeys);
+    } catch(e){
+      // The server answers 400 with a readable reason for a malformed opening
+      // time. A generic message here would hide the one sentence that says
+      // which field is wrong.
+      const fallback = 'Failed to save settings';
+      const msg = serverMessage(e, fallback);
+      showError(msg);
+      // A server rejection of `openingHours` is about a rule this client
+      // deliberately does not mirror — session ordering and overlap, the label
+      // cap, a malformed HH:MM — so it is exactly the sentence that must outlive
+      // the 4s toast. Only mirrored when the server actually said something: a
+      // dropped connection is not a fact about the Sessions field.
+      if(openingChanged && msg !== fallback){
+        const box = container.querySelector('#openingSessionsError');
+        if(box){ box.textContent = msg; box.hidden = false; }
+      }
+    }
   };
 
   // Pre-Order Templates block (loaded via loadSettings). Skipped when the
@@ -723,6 +1149,14 @@ function renderSettingsSection(container, settings, templates){
       celebrationPrice: q('#setCelebrationPrice') ? q('#setCelebrationPrice').value : '',
       orderExpiryMinutes: q('#setExpiry') ? q('#setExpiry').value : '',
       archiveAfterMinutes: q('#setArchive') ? q('#setArchive').value : '',
+      // Opening Times is one key so a successful Save Settings can re-baseline
+      // it in one go. `openingHoursSnapshot()` is the SAME function the save
+      // path's change test uses — deliberately, so the guard and the save path
+      // can never disagree about whether this field is dirty. It also
+      // deep-copies: markUnsavedSaved stores this object as the baseline, so
+      // handing it the live row objects would let the next keystroke mutate the
+      // baseline too and the guard would never see the change it protects.
+      openingHours: openingHoursSnapshot(),
       bannerMessage: q('#tplBanner') ? q('#tplBanner').value : '',
       eligibleItemKeywords: _preorderTplKeywords.slice(),
       collectionOptions: _preorderTplCollectionOpts.slice(),

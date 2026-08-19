@@ -213,23 +213,136 @@ header h1{
   padding-bottom:110px;
 }
 
-/* === Closed state === */
+/* === Closed state ===
+   The screen the page is in six days out of seven. One card, one ☕ hero glyph,
+   and a definition list of the four facts a congregant standing in the foyer
+   actually needs — no per-row emoji, and nothing enumerated from a menu that
+   returns zero items on a closed day.
+
+   Ratios below are measured against this card's --quiet #EFEAE1 fill, not
+   against white: the two are only 1.20:1 apart, so a value that passes on paper
+   can still fail here. --tan is 2.28:1 on it and therefore carries nothing. */
 .closed-msg{
   text-align:center;
-  padding:60px 24px;
+  padding:34px 22px 30px;
   background:var(--cream);
+  border:1px solid var(--cream-dark);
   border-radius:var(--radius-xl);
   margin-top:24px;
   box-shadow:var(--shadow);
 }
-.closed-msg h2{
-  font-size:1.6rem;
-  color:var(--brand-ink);
-  margin-bottom:12px;
+/* One authored entrance, on the first paint only: the screen re-checks the API
+   every 60s and patches its text in place, so the element is never rebuilt and
+   this never replays. */
+.closed-enter{animation:closedIn .34s cubic-bezier(.16,1,.3,1) both}
+@keyframes closedIn{
+  from{opacity:0;transform:translateY(10px)}
+  to  {opacity:1;transform:translateY(0)}
 }
-.closed-msg p{
-  color:var(--text-light);
-  font-size:1rem;
+@media (prefers-reduced-motion:reduce){
+  .closed-enter{animation:none}
+}
+.closed-icon{font-size:2.4rem;line-height:1}
+.closed-msg h2{
+  font-size:1.5rem;
+  color:var(--brand-ink);          /* 6.07:1 on --quiet — large text needs 3:1 */
+  margin:14px 0 8px;               /* more room above the heading than below it */
+  text-wrap:balance;
+}
+.closed-lede{
+  font-size:1.02rem;
+  font-weight:600;
+  color:var(--text);               /* 14.22:1 — the sentence that answers "now?" */
+  max-width:34ch;
+  margin:0 auto;
+  line-height:1.45;
+  /* Same as the heading above: without it the before-opening lede left
+     `minutes.` alone on a second line at 390px. */
+  text-wrap:balance;
+}
+/* The time is the one figure anyone compares, so it is tabular. */
+/* `white-space:nowrap` is load-bearing, not tidiness: at 390px the longer
+   WITHIN_SESSION lede wrapped "11:30 AM" as "11:30" / "AM", splitting the one
+   figure a waiting customer actually compares. tabular-nums aligns the digits;
+   only nowrap keeps them on one line. */
+.closed-time{font-variant-numeric:tabular-nums;font-feature-settings:"tnum";font-weight:800;white-space:nowrap}
+
+/* The four facts. A two-column grid rather than four sentences: the labels are
+   scanned, the values are read. */
+.closed-facts{
+  display:grid;
+  grid-template-columns:auto minmax(0,1fr);
+  gap:9px 14px;
+  margin-top:26px;
+  text-align:left;
+  font-size:.92rem;
+  line-height:1.4;
+}
+.closed-facts dt{
+  color:var(--ink-quiet);          /* 7.66:1 on --quiet */
+  font-weight:600;
+  white-space:nowrap;
+}
+.closed-facts dd{
+  color:var(--text);               /* 14.22:1 */
+  font-weight:600;
+  min-width:0;
+}
+
+.closed-acts{
+  display:flex;
+  flex-direction:column;
+  align-items:stretch;
+  margin-top:26px;
+}
+/* Outlined, not filled: on this screen there is nothing to commit to, only one
+   sideways route out. The 2px --brand border is 4.18:1 on the card (1.4.11
+   wants 3:1) and the label is --brand-ink on white at 7.27:1. */
+.closed-btn-ghost{
+  display:inline-block;
+  min-height:var(--tap);
+  line-height:calc(var(--tap) - 4px);
+  padding:0 20px;
+  border:2px solid var(--brand);
+  border-radius:999px;
+  background:var(--white);
+  color:var(--brand-ink);
+  font-family:inherit;
+  font-size:.95rem;
+  font-weight:700;
+  text-align:center;
+  text-decoration:none;
+  cursor:pointer;
+  transition:transform .12s ease,background .15s ease;
+}
+.closed-btn-ghost:hover{background:var(--brand-soft)}
+.closed-btn-ghost:active{transform:scale(.985)}
+/* style.css scopes its keyboard ring to `body.pos-shell`, so the customer pages
+   would otherwise leave this control on the browser default. */
+.closed-btn-ghost:focus-visible{outline:3px solid var(--brand);outline-offset:2px}
+.closed-btn-ghost:disabled{
+  background:var(--disabled-bg);
+  border-color:var(--disabled-bd);
+  color:var(--disabled-ink);       /* 5.35:1 — still readable, plainly inert */
+  cursor:not-allowed;
+  transform:none;
+}
+@media (prefers-reduced-motion:reduce){
+  .closed-btn-ghost{transition:none}
+  .closed-btn-ghost:active{transform:none}
+}
+
+/* Re-check failed. Named in the copy and coloured differently from every
+   working state, so a screen that has stopped refreshing cannot be mistaken for
+   one that is up to date. Empty (and so invisible) while all is well. */
+.closed-stale{margin-top:20px}
+.closed-stale:empty{display:none}
+.closed-stale p{
+  color:var(--stale-ink);          /* 9.16:1 on --quiet */
+  font-size:.88rem;
+  max-width:34ch;
+  margin:0 auto 10px;
+  line-height:1.45;
 }
 
 /* === Name input === */
@@ -1440,11 +1553,21 @@ header h1{
 .install-banner.hidden{display:none}
 
 /* === Error banner === */
+/* Shared by all five pages (index, track, pos, admin, reports).
+   `left:50%` + `translateX(-50%)` with no width made this shrink-to-fit against
+   the space right of the 50% line — i.e. HALF the viewport. Measured at 390px
+   wide it was 195px across and wrapped a validation message onto six lines, and
+   `showError` takes it away after 4s, so the longest sentences in the app (the
+   Opening Times validator names the session AND the fix) were the least
+   readable text in the product. `max-content` capped by a real measure is a pure
+   widening: same colour, same position, same anchor. */
 .error-banner{
   position:fixed;
   top:70px;
   left:50%;
   transform:translateX(-50%);
+  width:max-content;
+  max-width:min(92vw,420px);
   background:var(--danger);
   color:#fff;
   padding:12px 24px;

@@ -471,3 +471,11 @@ describe('admin daily report includes out-of-range PENDING pre-orders only (gap:
     expect(shiftBody.totalOrders).toBe(1);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Marks this file as a MODULE. Without it TypeScript treats the file as a global
+// script and its top-level `const`s collide with the other script-mode suites
+// (`TS2451: Cannot redeclare block-scoped variable`), which fails the suite on a
+// cold ts-jest cache while a warm local run passes. See tests/README.md.
+// ─────────────────────────────────────────────────────────────────────────────
+export {};
