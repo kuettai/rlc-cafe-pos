@@ -1,6 +1,6 @@
 ---
 name: test-suites
-description: How to run the RLC Café POS test suites safely — which are offline and which write to the live production café (and the 3 ungated read-only live GETs in `integration.test.ts` that run on every `npm test`), why every test file must be a MODULE (`export {};`) or ts-jest silently drops a whole suite on a cold cache while warm runs stay green, why it must be `npm test` (`TZ=UTC jest`) and never a bare `npx jest`, the ZZTEST_ prefix every test-created record must carry, the reserved test phone range, the Sunday-afternoon end-of-day-email hazard, why a Playwright `page.route()` block does NOT stop writes (service workers bypass it — this already took a menu item off the live customer menu) and the `serviceWorkers:'block'` + positive-control harness rule, and the cleanup procedure afterwards. Use before running any test, adding a suite that writes data, driving any frontend page in a real browser against the live API, or cleaning up after a live run.
+description: How to run the RLC Café POS test suites safely — which are offline and which write to the live production café (and the 3 ungated read-only live GETs in `integration.test.ts` that run on every `npm test`), why every test file must be a MODULE (`export {};`) or ts-jest silently drops a whole suite on a cold cache while warm runs stay green, why it must be `npm test` (`TZ=UTC jest`) and never a bare `npx jest`, the ZZTEST_ prefix every test-created record must carry, the reserved test phone range, the Sunday-afternoon end-of-day-email hazard, why a Playwright `page.route()` block does NOT stop writes (service workers bypass it — this already took a menu item off the live customer menu) the `serviceWorkers:'block'` + positive-control harness rule and the two classes of read-only browser probe (fixture probe: 0 production-host requests; live probe: 0 non-GET, aborted and counted), why a banned-word or leaked-value scan must walk visible text nodes rather than `document.body.textContent`, and the cleanup procedure afterwards. Use before running any test, adding a suite that writes data, driving any frontend page in a real browser against the live API, or cleaning up after a live run.
 ---
 
 # Test Suites
@@ -48,14 +48,102 @@ real volunteers use on Sunday mornings. There is no staging environment.
 > A frontend probe against the live API is a **category-2 activity**: say what it
 > may write, get explicit confirmation, and check afterwards.
 >
-> **The harness rule works as documented — confirmed 2026-08-19.** The customer
-> closed-screen probe ran under `serviceWorkers: 'block'` with the positive control
-> above, and a **second independent control** counting requests by host: 34 requests
-> intercepted (so interception demonstrably fired), **0** of them to the production
-> API host, and 0 non-GET attempted. Nothing was written to production and no
-> cleanup was needed. Two controls, not one: the positive control proves the
-> interceptor was consulted, and the host counter proves what it saw — the 2026-08-18
-> Latte incident was invisible to the first check alone.
+> ### Two classes of read-only probe — and they need different second controls
+>
+> Both halves above (`serviceWorkers: 'block'` as a **context** option, and a
+> positive control that throws on zero) are mandatory for **either** class. What
+> differs is the **second** control — *which* count must be zero:
+>
+> | | **Fixture probe** | **Live probe** |
+> |---|---|---|
+> | Page served from | a local `http-server` | the deployed site |
+> | API | every `/api/**` call `route.fulfill`ed from local fixtures | the deployed API, nothing stubbed |
+> | Positive control | intercepted `> 0` | intercepted `> 0` |
+> | Second control, must be 0 | **requests to the production host** | **non-GET requests** |
+>
+> Getting this backwards is expensive. A live probe **necessarily makes real
+> production GETs** — that is what it is for — so demanding zero production-host
+> traffic from one is demanding something impossible. Read that way, the next
+> probe author either abandons a legitimate verification or weakens the control
+> until it "passes". For the live class the safety lives in the **method**: let
+> `GET` through, `abort()` everything else, and **count the aborts** — so an
+> attempted write is blocked *as well as* reported, rather than trusted not to
+> happen.
+>
+> ```js
+> const ctx = await browser.newContext({ serviceWorkers: 'block' });
+> let seen = 0, nonGet = 0;
+> await ctx.route('**/api/**', r => {
+>   seen++;
+>   if (r.request().method() === 'GET') return r.continue();
+>   nonGet++;            // report it…
+>   return r.abort();    // …and stop it
+> });
+> // after the run — both must throw loudly:
+> if (seen === 0) throw new Error('interception never fired — assume writes escaped');
+> if (nonGet > 0) throw new Error(`${nonGet} non-GET attempted — probe was not read-only`);
+> ```
+>
+> **Fixture class — confirmed 2026-08-19.** The customer closed-screen probe ran
+> under `serviceWorkers: 'block'` with the positive control above, and a **second
+> independent control** counting requests by host: 34 requests intercepted (so
+> interception demonstrably fired), **0** of them to the production API host, and
+> 0 non-GET attempted. Nothing was written to production and no cleanup was
+> needed. Two controls, not one: the positive control proves the interceptor was
+> consulted, and the host counter proves what it saw — the 2026-08-18 Latte
+> incident was invisible to the first check alone.
+>
+> **Live class — worked example, 2026-08-19.** A read-only probe of
+> `https://153.oasisofcare.org/` (deployed site, deployed API, nothing stubbed),
+> same context option, `GET` continued and every other method aborted-and-counted:
+>
+> | Measured | |
+> |---|---|
+> | requests intercepted | **8** |
+> | to the production host | **1** — `GET /api/cafe/status` |
+> | non-GET | **0** |
+> | `GET /api/menu` | **none at all** — the closed screen returns before the menu load |
+> | `document.querySelectorAll('form').length` | **0** |
+>
+> The café was left `CLOSED` and no records were created, so
+> `scripts/cleanup-test-data.mjs` had nothing to match and was not run. The
+> numbers are written down so the next probe author compares instead of
+> re-deriving: for the closed customer screen, **1** production GET is the
+> expected figure, not a leak.
+>
+> ### Scan visible text nodes, not `document.body.textContent`
+>
+> A banned-word or leaked-value scan must walk **visible text nodes**.
+> `textContent` includes **inline `<script>` source**, and on 2026-08-19 that cost
+> a false FAIL twice in one pass: the banned word `card` was matched inside
+> `background:var(--card)` in a script string, and a "rendered `null`" was
+> `let swRegistration = null;`. Neither was ever on screen.
+>
+> Skip `SCRIPT` / `STYLE` / `NOSCRIPT` / `TEMPLATE` and anything under
+> `display:none`, and **name the owning element of every hit** so a match can be
+> judged rather than guessed at.
+>
+> ```js
+> const SKIP = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE']);
+> const suppressed = el => {
+>   for (let e = el; e; e = e.parentElement) {
+>     if (SKIP.has(e.tagName)) return true;
+>     if (getComputedStyle(e).display === 'none') return true;
+>   }
+>   return false;
+> };
+> const hits = [];
+> const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+> for (let n; (n = walk.nextNode()); ) {
+>   const text = n.nodeValue.trim();
+>   if (!text || suppressed(n.parentElement)) continue;
+>   for (const word of BANNED) {
+>     if (!text.toLowerCase().includes(word)) continue;
+>     const el = n.parentElement;
+>     hits.push({ word, text, owner: el.tagName + (el.id ? '#' + el.id : '') });
+>   }
+> }
+> ```
 
 ## Category 1 — safe, offline, run freely
 
@@ -323,7 +411,10 @@ sent. The script prints this list every run — read it.
 - A Playwright spec or ad-hoc browser harness creates its context with
   `serviceWorkers: 'block'` **and** carries a positive control that throws when
   interception never fired — see the box at the top of this file. A harness whose
-  block is unverified is a harness that writes to production.
+  block is unverified is a harness that writes to production. Then pick the
+  **second** control by class: a fixture probe must see 0 requests to the
+  production host; a live probe will see production GETs by design, so what must
+  be 0 there is **non-GET**, aborted and counted.
 - A guard is only tested if a fixture **reaches** it, and a multi-query handler
   needs each query's fixture staged distinctly — see **Test teeth** in the
   `invariants` skill. A suite that stages `{ Items: [] }` for the query a guard
