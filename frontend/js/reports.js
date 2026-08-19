@@ -136,7 +136,7 @@ function renderLogin() {
       <input id="loginPin" type="password" inputmode="numeric" maxlength="6" placeholder="PIN" required class="pos-input">
       <button type="submit" class="pos-btn pos-btn-primary" style="width:100%">Login</button>
     </form>
-    <p style="margin-top:14px;font-size:.85rem"><a href="admin.html" style="color:var(--primary,#6B4226)">← Back to Admin</a></p>
+    <p style="margin-top:14px;font-size:.85rem"><a href="admin.html" style="color:var(--brand-ink)">← Back to Admin</a></p>
   </div>`;
 
   $('#loginForm').onsubmit = async (e) => {
@@ -174,17 +174,17 @@ function renderApp() {
       <div class="admin-section-header" style="flex-wrap:wrap;gap:12px">
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
           <h2 style="margin:0">📊 Sales Reports</h2>
-          ${standalone ? `<span style="color:var(--text-light,#7A6355);font-size:.9rem">Logged in as ${escapeHtml(currentUser)}</span>` : ''}
+          ${standalone ? `<span style="color:var(--text-light);font-size:.9rem">Logged in as ${escapeHtml(currentUser)}</span>` : ''}
         </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <label style="font-size:.85rem;color:var(--text-light,#7A6355)">Month
+          <label style="font-size:.85rem;color:var(--text-light)">Month
             <input type="month" id="rptMonth" value="${selectedMonth}" class="pos-input" style="margin-left:6px;width:auto">
           </label>
           ${standalone ? '<button class="pos-btn pos-btn-sm" id="rptLogout">Logout</button>' : ''}
         </div>
       </div>
 
-      <div style="display:flex;gap:6px;margin-top:14px;border-bottom:1px solid var(--cream-dark,#E5DACB)">
+      <div style="display:flex;gap:6px;margin-top:14px;border-bottom:1px solid var(--cream-dark)">
         <button class="pos-btn pos-btn-sm" data-tab="summary" id="tabSummary">📈 Summary</button>
         <button class="pos-btn pos-btn-sm" data-tab="detail"  id="tabDetail">📋 Detail</button>
       </div>
@@ -280,9 +280,9 @@ function renderSummary(container) {
   }
 
   const headerCells = [
-    '<th style="text-align:left;padding:8px 10px;border-bottom:2px solid var(--cream-dark,#E5DACB)">Metric</th>',
-    ...dates.map(d => `<th style="text-align:right;padding:8px 10px;border-bottom:2px solid var(--cream-dark,#E5DACB);font-variant-numeric:tabular-nums">${formatDateHeader(d)}</th>`),
-    '<th style="text-align:right;padding:8px 10px;border-bottom:2px solid var(--cream-dark,#E5DACB);font-variant-numeric:tabular-nums">Total</th>',
+    '<th style="text-align:left;padding:8px 10px;border-bottom:2px solid var(--cream-dark)">Metric</th>',
+    ...dates.map(d => `<th style="text-align:right;padding:8px 10px;border-bottom:2px solid var(--cream-dark);font-variant-numeric:tabular-nums">${formatDateHeader(d)}</th>`),
+    '<th style="text-align:right;padding:8px 10px;border-bottom:2px solid var(--cream-dark);font-variant-numeric:tabular-nums">Total</th>',
   ].join('');
 
   const rowDef = [
@@ -300,12 +300,12 @@ function renderSummary(container) {
       `<td style="padding:6px 10px;${r.bold ? 'font-weight:700' : ''}">${r.label}</td>`,
       ...cols.map(c => {
         const v = c[r.key] || 0;
-        const muted = v === 0 ? 'color:var(--text-light,#7A6355)' : '';
+        const muted = v === 0 ? 'color:var(--text-light)' : '';
         return `<td style="text-align:right;padding:6px 10px;font-variant-numeric:tabular-nums;${r.bold ? 'font-weight:700;' : ''}${muted}">${r.fmt(v)}</td>`;
       }),
       (() => {
         const v = totalCol[r.key] || 0;
-        return `<td style="text-align:right;padding:6px 10px;font-variant-numeric:tabular-nums;border-left:1px solid var(--cream-dark,#E5DACB);${r.bold ? 'font-weight:700;' : ''}">${r.fmt(v)}</td>`;
+        return `<td style="text-align:right;padding:6px 10px;font-variant-numeric:tabular-nums;border-left:1px solid var(--cream-dark);${r.bold ? 'font-weight:700;' : ''}">${r.fmt(v)}</td>`;
       })(),
     ].join('');
     return `<tr>${cells}</tr>`;
@@ -318,15 +318,15 @@ function renderSummary(container) {
         <tbody>${rowsHtml}</tbody>
       </table>
     </div>
-    <p style="font-size:.8rem;color:var(--text-light,#7A6355);margin-top:12px">
+    <p style="font-size:.8rem;color:var(--text-light);margin-top:12px">
       Gross / Net based on ARCHIVED + READY orders. Refunds = post-completion cancellations.
       Discounts include all <code>discountOffset</code> values (NEWCOMER, STAFF, PASTOR, CELEBRATION, VOUCHER).
     </p>
     <div id="rptActivityLog" style="margin-top:28px">
-      <h3 style="margin:0 0 10px;color:var(--primary,#6B4226)">📋 Activity Log</h3>
+      <h3 style="margin:0 0 10px;color:var(--brand-ink)">📋 Activity Log</h3>
       <div class="loading">Loading activity log…</div>
     </div>
-    <p style="font-size:.8rem;color:var(--text-light,#7A6355);margin-top:12px">
+    <p style="font-size:.8rem;color:var(--text-light);margin-top:12px">
       Historical stock counts (per-item detail) live in Admin → Ingredients → 📋 Stock History.
     </p>
   `;
@@ -334,7 +334,7 @@ function renderSummary(container) {
   // Populate the activity log lazily so the summary table renders first.
   renderActivityLog(container.querySelector('#rptActivityLog'), dates).catch(() => {
     const el = container.querySelector('#rptActivityLog');
-    if (el) el.innerHTML = '<h3 style="margin:0 0 10px;color:var(--primary,#6B4226)">📋 Activity Log</h3><div class="admin-empty"><p>Failed to load activity log</p></div>';
+    if (el) el.innerHTML = '<h3 style="margin:0 0 10px;color:var(--brand-ink)">📋 Activity Log</h3><div class="admin-empty"><p>Failed to load activity log</p></div>';
   });
 }
 
@@ -394,28 +394,28 @@ async function renderActivityLog(host, dates) {
     const cell = (log) => {
       const c = phaseCompletionForReport(log);
       return c
-        ? `<span style="font-variant-numeric:tabular-nums">${fmtTimeShort(c.at)}</span> <span style="color:var(--text-light,#7A6355)">· ${escapeHtmlReport(c.by)}</span>`
-        : '<span style="color:var(--text-light,#7A6355)">—</span>';
+        ? `<span style="font-variant-numeric:tabular-nums">${fmtTimeShort(c.at)}</span> <span style="color:var(--text-light)">· ${escapeHtmlReport(c.by)}</span>`
+        : '<span style="color:var(--text-light)">—</span>';
     };
     return `<tr>
-      <td style="padding:6px 10px;border-bottom:1px solid var(--cream-dark,#E5DACB)">${formatDateHeader(date)}</td>
-      <td style="padding:6px 10px;border-bottom:1px solid var(--cream-dark,#E5DACB)">${cell(b.open)}</td>
-      <td style="padding:6px 10px;border-bottom:1px solid var(--cream-dark,#E5DACB)">${cell(b.handover)}</td>
-      <td style="padding:6px 10px;border-bottom:1px solid var(--cream-dark,#E5DACB)">${cell(b.close)}</td>
-      <td style="padding:6px 10px;border-bottom:1px solid var(--cream-dark,#E5DACB);max-width:360px">${stockCountCellHtml(date, snapshotCountByDate[date] || 0)}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid var(--cream-dark)">${formatDateHeader(date)}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid var(--cream-dark)">${cell(b.open)}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid var(--cream-dark)">${cell(b.handover)}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid var(--cream-dark)">${cell(b.close)}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid var(--cream-dark);max-width:360px">${stockCountCellHtml(date, snapshotCountByDate[date] || 0)}</td>
     </tr>`;
   }).join('');
 
   host.innerHTML = `
-    <h3 style="margin:0 0 10px;color:var(--primary,#6B4226)">📋 Activity Log</h3>
+    <h3 style="margin:0 0 10px;color:var(--brand-ink)">📋 Activity Log</h3>
     <div style="overflow-x:auto">
       <table style="border-collapse:collapse;width:100%;min-width:640px">
         <thead><tr>
-          <th style="text-align:left;padding:8px 10px;border-bottom:2px solid var(--cream-dark,#E5DACB)">Date</th>
-          <th style="text-align:left;padding:8px 10px;border-bottom:2px solid var(--cream-dark,#E5DACB)">Opened</th>
-          <th style="text-align:left;padding:8px 10px;border-bottom:2px solid var(--cream-dark,#E5DACB)">Handover</th>
-          <th style="text-align:left;padding:8px 10px;border-bottom:2px solid var(--cream-dark,#E5DACB)">Closed</th>
-          <th style="text-align:left;padding:8px 10px;border-bottom:2px solid var(--cream-dark,#E5DACB)">Stock Count</th>
+          <th style="text-align:left;padding:8px 10px;border-bottom:2px solid var(--cream-dark)">Date</th>
+          <th style="text-align:left;padding:8px 10px;border-bottom:2px solid var(--cream-dark)">Opened</th>
+          <th style="text-align:left;padding:8px 10px;border-bottom:2px solid var(--cream-dark)">Handover</th>
+          <th style="text-align:left;padding:8px 10px;border-bottom:2px solid var(--cream-dark)">Closed</th>
+          <th style="text-align:left;padding:8px 10px;border-bottom:2px solid var(--cream-dark)">Stock Count</th>
         </tr></thead>
         <tbody>${rowsHtml}</tbody>
       </table>
@@ -430,22 +430,22 @@ async function renderActivityLog(host, dates) {
  * detail fetch failed).
  */
 function stockCountCellHtml(date, count) {
-  if (!count) return '<span style="color:var(--text-light,#7A6355)">—</span>';
+  if (!count) return '<span style="color:var(--text-light)">—</span>';
   const snaps = cachedSnapshotsByDate.get(date);
   if (!snaps || !snaps.length) {
-    return `<span style="font-weight:600">${count}</span> <span style="color:var(--text-light,#7A6355)">count${count === 1 ? '' : 's'}</span>`;
+    return `<span style="font-weight:600">${count}</span> <span style="color:var(--text-light)">count${count === 1 ? '' : 's'}</span>`;
   }
   // SK sort is descending — resort ascending for chronological display.
   const sorted = snaps.slice().sort((a, b) =>
     String(a.timestamp || a.SK || '').localeCompare(String(b.timestamp || b.SK || ''))
   );
-  const fmtOne = s => `<span style="font-variant-numeric:tabular-nums">${fmtTimeShort(s.timestamp || s.SK)}</span> <span style="color:var(--text-light,#7A6355)">· ${escapeHtmlReport(s.submittedBy || 'Unknown')}</span>`;
+  const fmtOne = s => `<span style="font-variant-numeric:tabular-nums">${fmtTimeShort(s.timestamp || s.SK)}</span> <span style="color:var(--text-light)">· ${escapeHtmlReport(s.submittedBy || 'Unknown')}</span>`;
   if (sorted.length <= 4) {
-    return sorted.map(fmtOne).join('<span style="color:var(--cream-dark,#E5DACB);margin:0 4px">·</span>');
+    return sorted.map(fmtOne).join('<span style="color:var(--cream-dark);margin:0 4px">·</span>');
   }
   const first = fmtOne(sorted[0]);
   const last  = fmtOne(sorted[sorted.length - 1]);
-  return `${first} <span style="color:var(--text-light,#7A6355);margin:0 4px">…</span> ${last} <span style="color:var(--text-light,#7A6355)">(${sorted.length} total)</span>`;
+  return `${first} <span style="color:var(--text-light);margin:0 4px">…</span> ${last} <span style="color:var(--text-light)">(${sorted.length} total)</span>`;
 }
 
 /** Same phase-completion derivation as admin.js's dashboard. Kept local
@@ -523,10 +523,10 @@ function formatDateHeader(d) {
 function renderDetail(container) {
   container.innerHTML = `
     <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin-bottom:14px">
-      <label style="display:flex;flex-direction:column;font-size:.85rem;color:var(--text-light,#7A6355)">
+      <label style="display:flex;flex-direction:column;font-size:.85rem;color:var(--text-light)">
         From <input id="dtFrom" type="date" class="pos-input" value="${detailStartDate}">
       </label>
-      <label style="display:flex;flex-direction:column;font-size:.85rem;color:var(--text-light,#7A6355)">
+      <label style="display:flex;flex-direction:column;font-size:.85rem;color:var(--text-light)">
         To <input id="dtTo" type="date" class="pos-input" value="${detailEndDate}">
       </label>
       <button class="pos-btn pos-btn-primary pos-btn-sm" id="dtFilter">Filter</button>
@@ -584,7 +584,7 @@ function renderDetailTable() {
 
   const head = [
     'Date / Time', 'Order ID', 'Items', 'Gross (RM)', 'Discount (RM)', 'Discount Type', 'Net (RM)', 'Status', 'Customer',
-  ].map(h => `<th style="text-align:left;padding:8px 10px;border-bottom:2px solid var(--cream-dark,#E5DACB)">${h}</th>`).join('');
+  ].map(h => `<th style="text-align:left;padding:8px 10px;border-bottom:2px solid var(--cream-dark)">${h}</th>`).join('');
 
   const body = rows.map(o => {
     const isRefund = o.postCompletionCancel === true;
@@ -599,7 +599,7 @@ function renderDetailTable() {
       ? `CANCELLED (refund)${o.cancelReason ? ' — ' + escapeHtml(o.cancelReason) : ''}`
       : escapeHtml(o.status || '');
     const rowStyle = isRefund
-      ? 'background:#FEE2E2;color:#7F1D1D'
+      ? 'background:var(--danger-bg);color:var(--stale-ink)'
       : '';
     const idShort = String(o.orderId || '').slice(0, 8);
 
@@ -623,7 +623,7 @@ function renderDetailTable() {
         <tbody>${body}</tbody>
       </table>
     </div>
-    <p style="font-size:.8rem;color:var(--text-light,#7A6355);margin-top:10px">${rows.length} row${rows.length === 1 ? '' : 's'}.</p>
+    <p style="font-size:.8rem;color:var(--text-light);margin-top:10px">${rows.length} row${rows.length === 1 ? '' : 's'}.</p>
   `;
 }
 

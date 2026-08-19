@@ -215,7 +215,7 @@ function openPreorderForm(container, existingCode){
           <button type="button" class="pos-btn pos-btn-sm" id="pfSelectNone">Select None</button>
         </span>
       </label>
-      <div id="pfDrinkList" style="max-height:220px;overflow-y:auto;border:1px solid var(--cream-dark);border-radius:8px;padding:8px 12px;background:#fff">
+      <div id="pfDrinkList" style="max-height:220px;overflow-y:auto;border:1px solid var(--cream-dark);border-radius:8px;padding:8px 12px;background:var(--card)">
         <div class="loading">Loading drinks…</div>
       </div>
       <p style="font-size:.75rem;color:var(--text-light);margin-top:4px">${isEdit
@@ -226,7 +226,7 @@ function openPreorderForm(container, existingCode){
     <div class="admin-form-group">
       <label>Excluded Options</label>
       <p style="font-size:.75rem;color:var(--text-light);margin:2px 0 6px">Tick an option to block it on this link — e.g. Oat Milk, which is free on pre-orders and costly. Unticked options stay available. Paying customers are unaffected.</p>
-      <div id="pfOptionList" style="max-height:200px;overflow-y:auto;border:1px solid var(--cream-dark);border-radius:8px;padding:8px 12px;background:#fff">
+      <div id="pfOptionList" style="max-height:200px;overflow-y:auto;border:1px solid var(--cream-dark);border-radius:8px;padding:8px 12px;background:var(--card)">
         <div class="loading">Loading options…</div>
       </div>
     </div>

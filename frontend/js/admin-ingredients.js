@@ -189,7 +189,7 @@ function openRecipeForm(container, menuItem, ingredients, allRecipes, menuItems)
         const vid = v.id||v.name||v;
         const vname = v.name||v;
         const rows = variantOverrides[vid]||[];
-        variantHtml += `<div style="margin-bottom:12px;padding:10px;background:var(--cream,#f9f5f0);border-radius:8px">
+        variantHtml += `<div style="margin-bottom:12px;padding:10px;background:var(--cream);border-radius:8px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><strong style="font-size:.9rem">${escapeHtml(vname)}</strong><button class="pos-btn pos-btn-sm" data-add-override="${escapeAttr(vid)}">+ Add</button></div>
           <div data-override-list="${escapeAttr(vid)}">${rows.length ? renderRows(rows, `v_${vid}`) : '<span style="font-size:.8rem;color:var(--text-light)">No override — uses base recipe</span>'}</div>
         </div>`;
@@ -313,15 +313,15 @@ async function openStockHistoryModal(){
   const overlay = document.createElement('div');
   overlay.className = 'pos-modal-overlay';
   overlay.innerHTML = `<div class="pos-modal" style="max-width:820px;max-height:90vh;display:flex;flex-direction:column;padding:0">
-    <div style="padding:16px 20px;border-bottom:1px solid var(--cream-dark,#E7DFD5);display:flex;justify-content:space-between;align-items:center;gap:12px">
+    <div style="padding:16px 20px;border-bottom:1px solid var(--cream-dark);display:flex;justify-content:space-between;align-items:center;gap:12px">
       <h3 style="margin:0">📋 Stock Count History</h3>
       <button class="pos-modal-close" id="shClose" style="position:static">✕</button>
     </div>
-    <div style="padding:12px 20px;border-bottom:1px solid var(--cream-dark,#E7DFD5);display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    <div style="padding:12px 20px;border-bottom:1px solid var(--cream-dark);display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <button class="pos-btn pos-btn-sm" id="shPrev">‹ Prev</button>
       <input type="date" id="shDate" class="pos-input" style="margin:0;max-width:180px">
       <button class="pos-btn pos-btn-sm" id="shNext">Next ›</button>
-      <span id="shDateInfo" style="font-size:.8rem;color:var(--text-light,#7A6355);margin-left:auto"></span>
+      <span id="shDateInfo" style="font-size:.8rem;color:var(--text-light);margin-left:auto"></span>
     </div>
     <div id="shBody" style="flex:1;overflow-y:auto;padding:16px 20px">
       <div class="loading">Loading…</div>
@@ -366,19 +366,19 @@ async function openStockHistoryModal(){
         const rows = (s.counts || []).map(c => `<tr>
           <td style="padding:6px 8px">${escapeHtml(c.name || '?')}</td>
           <td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums">${escapeHtml(String(c.count ?? '—'))}</td>
-          <td style="padding:6px 8px;color:var(--text-light,#7A6355)">${escapeHtml(c.unit || '')}</td>
-          <td style="padding:6px 8px;color:var(--text-light,#7A6355)">${escapeHtml(c.storageLocation || '—')}</td>
+          <td style="padding:6px 8px;color:var(--text-light)">${escapeHtml(c.unit || '')}</td>
+          <td style="padding:6px 8px;color:var(--text-light)">${escapeHtml(c.storageLocation || '—')}</td>
         </tr>`).join('');
         const ts = s.timestamp ? new Date(s.timestamp).toLocaleString() : '—';
         return `<div class="admin-card" style="margin-bottom:14px;padding:14px 16px">
           <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:10px">
             <div>
               <div style="font-weight:700">${escapeHtml(ts)}</div>
-              <div style="font-size:.8rem;color:var(--text-light,#7A6355)">Submitted by ${escapeHtml(s.submittedBy || 'Unknown')} · ${(s.counts||[]).length} item(s)</div>
+              <div style="font-size:.8rem;color:var(--text-light)">Submitted by ${escapeHtml(s.submittedBy || 'Unknown')} · ${(s.counts||[]).length} item(s)</div>
             </div>
           </div>
           <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.9rem">
-            <thead><tr style="background:#f7f5f2;text-align:left">
+            <thead><tr style="background:var(--quiet);text-align:left">
               <th style="padding:6px 8px">Item</th>
               <th style="padding:6px 8px;text-align:right">Count</th>
               <th style="padding:6px 8px">Unit</th>

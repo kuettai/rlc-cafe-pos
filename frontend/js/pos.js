@@ -161,7 +161,7 @@ function renderLogin(){
       <input id="loginPin" type="password" inputmode="numeric" maxlength="6" placeholder="PIN (6 digits)" required class="pos-input">
       <button type="submit" class="pos-btn pos-btn-primary" style="width:100%">Login</button>
     </form>
-    <p style="margin-top:16px;font-size:.8rem;color:var(--text-light,#7A6355)">Shortcuts: W = Walk-up, M = Menu, H = History, / = Search</p>
+    <p style="margin-top:16px;font-size:.8rem;color:var(--text-light)">Shortcuts: W = Walk-up, M = Menu, H = History, / = Search</p>
   </div>`;
   $('#loginForm').onsubmit = async e => {
     e.preventDefault();
@@ -313,7 +313,7 @@ function renderMain(){
     modal.innerHTML=`<div class="pos-modal" style="max-width:340px;text-align:center">
       <button class="pos-modal-close">✕</button>
       <h3>📷 AI Stock Scan</h3>
-      <p style="font-size:.85rem;color:var(--text-light,#7A6355);margin:8px 0 20px">Which area?</p>
+      <p style="font-size:.85rem;color:var(--text-light);margin:8px 0 20px">Which area?</p>
       <div style="display:flex;flex-direction:column;gap:10px">
         <button class="pos-btn pos-btn-primary pos-btn-lg" id="scFridge">🧊 Fridge</button>
         <button class="pos-btn pos-btn-primary pos-btn-lg" id="scStore">📦 Storeroom</button>
@@ -644,7 +644,7 @@ function playReadySound(){
 
 function showNameFlash(name){
   const el=document.createElement('div');
-  el.style.cssText='position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(45,138,78,.9);color:#fff;font-size:2.5rem;font-weight:800;z-index:999;animation:fadeIn .2s ease';
+  el.style.cssText='position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(19,106,60,.92);color:#fff;font-size:2.5rem;font-weight:800;z-index:999;animation:fadeIn .2s ease';
   el.textContent='🎉 '+name+' — READY!';
   document.body.appendChild(el);
   setTimeout(()=>el.remove(),2000);
@@ -828,7 +828,7 @@ async function showIngredientUsage(){
         const ing = ingMap[id];
         const name = ing?.name || id;
         const unit = ing?.usageUnit || ing?.unit || '';
-        return `<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--cream-dark,#eee)"><span>${name}</span><strong>${qty} ${unit}</strong></div>`;
+        return `<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--cream-dark)"><span>${name}</span><strong>${qty} ${unit}</strong></div>`;
       }).join('') : `<p style="color:var(--text-light)">${recipes.length ? 'No active orders with recipe data' : 'No recipe data yet. Set up recipes in Admin → Ingredients.'}</p>`}
     </div>
   </div>`;
@@ -1274,7 +1274,7 @@ function askStaffPrice(o){
     overlay.innerHTML = `<div class="pos-modal" style="max-width:440px">
       <button class="pos-modal-close">✕</button>
       <h3>Staff price (RM${(window.CafePricing && CafePricing.STAFF_DRINK_PRICE) || 5}) requested — confirm this is staff?</h3>
-      <p style="font-size:.9rem;color:var(--text-light,#7A6355);margin:10px 0 4px">
+      <p style="font-size:.9rem;color:var(--text-light);margin:10px 0 4px">
         ${escapeHtmlPos(o.customerName||'Guest')} used the staff link
         (code <strong style="font-family:monospace">${escapeHtmlPos(o.staffCode)}</strong>).
       </p>
@@ -1283,7 +1283,7 @@ function askStaffPrice(o){
         <button class="pos-btn pos-btn-primary pos-btn-lg" id="spYes" style="width:100%">✓ Yes, staff price — RM ${net.toFixed(2)}</button>
         <button class="pos-btn pos-btn-lg" id="spNo" style="width:100%">Not staff — charge full price${gross > net ? ` (RM ${gross.toFixed(2)})` : ''}</button>
       </div>
-      <p style="font-size:.8rem;color:var(--text-light,#7A6355);margin-top:12px">
+      <p style="font-size:.8rem;color:var(--text-light);margin-top:12px">
         Closing this leaves the order pending. Your name is recorded either way.
       </p>
     </div>`;
@@ -1351,7 +1351,7 @@ function confirmReleaseAll(due){
     overlay.innerHTML = `<div class="pos-modal" style="max-width:420px">
       <button class="pos-modal-close">✕</button>
       <h3>Release ${n} pre-order${n === 1 ? '' : 's'} to the barista?</h3>
-      <p style="font-size:.9rem;color:var(--text-light,#7A6355);margin:10px 0 4px">
+      <p style="font-size:.9rem;color:var(--text-light);margin:10px 0 4px">
         Only pre-orders for today's service are released. The customer can no longer
         edit an order once it is released.
       </p>
@@ -1433,7 +1433,7 @@ function confirmReleaseNotToday(o){
     overlay.innerHTML = `<div class="pos-modal" style="max-width:420px">
       <button class="pos-modal-close">✕</button>
       <h3>${heading}</h3>
-      <p style="font-size:.9rem;color:var(--text-light,#7A6355);margin:10px 0 4px">
+      <p style="font-size:.9rem;color:var(--text-light);margin:10px 0 4px">
         ${name}'s order is not for today, so it is left out of "Release today's
         pre-orders". Releasing it now sends it to the barista and the customer can
         no longer edit it.
@@ -1555,7 +1555,7 @@ function openDetail(id){
     // Same per-item note as the queue card, repeated here because the detail is
     // where a cashier looks when they are unsure what the card said.
     const note = typeof i.note === 'string' ? i.note.trim() : '';
-    return `<li>${i.quantity||i.qty||1}x ${escapeHtmlPos(i.name)}${i.variant?' ('+escapeHtmlPos(i.variant)+')':''} <span style="color:var(--text-light,#7A6355);float:right">RM${(linePrice(i)*(i.quantity||i.qty||1)).toFixed(2)}</span>`
+    return `<li>${i.quantity||i.qty||1}x ${escapeHtmlPos(i.name)}${i.variant?' ('+escapeHtmlPos(i.variant)+')':''} <span style="color:var(--text-light);float:right">RM${(linePrice(i)*(i.quantity||i.qty||1)).toFixed(2)}</span>`
       + (note?`<span class="pos-item-note">📝 ${escapeHtmlPos(note)}</span>`:'')
       + `</li>`;
   }).join('');
@@ -1578,13 +1578,13 @@ function openDetail(id){
   modal.innerHTML=`<div class="pos-modal">
     <button class="pos-modal-close">✕</button>
     <h3>${escapeHtmlPos(o.customerName||'Guest')}</h3>
-    <p style="font-size:.82rem;color:var(--text-light,#7A6355);margin-top:4px">Ordered at ${orderTime} · ${timeAgo(o.createdAt)}${o.isWalkUp?' · Walk-up':''}</p>
+    <p style="font-size:.82rem;color:var(--text-light);margin-top:4px">Ordered at ${orderTime} · ${timeAgo(o.createdAt)}${o.isWalkUp?' · Walk-up':''}</p>
     <ul class="pos-detail-items">${items}</ul>
-    ${o.notes ? `<div style="background:var(--cream,#f9f5f0);padding:10px 12px;border-radius:8px;font-size:.85rem;margin-bottom:10px">📝 Order note: ${escapeHtmlPos(o.notes)}</div>` : ''}
+    ${o.notes ? `<div style="background:var(--cream);padding:10px 12px;border-radius:8px;font-size:.85rem;margin-bottom:10px">📝 Order note: ${escapeHtmlPos(o.notes)}</div>` : ''}
     <div class="pos-detail-total">Total: RM ${(o.total||o.totalAmount||0).toFixed(2)}</div>
-    ${o.discountType && o.discountType!=='NONE' ? `<div style="font-size:.85rem;color:#7C3AED;margin-bottom:8px">Discount: ${o.discountType}</div>` : ''}
-    ${isPreOrder(o) ? `<div style="background:#EDE9FE;color:#5B21B6;padding:10px 12px;border-radius:8px;font-size:.85rem;margin-bottom:10px">🎉 <strong>Ministry pre-order</strong>${o.preorderCode ? ` · <span style="font-family:monospace">${escapeHtmlPos(o.preorderCode)}</span>` : ''} — free, no payment due.${o.status==='PENDING' ? ' Release it to the barista when it should be made.' : ''}</div>` : ''}
-    ${o.staffCode ? `<div style="background:#DBEAFE;color:#1E40AF;padding:10px 12px;border-radius:8px;font-size:.85rem;margin-bottom:10px">🎫 <strong>Staff price requested</strong> via link <span style="font-family:monospace">${escapeHtmlPos(o.staffCode)}</span> — you will be asked to confirm on approve.</div>` : ''}
+    ${o.discountType && o.discountType!=='NONE' ? `<div style="font-size:.85rem;color:var(--ink-quiet);margin-bottom:8px">Discount: ${o.discountType}</div>` : ''}
+    ${isPreOrder(o) ? `<div style="background:var(--preorder-soft);color:var(--preorder-soft-ink);padding:10px 12px;border-radius:8px;font-size:.85rem;margin-bottom:10px">🎉 <strong>Ministry pre-order</strong>${o.preorderCode ? ` · <span style="font-family:monospace">${escapeHtmlPos(o.preorderCode)}</span>` : ''} — free, no payment due.${o.status==='PENDING' ? ' Release it to the barista when it should be made.' : ''}</div>` : ''}
+    ${o.staffCode ? `<div style="background:var(--info-bg);color:var(--making-ink);padding:10px 12px;border-radius:8px;font-size:.85rem;margin-bottom:10px">🎫 <strong>Staff price requested</strong> via link <span style="font-family:monospace">${escapeHtmlPos(o.staffCode)}</span> — you will be asked to confirm on approve.</div>` : ''}
     <div class="pos-detail-actions">${actions}</div></div>`;
   document.body.appendChild(modal);
   modal.querySelector('.pos-modal-close').onclick=()=>modal.remove();
@@ -1640,8 +1640,8 @@ function showCancelCompletedDialog(id, parentModal){
   overlay.style.zIndex = '600';
   overlay.innerHTML = `<div class="pos-modal" style="max-width:420px">
     <button class="pos-modal-close">✕</button>
-    <h3 style="color:#B91C1C">Cancel / Refund Order</h3>
-    <p style="font-size:.85rem;color:var(--text-light,#7A6355);margin:8px 0 14px">
+    <h3 style="color:var(--stale-ink)">Cancel / Refund Order</h3>
+    <p style="font-size:.85rem;color:var(--text-light);margin:8px 0 14px">
       This marks the order as cancelled for reporting (refund line).
       Ingredients already used will not be returned to stock.
     </p>
@@ -1733,7 +1733,7 @@ async function openMenuToggle(){
       <h3>Menu & Food Quantity</h3>
       <input id="menuSearchInput" class="pos-input" placeholder="Search menu..." value="${menuSearch}" style="margin-top:12px;margin-bottom:8px">
       <div style="margin-top:16px">
-        <h4 style="margin-bottom:10px;color:var(--primary,#6B4226)">🥤 Drinks</h4>
+        <h4 style="margin-bottom:10px;color:var(--band)">🥤 Drinks</h4>
         <div class="pos-menu-toggles pos-menu-grid">${filteredDrinks.map(m=>`<div class="pos-menu-toggle-row${m.isEnabledToday===false?' is-disabled':''}" data-row-id="${m.menuItemId||m.id}">
           <span>${m.name}</span>
           <div style="display:flex;align-items:center;gap:8px">
@@ -1743,7 +1743,7 @@ async function openMenuToggle(){
         </div>`).join('')}</div>
       </div>
       <div style="margin-top:24px">
-        <h4 style="margin-bottom:10px;color:var(--primary,#6B4226)">🍔 Food — set today's quantity</h4>
+        <h4 style="margin-bottom:10px;color:var(--band)">🍔 Food — set today's quantity</h4>
         <div class="pos-menu-toggles pos-menu-grid">${filteredFood.map(m=>{
           const qty = m.foodQuantityToday || 0;
           const reserved = m.foodReserved || 0;
@@ -1754,7 +1754,7 @@ async function openMenuToggle(){
               <button class="pos-pin-btn ${m.isPinned?'pinned':''}" data-pin-id="${m.menuItemId||m.id}" title="${m.isPinned?'Unpin':'Pin to top'}">📌</button>
               <label class="pos-switch"><input type="checkbox" data-id="${m.menuItemId||m.id}" data-type="toggle" ${enabled?'checked':''}><span class="pos-slider"></span></label>
               <button class="pos-btn pos-btn-sm" data-food-dec="${m.menuItemId||m.id}" style="width:36px;height:36px;border-radius:50%;padding:0">−</button>
-              <input type="number" min="0" data-food-qty="${m.menuItemId||m.id}" value="${qty}" style="width:50px;text-align:center;font-weight:700;border:1px solid var(--cream-dark,#ddd);border-radius:6px;padding:4px;font-size:1rem" class="pos-food-qty-input">
+              <input type="number" min="0" data-food-qty="${m.menuItemId||m.id}" value="${qty}" style="width:50px;text-align:center;font-weight:700;border:1px solid var(--cream-dark);border-radius:6px;padding:4px;font-size:1rem" class="pos-food-qty-input">
               <button class="pos-btn pos-btn-sm" data-food-inc="${m.menuItemId||m.id}" style="width:36px;height:36px;border-radius:50%;padding:0">+</button>
               ${reserved > 0 ? `<span style="font-size:.78rem;font-weight:700;color:var(--ink-muted)">(${reserved} reserved)</span>` : ''}
             </div>
@@ -1854,9 +1854,9 @@ function openPrepView(){
     <div style="margin-top:16px;max-height:60vh;overflow-y:auto">
       ${items.length ? items.map((it,i)=>{
         const itemNote = typeof it.note === 'string' ? it.note.trim() : '';
-        return `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:10px 0;border-bottom:1px solid var(--cream-dark,#eee)">
-        <div><strong>${escapeHtmlPos(it.name)}</strong>${it.variant?' <span style="color:var(--text-light,#7A6355)">('+escapeHtmlPos(it.variant)+')</span>':''}${itemNote?`<span class="pos-item-note">📝 ${escapeHtmlPos(itemNote)}</span>`:''}</div>
-        <div style="text-align:right;font-size:.85rem"><span style="color:var(--primary,#6B4226)">${escapeHtmlPos(it.customer)}</span>${it.notes?'<br><span style="color:#7C3AED;font-size:.75rem">📝 Order note: '+escapeHtmlPos(it.notes)+'</span>':''}</div>
+        return `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:10px 0;border-bottom:1px solid var(--cream-dark)">
+        <div><strong>${escapeHtmlPos(it.name)}</strong>${it.variant?' <span style="color:var(--text-light)">('+escapeHtmlPos(it.variant)+')</span>':''}${itemNote?`<span class="pos-item-note">📝 ${escapeHtmlPos(itemNote)}</span>`:''}</div>
+        <div style="text-align:right;font-size:.85rem"><span style="color:var(--band)">${escapeHtmlPos(it.customer)}</span>${it.notes?'<br><span style="color:var(--note-ink);font-size:.75rem">📝 Order note: '+escapeHtmlPos(it.notes)+'</span>':''}</div>
       </div>`;
       }).join('') : '<p style="color:var(--text-light);text-align:center;padding:24px">No orders being prepared</p>'}
     </div>
@@ -1876,7 +1876,7 @@ function showSuccessToast(msg){
   }
   const t = document.createElement('div');
   t.className = 'pos-toast';
-  t.style.cssText = 'background:#2D8A4E;color:#fff;padding:10px 14px;border-radius:8px;font-weight:600;box-shadow:0 4px 12px rgba(0,0,0,.15);transition:opacity .3s';
+  t.style.cssText = 'background:var(--ready-fill);color:var(--on-brand);padding:10px 14px;border-radius:8px;font-weight:600;box-shadow:0 4px 12px rgba(0,0,0,.15);transition:opacity .3s';
   t.textContent = '✓ ' + msg;
   host.appendChild(t);
   setTimeout(()=>{ t.style.opacity='0'; setTimeout(()=>t.remove(), 300); }, 4000);
@@ -1900,7 +1900,7 @@ async function openFeaturedDrinkModal(){
       <h3>⭐ Featured Drink</h3>
       <p style="margin:16px 0;font-size:1.1rem;font-weight:600">${featuredDrink.name}</p>
       <p style="color:var(--text-light);font-size:.85rem;margin-bottom:20px">RM ${featuredDrink.basePrice.toFixed(2)}</p>
-      <button id="featUnset" class="pos-btn pos-btn-sm" style="background:var(--danger,#C0392B);color:#fff;width:100%">Remove Featured Drink</button>
+      <button id="featUnset" class="pos-btn pos-btn-sm" style="background:var(--danger);color:#fff;width:100%">Remove Featured Drink</button>
     </div>`;
     document.body.appendChild(modal);
     modal.querySelector('.pos-modal-close').onclick = ()=> modal.remove();

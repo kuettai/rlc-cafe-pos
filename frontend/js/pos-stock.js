@@ -9,11 +9,11 @@ async function openManualStockCount(){
   const modal = document.createElement('div');
   modal.className = 'pos-modal-overlay';
   modal.innerHTML = `<div class="pos-modal" style="max-width:640px;max-height:90vh;display:flex;flex-direction:column;padding:0">
-    <div style="padding:16px 20px;border-bottom:1px solid var(--cream-dark,#E7DFD5);display:flex;justify-content:space-between;align-items:center;gap:12px">
+    <div style="padding:16px 20px;border-bottom:1px solid var(--cream-dark);display:flex;justify-content:space-between;align-items:center;gap:12px">
       <h3 style="margin:0">📦 Stock Count</h3>
       <button class="pos-modal-close" id="mscClose" style="position:static">✕</button>
     </div>
-    <div style="padding:12px 20px;border-bottom:1px solid var(--cream-dark,#E7DFD5);display:flex;gap:8px;flex-wrap:wrap" id="mscFilters">
+    <div style="padding:12px 20px;border-bottom:1px solid var(--cream-dark);display:flex;gap:8px;flex-wrap:wrap" id="mscFilters">
       <button class="pos-btn pos-btn-sm pos-btn-primary" data-msc-loc="ALL">All</button>
       <button class="pos-btn pos-btn-sm" data-msc-loc="FRIDGE">🧊 Fridge</button>
       <button class="pos-btn pos-btn-sm" data-msc-loc="STOREROOM">🗄️ Storeroom</button>
@@ -21,8 +21,8 @@ async function openManualStockCount(){
     <div id="mscBody" style="flex:1;overflow-y:auto;padding:12px 20px">
       <div class="loading">Loading ingredients…</div>
     </div>
-    <div style="padding:14px 20px;border-top:1px solid var(--cream-dark,#E7DFD5);display:flex;justify-content:space-between;align-items:center;gap:12px">
-      <span id="mscHint" style="font-size:.8rem;color:var(--text-light,#7A6355)"></span>
+    <div style="padding:14px 20px;border-top:1px solid var(--cream-dark);display:flex;justify-content:space-between;align-items:center;gap:12px">
+      <span id="mscHint" style="font-size:.8rem;color:var(--text-light)"></span>
       <button class="pos-btn pos-btn-primary pos-btn-lg" id="mscSave" disabled>Save Stock Count</button>
     </div>
   </div>`;
@@ -43,7 +43,7 @@ async function openManualStockCount(){
     ingredients = data.ingredients || [];
     for (const ing of ingredients) workingCounts[ing.ingredientId] = ing.currentStock;
   } catch (e) {
-    modal.querySelector('#mscBody').innerHTML = '<div style="padding:20px;text-align:center;color:var(--danger,#B00020)">Failed to load ingredients</div>';
+    modal.querySelector('#mscBody').innerHTML = '<div style="padding:20px;text-align:center;color:var(--danger)">Failed to load ingredients</div>';
     return;
   }
 
@@ -72,7 +72,7 @@ async function openManualStockCount(){
       return aA - bA;
     });
     if (!sorted.length){
-      body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-light,#7A6355)">No ingredients in this location</div>';
+      body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-light)">No ingredients in this location</div>';
       updateSaveState();
       return;
     }
@@ -81,19 +81,19 @@ async function openManualStockCount(){
       const step = stepFor(ing.unit);
       const isDirty = dirty.has(ing.ingredientId);
       const isActive = ing.isActive !== false;
-      const last = ing.lastCountedAt ? `<div style="font-size:.7rem;color:var(--text-light,#7A6355);margin-top:2px">Last: ${new Date(ing.lastCountedAt).toLocaleString()}${ing.lastCountedBy?' by '+escapeHtmlPos(ing.lastCountedBy):''}</div>` : '';
-      const disabledTag = isActive ? '' : ' <span style="font-size:.7rem;background:var(--danger-bg,#fef2f2);color:var(--danger,#C0392B);padding:1px 6px;border-radius:999px;font-weight:600">disabled</span>';
-      return `<div class="msc-row${isActive ? '' : ' msc-row-disabled'}" data-id="${escapeHtmlPos(ing.ingredientId)}" style="padding:12px 0;border-bottom:1px solid #f0ebe4;display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;${isActive?'':'opacity:.55'}">
+      const last = ing.lastCountedAt ? `<div style="font-size:.7rem;color:var(--text-light);margin-top:2px">Last: ${new Date(ing.lastCountedAt).toLocaleString()}${ing.lastCountedBy?' by '+escapeHtmlPos(ing.lastCountedBy):''}</div>` : '';
+      const disabledTag = isActive ? '' : ' <span style="font-size:.7rem;background:var(--danger-bg);color:var(--danger);padding:1px 6px;border-radius:999px;font-weight:600">disabled</span>';
+      return `<div class="msc-row${isActive ? '' : ' msc-row-disabled'}" data-id="${escapeHtmlPos(ing.ingredientId)}" style="padding:12px 0;border-bottom:1px solid var(--rule);display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;${isActive?'':'opacity:.55'}">
         <div style="min-width:0">
-          <div style="font-weight:600;color:${isDirty?'var(--primary,#6B4226)':'inherit'}">${escapeHtmlPos(ing.name)}${disabledTag} ${isDirty?'<span style="font-size:.7rem;color:var(--primary,#6B4226)">•edited</span>':''}</div>
-          <div style="font-size:.75rem;color:var(--text-light,#7A6355)">${escapeHtmlPos(ing.storageLocation||'—')}</div>
+          <div style="font-weight:600;color:${isDirty?'var(--band)':'inherit'}">${escapeHtmlPos(ing.name)}${disabledTag} ${isDirty?'<span style="font-size:.7rem;color:var(--band)">•edited</span>':''}</div>
+          <div style="font-size:.75rem;color:var(--text-light)">${escapeHtmlPos(ing.storageLocation||'—')}</div>
           ${last}
         </div>
         <div style="display:flex;align-items:center;gap:6px">
           <button class="pos-btn pos-btn-sm msc-dec" data-step="${step}" aria-label="Decrease">−</button>
           <input class="pos-input msc-input" type="number" inputmode="decimal" step="${step}" min="0" value="${val}" style="width:80px;text-align:center;margin:0" aria-label="${escapeHtmlPos(ing.name)} count">
           <button class="pos-btn pos-btn-sm msc-inc" data-step="${step}" aria-label="Increase">+</button>
-          <span style="font-size:.8rem;color:var(--text-light,#7A6355);min-width:52px">${escapeHtmlPos(ing.unit||'')}</span>
+          <span style="font-size:.8rem;color:var(--text-light);min-width:52px">${escapeHtmlPos(ing.unit||'')}</span>
         </div>
       </div>`;
     }).join('');
@@ -119,9 +119,9 @@ async function openManualStockCount(){
         const title = row.querySelector('div[style^="font-weight"]');
         if (title){
           const isD = dirty.has(id);
-          title.style.color = isD ? 'var(--primary,#6B4226)' : 'inherit';
+          title.style.color = isD ? 'var(--band)' : 'inherit';
           title.innerHTML = escapeHtmlPos(ingredients.find(i => i.ingredientId === id)?.name || '') +
-            (isD ? ' <span style="font-size:.7rem;color:var(--primary,#6B4226)">•edited</span>' : '');
+            (isD ? ' <span style="font-size:.7rem;color:var(--band)">•edited</span>' : '');
         }
         void marker; // (no-op — marker refreshed via innerHTML above)
         updateSaveState();
@@ -185,7 +185,7 @@ async function openStockCount(location){
   modal.innerHTML = `<div class="pos-modal" style="max-width:560px">
     <button class="pos-modal-close">✕</button>
     <h3>📷 Stock Count — ${location === 'fridge' ? 'Fridge' : 'Storeroom'}</h3>
-    <p style="font-size:.85rem;color:var(--text-light,#7A6355);margin:8px 0 16px">Take 1-3 photos. AI will count your stock.</p>
+    <p style="font-size:.85rem;color:var(--text-light);margin:8px 0 16px">Take 1-3 photos. AI will count your stock.</p>
     <div id="stockPhotos" class="stock-photos"></div>
     <div style="display:flex;gap:10px;margin:16px 0">
       <label class="pos-btn pos-btn-primary" for="stockCameraInput" style="flex:1;text-align:center;cursor:pointer">📷 Take Photo</label>
@@ -217,7 +217,7 @@ async function openStockCount(location){
     container.innerHTML = photos.map((p,i)=>`<div class="stock-photo-thumb">
       <img src="${p}" alt="Photo ${i+1}">
       <button data-remove-photo="${i}">✕</button>
-    </div>`).join('') || '<p style="color:var(--text-light,#7A6355);text-align:center">No photos yet</p>';
+    </div>`).join('') || '<p style="color:var(--text-light);text-align:center">No photos yet</p>';
     container.querySelectorAll('[data-remove-photo]').forEach(btn=>btn.onclick=()=>{
       photos.splice(+btn.dataset.removePhoto, 1);
       renderPhotos();
@@ -230,7 +230,7 @@ async function openStockCount(location){
     const resultsEl = modal.querySelector('#stockResults');
     btn.disabled = true;
     btn.textContent = 'Analyzing...';
-    resultsEl.innerHTML = '<p style="text-align:center;color:var(--primary,#6B4226)">🤖 AI is counting your stock...</p>';
+    resultsEl.innerHTML = '<p style="text-align:center;color:var(--band)">🤖 AI is counting your stock...</p>';
 
     try{
       const data = await api('POST','/api/pos/planogram/analyze',{ location, images: photos });
@@ -238,7 +238,7 @@ async function openStockCount(location){
       const ingredients = data.ingredients || [];
       const logId = data.logId || null;
 
-      let html = '<div class="stock-results-list"><h4 style="margin:16px 0 12px;color:var(--primary,#6B4226)">Results — adjust if needed</h4>';
+      let html = '<div class="stock-results-list"><h4 style="margin:16px 0 12px;color:var(--band)">Results — adjust if needed</h4>';
       counts.forEach((item,i)=>{
         const match = ingredients.find(ing=>ing.name.toLowerCase().includes(item.name.toLowerCase()));
         const confidence = item.confidence === 'high' ? '🟢' : item.confidence === 'medium' ? '🟡' : '🔴';
@@ -262,12 +262,12 @@ async function openStockCount(location){
         try{
           await api('POST','/api/pos/planogram/confirm',{ counts: updates, logId });
           showError(''); // clear any error
-          modal.querySelector('.pos-modal').innerHTML = `<div style="text-align:center;padding:40px"><div style="font-size:2rem;margin-bottom:12px">✅</div><h3 style="color:var(--primary,#6B4226)">Stock Updated!</h3><p style="color:var(--text-light,#7A6355);margin-top:8px">${updates.length} items saved</p><button class="pos-btn pos-btn-primary" id="stockDone" style="margin-top:20px">Done</button></div>`;
+          modal.querySelector('.pos-modal').innerHTML = `<div style="text-align:center;padding:40px"><div style="font-size:2rem;margin-bottom:12px">✅</div><h3 style="color:var(--band)">Stock Updated!</h3><p style="color:var(--text-light);margin-top:8px">${updates.length} items saved</p><button class="pos-btn pos-btn-primary" id="stockDone" style="margin-top:20px">Done</button></div>`;
           modal.querySelector('#stockDone').onclick=()=>modal.remove();
         } catch(e){ showError('Failed to save stock'); }
       };
     } catch(e){
-      resultsEl.innerHTML = `<p style="color:var(--danger,#C0392B);text-align:center">Failed to analyze. Please try again.</p>`;
+      resultsEl.innerHTML = `<p style="color:var(--danger);text-align:center">Failed to analyze. Please try again.</p>`;
       btn.textContent = 'Retry Analysis';
       btn.disabled = false;
     }

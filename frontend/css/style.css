@@ -1,66 +1,179 @@
-/* === RLC Café POS — Modern Warm Café Theme === */
+/* === RLC Café POS — Deliberate Warm ==========================================
+   ONE PALETTE, ONE PLACE. Every colour in the frontend resolves from the tokens
+   below; there are no literal hexes in the rule bodies and no `var(--x,#hex)`
+   fallback copies, because a second copy of a palette is a palette that drifts.
+   (It already had: --cream-dark carried six different fallback values.)
+
+   THE WORLD — True paper (#FFFFFF) for everything you read ON; one warm quiet
+   fill (#EFEAE1) for everything you read PAST; espresso ink (#241A14) with a
+   warm secondary (#6B5A4C) and no grey anywhere; burnt orange (#B4531C) as the
+   single brand FILL, never as body text; and an espresso band — not a violet
+   one — for the ministry pre-order.
+
+   Light, not dark, and judged from the use scene rather than by category: the
+   POS is a glass tablet on a counter under window glare, where a bright ground
+   beats a mirror. The customer page is a phone at arm's length in a foyer, so
+   it is true paper; the POS and admin scan nine cards at 1.2m, so they take the
+   warm step (--board) and let the white cards lift off it.
+
+   THE ONE SYSTEM RULE — **--brand never appears on the POS board**, except the
+   header wordmark. Measured, a saturated burnt orange sits inside the warm band
+   this app's semantics already own:
+       --brand #B4531C vs --warning #A87700   ΔE 9.2 normal · 6.6 deutan   FAIL
+       --brand #B4531C vs --danger  #A81E13   ΔE 9.9 normal                FAIL
+   No orange the brief would recognise clears those, so the resolution is a rule
+   and not a hex. On the board the primary fill is espresso (--band) and the
+   confirm is the ready green (--ready-fill); no quantity figure, no accent fill
+   and no lane chrome uses --brand. The old --primary #6B4226 escaped this by
+   accident — chroma 0.07, half of #B4531C's — so it read as dark wood rather
+   than as a signal. The brand carries the customer pages, the admin headings
+   and the charts, where no status stripe competes.
+
+   Ratios in the comments are WCAG 2.1 contrast, computed from these values.
+   Body text needs 4.5:1, large text and meaningful graphics 3:1.
+   ========================================================================== */
 *{margin:0;padding:0;box-sizing:border-box}
 
 :root{
-  --primary:#6B4226;
-  --primary-light:#8B5E3C;
-  --primary-dark:#4A2C17;
-  --accent:#D4A574;
-  --accent-light:#E8C9A0;
-  --cream:#FFF8F0;
-  --cream-dark:#F5EDE4;
-  --bg:#FDFBF7;
-  --text:#3D2B1F;
-  --text-light:#7A6355;
-  --success:#2D8A4E;
-  --success-bg:#E8F5EC;
-  --warning:#C47F17;
-  --warning-bg:#FEF3C7;
-  --danger:#C0392B;
-  --danger-bg:#FDE8E8;
-  --info:#2563EB;
-  --info-bg:#EFF6FF;
-  --shadow-sm:0 1px 3px rgba(74,44,23,.08);
-  --shadow:0 4px 12px rgba(74,44,23,.1);
-  --shadow-lg:0 8px 24px rgba(74,44,23,.12);
-  --shadow-warm:0 4px 16px rgba(107,66,38,.15);
+  /* ---- surfaces ------------------------------------------------------------
+     --raised was #F4F1EC in the brief and measured 1.13:1 against white — the
+     invisible tint the direction was trying to escape. #EFEAE1 is the smallest
+     step that survives iPad glare, at 1.20:1. */
+  --page:#FFFFFF;              /* true paper: the customer + document ground   */
+  --board:#EFEAE1;             /* 1.20:1 vs a white card — the counter ground  */
+  --card:#FFFFFF;
+  --quiet:#EFEAE1;             /* read PAST this: strips, wells, quiet fills   */
+  --quiet-2:#E4DCD0;           /* the recessed step (stats strip, lanes)       */
+  --rule:#E0D8CC;              /* 1.41:1 — quiet hairline (incumbent was 1.16) */
+  --rule-strong:#C9BCA9;       /* 1.87:1 — a boundary that must survive glare  */
+  --field-bd:#8A7663;          /* 4.33:1 — WCAG 1.4.11 wants 3:1 on a control.
+                                  The shipped input border #E8C9A0 was 1.58:1,
+                                  so every input in the app failed 1.4.11.     */
+  --band:#3A2A1F;              /* the espresso band: every page header         */
+  --band-2:#241A14;
+  --on-band:#F6F1E9;           /* 12.20:1 on --band                            */
+  --on-band-2:#D8C9B8;         /*  8.47:1 on --band                            */
+  --tan:#D98A4E;               /* DECORATIVE ONLY — 2.73:1 on white. Dividers,
+                                  dashed nudges and hover borders; never the
+                                  sole carrier of meaning, never a resting
+                                  control border (use --field-bd for those).   */
+
+  /* ---- ink: no greys, every step tinted from the warm hue ---------------- */
+  --ink:#241A14;               /* 17.03:1 on paper — espresso, near-black      */
+  --ink-2:#6B5A4C;             /*  6.58:1 on a card · 5.49:1 on --board        */
+  --ink-quiet:#54453A;         /*  9.17:1 on a card — labels, micro-copy       */
+
+  /* ---- brand: --brand is a FILL/BORDER token, --brand-ink is the TEXT one.
+     #B4531C measures 4.18:1 on --quiet, under the body floor, so one token
+     could not do both jobs. Nothing in this file sets `color:var(--brand)`. */
+  --brand:#B4531C;             /* white on it = 5.01:1 · as a mark 5.01:1      */
+  --brand-ink:#8F3F11;         /*  7.27:1 on a card · 6.07:1 on --quiet        */
+  --brand-deep:#7A3610;        /* white on it = 8.89:1 — pressed / hover       */
+  --brand-light:#C97C40;       /* CHART / FILL ONLY — white on it is 3.26:1,
+                                  so it is never a text ground.               */
+  --brand-soft:#F9E8DB;        /* the brand tint; pair with --brand-soft-ink   */
+  --brand-soft-ink:#7A3610;    /*  6.09:1 on --brand-soft                      */
+  --on-brand:#FFFFFF;
+
+  /* ---- status: reserved semantics. Never a series colour, and every one of
+     them also carries a WORD on the card — a 5px border is never the only
+     channel. Separation, measured in OKLab: worst adjacent pair is
+     success↔urgent at ΔE 6.0 deutan (the incumbent's worst was 0.4). ------- */
+  --success:#0F6B3D;  --success-bg:#E2F1E7;
+  --ready-ink:#0B5230;         /*  7.94:1 on --success-bg                      */
+  --ready-fill:#136A3C;        /* white on it = 6.66:1 — the Mark-ready button */
+  --ready-fill-hi:#17804A;
+  --warning:#A87700;  --warning-bg:#FBF0D4;
+  --pending-ink:#7A5600;       /*  5.86:1 on --warning-bg · 6.65:1 on white.
+                                  --warning itself is 3.49:1 on its own tint,
+                                  so warning TEXT always uses this token.     */
+  --danger:#A81E13;   --danger-bg:#FCE7E4;
+  --info:#1A5FA8;     --info-bg:#E8F0F9;
+  --making-ink:#154B84;        /*  7.70:1 on --info-bg                         */
+  --urgent:#A81E13;   --urgent-tint:#FEF3F1;
+  --urgent-ink:#8C1109;        /*  9.55:1 on a card · 8.78:1 on --urgent-tint  */
+  --stale:#A81E13;
+  --stale-ink:#77170E;         /*  9.25:1 on --danger-bg                       */
+  --closed:#9B1710;            /* white on it = 8.32:1                         */
+  --archive-ink:#7A5600;       /*  6.65:1 on a card                            */
+
+  /* ---- a customer request the cashier must read. The note violet is retired
+     with the pre-order one: it was the same blue-violet pasted into a warm
+     world. Warm rust reads as "someone typed this at you". ----------------- */
+  --note-ink:#8F3F11;          /*  7.27:1 on a card · 6.09:1 on --note-bg      */
+  --note-bg:#F9E8DB;
+
+  /* ---- ministry pre-order. The violet does not survive: measured against
+     --info it was ΔE 0.4 (deutan) and 12.4 normal-vision — for a deutan
+     cashier PRE-ORDER and PREPARING were the same colour. The ribbon keeps
+     its shape and takes the world's own espresso ink, which is the
+     highest-contrast object on a white board and, being a neutral, cannot
+     collide with any status hue. 13.72:1 vs the card, up from 5.70:1. ------ */
+  --preorder:#3A2A1F;
+  --preorder-deep:#241A14;
+  --preorder-soft:#D8C9B8;     /* the later-service tone: 8.47:1 vs --preorder
+                                  (the violet pair managed 3.09:1)            */
+  --preorder-soft-ink:#3A2A1F; /*  8.47:1 on --preorder-soft                   */
+  --on-preorder:#F6F1E9;       /* 12.20:1 on --preorder                        */
+
+  /* ---- the one cool flag, kept deliberately. "Money has arrived" is not a
+     warm-band event, and indigo cannot be made to pass on hue alone against
+     --info (ΔE 10.9 normal / 6.2 deutan). Its channel is therefore SHAPE: a
+     full 2px outline round the card plus a filled RECEIPT SENT band. That
+     secondary encoding is mandatory, not decoration. -------------------- */
+  --receipt:#4338CA;           /* white on it = 7.90:1                         */
+
+  /* ---- disabled. 1.4.11 exempts an inactive control, so --disabled-bd is
+     allowed to be quiet; the LABEL still has to be readable, because a
+     disabled control has to explain why nothing is happening. ------------- */
+  --disabled-bg:#EDE7DE;
+  --disabled-bd:#D8CDBE;
+  --disabled-ink:#6B5A4C;      /*  5.35:1 on --disabled-bg                     */
+
+  /* ---- depth: rebased on espresso. Offset + soft blur, never a zero-offset
+     coloured halo. -------------------------------------------------------- */
+  --shadow-sm:0 1px 3px rgba(36,26,20,.10);
+  --shadow:0 4px 12px rgba(36,26,20,.13);
+  --shadow-lg:0 8px 24px rgba(36,26,20,.16);
+  --shadow-warm:0 4px 16px rgba(180,83,28,.18);
+  --urgent-glow:rgba(168,30,19,.34);
+  --receipt-glow:rgba(67,56,202,.28);
+  --warning-glow:rgba(168,119,0,.35);
+  --scrim:rgba(36,26,20,.6);   /* modal / sheet backdrop                       */
+  --scrim-soft:rgba(36,26,20,.34);
+
+  /* ---- shape + metrics: unchanged by the repaint ------------------------- */
   --radius:12px;
   --radius-lg:16px;
   --radius-xl:24px;
   --font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',sans-serif;
   --transition:all .2s ease;
-
-  /* --- Derived readable shades. The committed hues are kept; only the
-     lightness moves. Every ratio below was measured, not estimated.
-
-     Secondary text is tinted from the warm brown hue, never grey: the old
-     #9CA3AF greys were both off-world and unreadable at a metre (2.54:1 on a
-     white card), and they appeared on the one number a cashier reads under
-     time pressure — how long someone has been waiting. --- */
-  --ink-muted:#6B5647;         /* 6.89:1 on #fff · 6.67:1 on --bg · 5.95:1 on --cream-dark */
-  --ink-quiet:#5F4C3E;         /* 8.11:1 on #fff — labels, uppercase micro-copy */
-  --pending-ink:#7A4E06;       /* 6.46:1 on --warning-bg  (was --warning  2.95:1) */
-  --making-ink:#1E40AF;        /* 8.01:1 on --info-bg     (was --info     4.75:1) */
-  --ready-ink:#14603A;         /* 6.77:1 on --success-bg  (was --success  3.85:1) */
-  --ready-fill:#1B6B39;        /* white on it = 6.54:1 — the Mark-ready button */
-  --ready-fill-hi:#22804A;
-  --urgent-ink:#A62D20;        /* 6.96:1 on #fff · 6.36:1 on --urgent-tint */
-  --urgent-tint:#FEF2F2;
-  --preorder:#7C3AED;          /* the committed ribbon violet */
-  --preorder-deep:#6D28D9;
-  --preorder-soft:#C4B5FD;
-  --preorder-soft-ink:#4C1D95; /* 5.93:1 on --preorder-soft */
-  --receipt:#4338CA;           /* white on it = 7.90:1 */
-  --closed:#A31414;            /* white on it = 7.87:1 */
-  --stale:#B0271A;             /* white on it = 6.66:1 */
-  --stale-ink:#7A1F12;         /* 8.80:1 on --danger-bg */
-  --archive-ink:#8A5A0B;       /* 5.92:1 on #fff */
-  --note-ink:#5B21B6;          /* 8.98:1 on #fff */
-  --disabled-bg:#EFE7DC;
-  --disabled-bd:#DFD2C2;
-  --disabled-ink:#6B5647;      /* 5.62:1 on --disabled-bg — inert, still readable */
   --pos-hdr-h:56px;            /* one source of truth: header height, sidebar top */
   --tap:44px;                  /* the floor for every touch target */
+
+  /* ---- LEGACY NAMES. ~500 rule bodies across style.css, admin.css and the
+     page bundles still name these, and renaming all of them would bury the
+     palette change in noise. They are aliases, not a second palette: each one
+     resolves to exactly one token above. New code uses the names above.
+     --primary is deliberately NOT aliased — it meant "the brand fill" on the
+     customer pages and "the primary action" on the POS board, and those are now
+     two different colours, so every site was resolved explicitly instead. --- */
+  --bg:var(--page);
+  --cream:var(--quiet);
+  --cream-dark:var(--rule);
+  --accent:var(--tan);
+  --accent-light:var(--brand-soft);
+  --text:var(--ink);
+  --text-light:var(--ink-2);
+  --ink-muted:var(--ink-2);
+  --primary-light:var(--brand-light);   /* chart ramps only — see --brand-light */
+  --primary-dark:var(--brand-deep);
+  /* Never defined, so the FALLBACK was the live value and the old #6B4226
+     brown was pinned into the walk-up screen behind three tokens nobody could
+     grep for. Defined now, and pointed at the board's espresso. */
+  --brown:var(--band);
+  --white:var(--card);
+  --cream-lighter:var(--quiet);
 }
 
 body{
@@ -73,16 +186,18 @@ body{
   -webkit-font-smoothing:antialiased;
 }
 
-/* === Header === */
+/* === Header ===
+   Espresso, not the brand. The band is the same object on every page in the app
+   — customer, POS, admin — so the brand is free to mean "the thing you tap". */
 header{
-  background:linear-gradient(135deg,var(--primary-dark) 0%,var(--primary) 50%,var(--primary-light) 100%);
-  color:#fff;
+  background:linear-gradient(135deg,var(--band) 0%,var(--band-2) 100%);
+  color:var(--on-band);
   padding:18px 20px;
   text-align:center;
   position:sticky;
   top:0;
   z-index:100;
-  box-shadow:0 2px 12px rgba(74,44,23,.2);
+  box-shadow:0 2px 12px rgba(36,26,20,.28);
 }
 header h1{
   font-size:1.5rem;
@@ -109,7 +224,7 @@ header h1{
 }
 .closed-msg h2{
   font-size:1.6rem;
-  color:var(--primary);
+  color:var(--brand-ink);
   margin-bottom:12px;
 }
 .closed-msg p{
@@ -123,7 +238,7 @@ header h1{
   font-weight:600;
   display:block;
   margin-bottom:8px;
-  color:var(--primary);
+  color:var(--brand-ink);
   font-size:.95rem;
 }
 .name-section input{
@@ -139,39 +254,42 @@ header h1{
 }
 .name-section input:focus{
   outline:none;
-  border-color:var(--primary);
-  box-shadow:0 0 0 3px rgba(107,66,38,.1);
+  border-color:var(--brand);
+  box-shadow:0 0 0 3px rgba(180,83,28,.22);
   background:#fff;
 }
 
 /* === Celebration banner === */
 .celebration-banner{
-  background:linear-gradient(135deg,#FEF3C7 0%,#FDE68A 100%);
-  border:2px solid #F59E0B;
+  background:linear-gradient(135deg,var(--warning-bg) 0%,var(--brand-soft) 100%);
+  border:2px solid var(--warning);
   border-radius:var(--radius);
   padding:14px 16px;
   margin-bottom:16px;
   text-align:center;
   font-size:1rem;
-  color:#92400E;
+  color:var(--pending-ink);
   font-weight:600;
   animation:celebPulse 3s ease-in-out infinite;
 }
-@keyframes celebPulse{0%,100%{box-shadow:0 0 0 0 rgba(245,158,11,.2)}50%{box-shadow:0 0 0 8px rgba(245,158,11,0)}}
+@keyframes celebPulse{
+  0%,100%{box-shadow:0 0 0 0 var(--warning-glow),var(--shadow-sm)}
+  50%    {box-shadow:0 0 0 8px rgba(168,119,0,0),var(--shadow-sm)}
+}
 
 /* === Pre-order banner === */
 /* Indigo/purple to distinguish from the amber celebration banner. Sits
    at the top of the customer page whenever a valid ?code= is present. */
 .preorder-banner{
-  background:linear-gradient(135deg,#4F46E5 0%,#7C3AED 60%,#A855F7 100%);
-  color:#fff;
+  background:linear-gradient(135deg,var(--band) 0%,var(--band-2) 100%);
+  color:var(--on-band);
   border-radius:var(--radius);
   padding:14px 16px;
   margin-bottom:16px;
   display:flex;
   align-items:flex-start;
   gap:12px;
-  box-shadow:0 4px 12px rgba(124,58,237,.35);
+  box-shadow:var(--shadow);
 }
 .preorder-banner-icon{font-size:1.6rem;line-height:1;flex-shrink:0}
 .preorder-banner-text{flex:1;line-height:1.35;font-size:.95rem}
@@ -182,15 +300,15 @@ header h1{
    can tell at a glance which of the two links they opened. Shown when a valid
    staff code is present in ?code=. */
 .staff-banner{
-  background:linear-gradient(135deg,#0F766E 0%,#0D9488 60%,#14B8A6 100%);
-  color:#fff;
+  background:linear-gradient(135deg,var(--making-ink) 0%,var(--info) 100%);
+  color:var(--on-brand);
   border-radius:var(--radius);
   padding:14px 16px;
   margin-bottom:16px;
   display:flex;
   align-items:flex-start;
   gap:12px;
-  box-shadow:0 4px 12px rgba(13,148,136,.35);
+  box-shadow:var(--shadow);
 }
 .staff-banner-icon{font-size:1.6rem;line-height:1;flex-shrink:0}
 .staff-banner-text{flex:1;line-height:1.35;font-size:.95rem}
@@ -198,8 +316,8 @@ header h1{
 
 /* Collection-time picker section */
 .collection-section{
-  background:#F5F3FF;
-  border:1px solid #C4B5FD;
+  background:var(--quiet);
+  border:1px solid var(--rule-strong);
   border-radius:var(--radius);
   padding:14px 16px;
   margin-bottom:20px;
@@ -208,27 +326,27 @@ header h1{
   display:block;
   font-weight:700;
   font-size:.9rem;
-  color:#4C1D95;
+  color:var(--preorder);
   margin-bottom:8px;
 }
 .collection-picker{
   width:100%;
   padding:12px 14px;
-  border:2px solid #C4B5FD;
+  border:2px solid var(--field-bd);
   border-radius:12px;
   font-size:1rem;
   background:#fff;
-  color:var(--text,#3D2B1F);
+  color:var(--text);
   font-family:inherit;
 }
 .collection-picker:focus{
   outline:none;
-  border-color:#7C3AED;
-  box-shadow:0 0 0 3px rgba(124,58,237,.15);
+  border-color:var(--preorder);
+  box-shadow:0 0 0 3px rgba(58,42,31,.22);
 }
 .collection-hint{
   font-size:.78rem;
-  color:#6D28D9;
+  color:var(--ink-2);
   opacity:.85;
   margin-top:6px;
 }
@@ -256,34 +374,34 @@ header h1{
 .collection-radio > span{
   display:inline-block;
   padding:10px 16px;
-  border:2px solid #C4B5FD;
+  border:2px solid var(--field-bd);
   border-radius:999px;
   background:#fff;
-  color:#4C1D95;
+  color:var(--preorder);
   font-weight:600;
   font-size:.95rem;
   transition:all .15s ease;
 }
 .collection-radio:hover > span{
-  background:#F5F3FF;
-  border-color:#8B5CF6;
+  background:var(--quiet);
+  border-color:var(--preorder);
 }
 .collection-radio input[type="radio"]:checked + span{
-  background:#7C3AED;
-  color:#fff;
-  border-color:#6D28D9;
-  box-shadow:0 2px 8px rgba(124,58,237,.35);
+  background:var(--preorder);
+  color:var(--on-preorder);
+  border-color:var(--preorder-deep);
+  box-shadow:var(--shadow-sm);
 }
 .collection-radio input[type="radio"]:focus-visible + span{
-  outline:2px solid #A855F7;
+  outline:2px solid var(--brand);
   outline-offset:2px;
 }
 
 /* Green FREE pill next to prices in pre-order mode */
 .free-badge{
   display:inline-block;
-  background:linear-gradient(180deg,#10B981 0%,#059669 100%);
-  color:#fff;
+  background:linear-gradient(180deg,var(--success) 0%,var(--ready-fill) 100%);
+  color:var(--on-brand);
   font-size:.72rem;
   font-weight:800;
   letter-spacing:.05em;
@@ -291,19 +409,19 @@ header h1{
   border-radius:999px;
   vertical-align:baseline;
   margin-left:4px;
-  box-shadow:0 1px 3px rgba(16,185,129,.35);
+  box-shadow:0 1px 3px rgba(15,107,61,.35);
 }
 
 /* === Queue info === */
 .queue-info{
   background:var(--warning-bg);
-  border:1px solid #F5D789;
+  border:1px solid var(--warning);
   border-radius:var(--radius);
   padding:14px 16px;
   margin-bottom:20px;
   text-align:center;
   font-size:.9rem;
-  color:var(--warning);
+  color:var(--pending-ink);
   font-weight:500;
 }
 
@@ -314,7 +432,7 @@ header h1{
   margin:28px 0 14px;
   padding-bottom:8px;
   border-bottom:3px solid var(--accent);
-  color:var(--primary);
+  color:var(--brand-ink);
   display:flex;
   align-items:center;
   gap:8px;
@@ -336,8 +454,8 @@ header h1{
 }
 .menu-item-pinned{
   border:2px solid var(--accent);
-  background:linear-gradient(135deg,#FFFDF7 0%,#FFF8F0 100%);
-  box-shadow:var(--shadow),0 0 0 1px var(--accent-light);
+  background:linear-gradient(135deg,var(--card) 0%,var(--brand-soft) 100%);
+  box-shadow:var(--shadow),0 0 0 1px var(--brand);
 }
 /* Top row of the card: thumbnail on the left, text info on the right. */
 .menu-item-header{
@@ -369,7 +487,7 @@ header h1{
   margin:2px 0 6px;
   font-size:.78rem;
   font-style:italic;
-  color:var(--text-light,#7A6355);
+  color:var(--text-light);
   line-height:1.35;
   display:-webkit-box;
   -webkit-line-clamp:2;
@@ -386,14 +504,14 @@ header h1{
 }
 .menu-item .item-description{
   font-size:.82rem;
-  color:var(--text-light,#7A6355);
+  color:var(--text-light);
   margin-bottom:6px;
   line-height:1.35;
 }
 .menu-item .item-price{
   display:inline-block;
   margin-top:6px;
-  color:var(--primary);
+  color:var(--brand-ink);
   font-weight:800;
   font-size:1.05rem;
   background:var(--cream);
@@ -482,7 +600,7 @@ header h1{
   align-self:center;
 }
 .layout-toggle{
-  width:40px;height:40px;border:1px solid var(--cream-dark);border-radius:var(--radius);
+  width:40px;height:40px;border:1px solid var(--rule-strong);border-radius:var(--radius);
   background:#fff;font-size:1.2rem;cursor:pointer;display:flex;align-items:center;justify-content:center;
 }
 
@@ -495,7 +613,7 @@ header h1{
 }
 .variants button{
   padding:8px 16px;
-  border:2px solid var(--cream-dark);
+  border:2px solid var(--rule-strong);
   border-radius:24px;
   background:#fff;
   font-size:.85rem;
@@ -511,10 +629,10 @@ header h1{
   background:var(--cream);
 }
 .variants button.active{
-  background:var(--primary);
+  background:var(--brand);
   color:#fff;
-  border-color:var(--primary);
-  box-shadow:0 2px 8px rgba(107,66,38,.25);
+  border-color:var(--brand);
+  box-shadow:var(--shadow-sm);
 }
 .variant-groups{margin-bottom:14px}
 .variant-group{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px}
@@ -541,13 +659,13 @@ header h1{
   color:var(--ink-muted);
 }
 .vg-btn{
-  padding:8px 16px;border:2px solid var(--cream-dark);border-radius:24px;
+  padding:8px 16px;border:2px solid var(--rule-strong);border-radius:24px;
   background:#fff;font-size:.85rem;min-height:44px;min-width:44px;
   cursor:pointer;transition:var(--transition);font-weight:500;color:var(--text);
   display:inline-flex;align-items:center;gap:5px;
 }
 .vg-btn:hover{border-color:var(--accent);background:var(--cream)}
-.vg-btn.active{background:var(--primary);color:#fff;border-color:var(--primary);box-shadow:0 2px 8px rgba(107,66,38,.25)}
+.vg-btn.active{background:var(--brand);color:#fff;border-color:var(--brand);box-shadow:var(--shadow-sm)}
 /* Selection is never carried by colour alone. */
 .vg-btn[aria-pressed="true"]::before{content:"✓";font-weight:800;font-size:.8rem}
 
@@ -575,9 +693,9 @@ header h1{
   min-height:var(--tap);
   padding:0 14px;
   background:var(--cream);
-  border:1px solid var(--cream-dark);
+  border:1px solid var(--rule-strong);
   border-radius:999px;
-  color:var(--primary);
+  color:var(--brand-ink);
   font-family:inherit;
   font-weight:700;
   font-size:.82rem;
@@ -599,7 +717,7 @@ header h1{
   width:44px;
   height:44px;
   border-radius:50%;
-  border:2px solid var(--cream-dark);
+  border:2px solid var(--rule-strong);
   background:#fff;
   font-size:1.3rem;
   cursor:pointer;
@@ -607,7 +725,7 @@ header h1{
   align-items:center;
   justify-content:center;
   transition:var(--transition);
-  color:var(--primary);
+  color:var(--brand-ink);
   font-weight:600;
 }
 .qty-controls button:hover{
@@ -616,7 +734,7 @@ header h1{
 }
 .qty-controls button:active{
   transform:scale(.92);
-  background:var(--accent-light);
+  background:var(--brand-soft);
 }
 .qty-controls button:disabled{
   opacity:.4;
@@ -627,7 +745,7 @@ header h1{
   font-weight:700;
   min-width:28px;
   text-align:center;
-  color:var(--primary);
+  color:var(--brand-ink);
 }
 
 /* === Cart bar === */
@@ -636,7 +754,7 @@ header h1{
   bottom:16px;
   left:16px;
   right:16px;
-  background:linear-gradient(135deg,var(--primary) 0%,var(--primary-light) 100%);
+  background:var(--brand);
   color:#fff;
   padding:16px 24px;
   display:flex;
@@ -647,7 +765,7 @@ header h1{
   min-height:60px;
   border-radius:var(--radius-lg);
   transition:transform .3s ease,opacity .3s ease;
-  box-shadow:0 4px 24px rgba(74,44,23,.3);
+  box-shadow:0 6px 24px rgba(36,26,20,.34);
 }
 .cart-bar.hidden{transform:translateY(calc(100% + 32px));opacity:0}
 .cart-bar .cart-count{font-weight:600;font-size:.9rem;opacity:.9}
@@ -660,7 +778,7 @@ header h1{
 .cart-overlay{
   position:fixed;
   inset:0;
-  background:rgba(61,43,31,.6);
+  background:var(--scrim);
   backdrop-filter:blur(4px);
   -webkit-backdrop-filter:blur(4px);
   z-index:300;
@@ -713,14 +831,14 @@ header h1{
   /* The scrollbar is part of the design too — the default cool grey belongs to
      no palette in this file. */
   scrollbar-width:thin;
-  scrollbar-color:var(--accent) var(--cream-dark);
+  scrollbar-color:var(--field-bd) var(--quiet-2);
 }
 .cart-panel-scroll::-webkit-scrollbar{width:9px}
-.cart-panel-scroll::-webkit-scrollbar-track{background:var(--cream-dark)}
+.cart-panel-scroll::-webkit-scrollbar-track{background:var(--quiet-2)}
 .cart-panel-scroll::-webkit-scrollbar-thumb{
-  background:var(--accent);
+  background:var(--field-bd);
   border-radius:99px;
-  border:2px solid var(--cream-dark);
+  border:2px solid var(--quiet-2);
 }
 .cart-panel-foot{
   flex:0 0 auto;
@@ -728,11 +846,11 @@ header h1{
   border-top:1px solid var(--cream-dark);
   background:#fff;
   /* Offset + soft blur, upward: an edge that says "there is more above me". */
-  box-shadow:0 -6px 14px rgba(74,44,23,.07);
+  box-shadow:0 -6px 14px rgba(36,26,20,.09);
 }
 .cart-panel h2{
   font-size:1.3rem;
-  color:var(--primary);
+  color:var(--brand-ink);
 }
 /* Cart row: name + ✕ on one line, the drink's own note input full-width
    beneath it. Stacked rather than inline so the note stays tappable at ~390px
@@ -754,21 +872,21 @@ header h1{
 .cart-item-note{
   width:100%;
   padding:9px 12px;
-  border:1px solid var(--cream-dark);
+  border:1px solid var(--field-bd);
   border-radius:10px;
-  background:var(--cream,#FFF8F0);
+  background:var(--cream);
   font-family:inherit;
   font-size:.88rem;
   color:var(--text);
   box-sizing:border-box;
   min-height:40px;
 }
-.cart-item-note::placeholder{color:var(--text-light);opacity:.8}
+.cart-item-note::placeholder{color:var(--ink-2)}   /* 5.49:1 — `opacity:.8` composited this to 3.62:1 */
 .cart-item-note:focus{
   outline:none;
-  border-color:var(--accent,#D4A574);
+  border-color:var(--accent);
   background:#fff;
-  box-shadow:0 0 0 3px rgba(212,165,116,.25);
+  box-shadow:0 0 0 3px rgba(217,138,78,.3);
 }
 .cart-item .cart-item-info{flex:1;min-width:0}
 .cart-item .cart-item-name{font-weight:600;font-size:1rem;color:var(--text)}
@@ -780,7 +898,7 @@ header h1{
   flex:0 0 auto;
   font-weight:800;
   font-size:1rem;
-  color:var(--primary);
+  color:var(--brand-ink);
   white-space:nowrap;
   font-variant-numeric:tabular-nums;
   font-feature-settings:"tnum";
@@ -807,7 +925,7 @@ header h1{
   width:36px;
   height:36px;
   border-radius:50%;
-  border:2px solid var(--cream-dark);
+  border:2px solid var(--rule-strong);
   background:#fff;
   cursor:pointer;
   font-size:1rem;
@@ -817,7 +935,7 @@ header h1{
   justify-content:center;
 }
 .cart-item-actions button:hover{border-color:var(--accent);background:var(--cream)}
-.cart-item-actions .remove-btn{color:var(--danger);border-color:#F5C6C6}
+.cart-item-actions .remove-btn{color:var(--danger);border-color:var(--danger)}
 .cart-item-actions .remove-btn:hover{background:var(--danger-bg)}
 
 /* Inside the pinned foot the two elements are a tight pair, not two sections. */
@@ -830,7 +948,7 @@ header h1{
 .cart-submit{
   width:100%;
   padding:16px;
-  background:linear-gradient(135deg,var(--primary) 0%,var(--primary-light) 100%);
+  background:var(--brand);
   color:#fff;
   border:none;
   border-radius:var(--radius);
@@ -845,7 +963,8 @@ header h1{
 .cart-submit:hover{transform:translateY(-1px);box-shadow:var(--shadow-lg)}
 .cart-submit:active{transform:translateY(0)}
 .cart-submit:disabled{
-  background:#C4B5A8;
+  background:var(--disabled-bg);
+  color:var(--disabled-ink);
   cursor:not-allowed;
   box-shadow:none;
   transform:none;
@@ -887,9 +1006,9 @@ header h1{
   transition:var(--transition);
 }
 .track-step.active .step-dot{
-  background:var(--primary);
+  background:var(--brand);
   color:#fff;
-  box-shadow:0 2px 8px rgba(107,66,38,.3);
+  box-shadow:var(--shadow-sm);
 }
 .track-step .step-label{
   font-size:.75rem;
@@ -897,7 +1016,7 @@ header h1{
   color:var(--text-light);
 }
 .track-step.active .step-label{
-  color:var(--primary);
+  color:var(--brand-ink);
 }
 .track-step-line{
   width:40px;
@@ -909,7 +1028,7 @@ header h1{
   transition:var(--transition);
 }
 .track-step-line.active{
-  background:var(--primary);
+  background:var(--brand);
 }
 .status-indicator{
   margin:28px 0;
@@ -920,20 +1039,20 @@ header h1{
 }
 .status-PENDING{
   background:var(--warning-bg);
-  border:2px solid #F5D789;
+  border:2px solid var(--warning);
 }
 .status-PREPARING{
   background:var(--info-bg);
-  border:2px solid #93C5FD;
+  border:2px solid var(--info);
 }
 .status-READY{
   background:var(--success-bg);
-  border:2px solid #6EE7A0;
+  border:2px solid var(--success);
   animation:gentlePulse 2s ease-in-out infinite;
 }
 .status-CANCELLED,.status-EXPIRED{
   background:var(--danger-bg);
-  border:2px solid #F5A5A5;
+  border:2px solid var(--danger);
 }
 @keyframes gentlePulse{0%,100%{transform:scale(1)}50%{transform:scale(1.01)}}
 .status-indicator.pulse{animation:statusCelebrate .6s ease}
@@ -947,7 +1066,7 @@ header h1{
   font-size:1rem;
   color:var(--text-light);
 }
-.status-READY h2{font-size:1.8rem;color:var(--success)}
+.status-READY h2{font-size:1.8rem;color:var(--ready-ink)}   /* 9.28:1 on --success-bg */
 
 /* === PREPARING: the wait ===
    On this one screen "how long?" is the only question left, and it used to be the
@@ -963,7 +1082,7 @@ header h1{
   margin:-16px 0 22px;
   padding:14px 18px;
   background:#fff;
-  border:1px solid #93C5FD;
+  border:1px solid var(--info);
   border-radius:var(--radius-lg);
   box-shadow:var(--shadow-sm);
 }
@@ -997,7 +1116,7 @@ header h1{
 }
 .order-details h3{
   margin-bottom:12px;
-  color:var(--primary);
+  color:var(--brand-ink);
   font-size:1.1rem;
 }
 .order-details ul{list-style:none}
@@ -1015,7 +1134,7 @@ header h1{
 .order-item-note{
   display:block;
   font-size:.82rem;
-  color:#7C3AED;
+  color:var(--note-ink);
   margin-top:3px;
   overflow-wrap:anywhere;
 }
@@ -1024,7 +1143,7 @@ header h1{
   margin-top:14px;
   text-align:right;
   font-size:1.15rem;
-  color:var(--primary);
+  color:var(--brand-ink);
 }
 
 /* === T3: "you can still edit this order" prompt ===
@@ -1041,15 +1160,15 @@ header h1{
   text-align:left;
   margin:-8px 0 20px;
   padding:14px 16px;
-  background:var(--cream,#FFF8F0);
-  border:1px dashed var(--accent,#D4A574);
+  background:var(--cream);
+  border:1px dashed var(--accent);
   border-radius:var(--radius-lg);
 }
 .track-edit-nudge-text{
   flex:1 1 180px;
   font-size:.9rem;
   line-height:1.35;
-  color:var(--text,#3D2B1F);
+  color:var(--text);
 }
 .track-edit-nudge-btn{
   flex:0 0 auto;
@@ -1060,14 +1179,14 @@ header h1{
 
 /* === Free ministry pre-order notice (replaces the payment block) === */
 .preorder-notice{
-  border-color:#C4B5FD;
-  background:#FAF8FF;
+  border-color:var(--preorder-soft);
+  background:var(--quiet);
 }
-.preorder-notice h3{color:#5B21B6}
+.preorder-notice h3{color:var(--preorder)}
 .preorder-collect{
   margin-top:10px;
   font-size:.95rem;
-  color:var(--text,#3D2B1F);
+  color:var(--text);
 }
 
 /* === Payment section === */
@@ -1081,7 +1200,7 @@ header h1{
   text-align:center;
 }
 .payment-section h3{
-  color:var(--primary);
+  color:var(--brand-ink);
   margin-bottom:16px;
 }
 /* One payment method — the DuitNow QR printed on the café tables — and two ways
@@ -1091,7 +1210,7 @@ header h1{
 .pay-method{
   font-size:1.05rem;
   font-weight:700;
-  color:var(--primary);
+  color:var(--brand-ink);
   line-height:1.35;
 }
 .pay-method-note{
@@ -1119,7 +1238,7 @@ header h1{
 .upload-btn{
   display:inline-block;
   padding:12px 24px;
-  background:linear-gradient(135deg,var(--primary) 0%,var(--primary-light) 100%);
+  background:var(--brand);
   color:#fff;
   border-radius:var(--radius);
   font-weight:600;
@@ -1154,21 +1273,21 @@ header h1{
 }
 .pay-counter-btn{
   background:#fff;
-  border:2px solid var(--primary);
-  color:var(--primary);
+  border:2px solid var(--brand);
+  color:var(--brand-ink);
   transition:var(--transition);
 }
 .pay-counter-btn:hover{background:var(--cream)}
-.upload-progress{color:var(--primary);font-weight:500;margin-top:12px;animation:gentlePulse 1.5s ease-in-out infinite}
+.upload-progress{color:var(--brand-ink);font-weight:500;margin-top:12px;animation:gentlePulse 1.5s ease-in-out infinite}
 .upload-error{color:var(--danger);font-weight:500;margin-top:12px}
 .receipt-uploaded{
   background:var(--success-bg);
-  border:1px solid #6EE7A0;
+  border:1px solid var(--success);
   border-radius:var(--radius);
   padding:14px;
   margin-top:16px;
   font-weight:600;
-  color:var(--success);
+  color:var(--ready-ink);
 }
 
 /* === Order edit mode === */
@@ -1181,9 +1300,9 @@ header h1{
 }
 .edit-btn{
   padding:12px 24px;
-  border:2px solid var(--primary,#6B4226);
+  border:2px solid var(--brand);
   background:#fff;
-  color:var(--primary,#6B4226);
+  color:var(--brand-ink);
   border-radius:var(--radius);
   font-size:1rem;
   font-weight:600;
@@ -1191,7 +1310,7 @@ header h1{
   min-height:48px;
   transition:var(--transition);
 }
-.edit-btn:hover{background:var(--cream,#FFF8F0)}
+.edit-btn:hover{background:var(--cream)}
 /* Edit-mode item row. Column direction so the per-item note input (and the
    tap-to-expand variant picker, which was previously laid out BESIDE the name
    row rather than under it) each get their own full-width line. The name and
@@ -1202,26 +1321,26 @@ header h1{
   align-items:stretch;
   gap:8px;
   padding:10px 0;
-  border-bottom:1px solid var(--cream-dark,#F5EDE4);
+  border-bottom:1px solid var(--cream-dark);
 }
 .edit-item-note{
   width:100%;
   padding:8px 11px;
-  border:1px solid var(--cream-dark,#F5EDE4);
+  border:1px solid var(--field-bd);
   border-radius:10px;
-  background:var(--cream,#FFF8F0);
+  background:var(--cream);
   font-family:inherit;
   font-size:.85rem;
-  color:var(--text,#3D2B1F);
+  color:var(--text);
   box-sizing:border-box;
   min-height:38px;
 }
-.edit-item-note::placeholder{color:var(--text-light,#7A6355);opacity:.8}
+.edit-item-note::placeholder{color:var(--ink-2)}   /* same: the opacity was the contrast bug */
 .edit-item-note:focus{
   outline:none;
-  border-color:var(--accent,#D4A574);
+  border-color:var(--accent);
   background:#fff;
-  box-shadow:0 0 0 3px rgba(212,165,116,.25);
+  box-shadow:0 0 0 3px rgba(217,138,78,.3);
 }
 .edit-item-name{font-weight:500;font-size:.95rem}
 .edit-item-controls{
@@ -1233,7 +1352,7 @@ header h1{
   width:32px;
   height:32px;
   border-radius:50%;
-  border:2px solid var(--cream-dark,#F5EDE4);
+  border:2px solid var(--rule-strong);
   background:#fff;
   font-size:1.1rem;
   cursor:pointer;
@@ -1241,17 +1360,17 @@ header h1{
   align-items:center;
   justify-content:center;
   transition:var(--transition);
-  color:var(--primary,#6B4226);
+  color:var(--brand-ink);
 }
-.edit-qty-btn:hover{border-color:var(--accent,#D4A574);background:var(--cream,#FFF8F0)}
+.edit-qty-btn:hover{border-color:var(--accent);background:var(--cream)}
 .edit-qty{font-weight:700;min-width:24px;text-align:center}
 .edit-remove-btn{
   width:32px;
   height:32px;
   border-radius:50%;
   border:none;
-  background:var(--danger-bg,#FDE8E8);
-  color:var(--danger,#C0392B);
+  background:var(--danger-bg);
+  color:var(--danger);
   font-size:.9rem;
   cursor:pointer;
   display:flex;
@@ -1266,15 +1385,15 @@ header h1{
 
 .flagged-warning{
   background:var(--warning-bg);
-  border:1px solid #F5D789;
+  border:1px solid var(--warning);
   border-radius:var(--radius);
   padding:16px;
   margin:20px 0;
   text-align:left;
 }
-.flagged-warning strong{color:var(--warning)}
+.flagged-warning strong{color:var(--pending-ink)}   /* --warning is 3.49:1 on its own tint */
 .flagged-warning a{
-  color:var(--primary);
+  color:var(--brand-ink);
   font-weight:700;
   text-decoration:underline;
 }
@@ -1361,7 +1480,7 @@ header h1{
   animation:scaleIn .4s ease;
 }
 .order-success h2{
-  color:var(--primary);
+  color:var(--brand-ink);
   font-size:1.5rem;
   margin-bottom:8px;
 }
@@ -1394,12 +1513,12 @@ header h1{
 }
 .load-failure.is-stale{
   background:var(--danger-bg);
-  border-color:#F0C9C4;
+  border-color:var(--danger);
 }
 .load-failure-icon{font-size:2.2rem;line-height:1}
 .load-failure h2{
   font-size:1.25rem;
-  color:var(--primary);
+  color:var(--brand-ink);
   margin:10px 0 8px;
   text-wrap:balance;
 }
@@ -1426,7 +1545,7 @@ header h1{
 }
 .load-failure-btn{
   border:none;
-  background:linear-gradient(135deg,var(--primary) 0%,var(--primary-light) 100%);
+  background:var(--brand);
   color:#fff;
   box-shadow:var(--shadow-warm);
 }
@@ -1440,8 +1559,8 @@ header h1{
 .load-failure-btn-ghost{
   display:inline-block;
   background:#fff;
-  border:2px solid var(--primary);
-  color:var(--primary);
+  border:2px solid var(--brand);
+  color:var(--brand-ink);
   text-decoration:none;
   line-height:calc(var(--tap) - 4px);
 }
@@ -1463,15 +1582,15 @@ header h1{
    ======================================== */
 
 .pos-header{
-  background:linear-gradient(135deg,#1a1a2e 0%,#2d2d44 100%);
-  color:#fff;
+  background:linear-gradient(135deg,var(--band) 0%,var(--band-2) 100%);
+  color:var(--on-band);
   padding:6px 12px;
   min-height:var(--pos-hdr-h);
   text-align:center;
   position:sticky;
   top:0;
   z-index:200;
-  box-shadow:0 2px 12px rgba(0,0,0,.2);
+  box-shadow:var(--shadow);
   display:flex;
   align-items:center;
   gap:8px;
@@ -1546,19 +1665,29 @@ header h1{
    same thumbs. "Check for update" was a 91×14 text link, a real control well below
    the tap floor. Scoped to the POS shell so the customer-facing pages keep their
    existing footer proportions. */
+/* The counter-iPad GROUND. The customer page is true paper because it is one
+   column at arm's length with nothing to compare card-against-card; the POS
+   scans nine white cards at 1.2m under window glare, and a white card on a
+   white page is a step that is not there. Measured, --board lifts a card by
+   1.20:1 where the incumbent cream page managed 1.05:1. Outside the 700px
+   media query above, because a phone-width cashier gets the same ground. */
+body.pos-shell{background:var(--board)}
 body.pos-shell .app-footer{min-height:var(--tap)}
 body.pos-shell .app-version{opacity:.9;font-weight:600}
+/* …and the footer's update link is the one place the brand would otherwise
+   reach the POS, so it takes the warm neutral instead. */
 body.pos-shell .check-update-btn{
   min-height:var(--tap);padding:0 12px;opacity:1;font-weight:700;
+  color:var(--ink-quiet);
 }
 /* Keyboard focus, themed from the palette rather than left at the browser's
    default. Scoped to the POS shell so the customer-facing pages are untouched. */
 body.pos-shell :focus-visible{
-  outline:3px solid var(--primary);
+  outline:3px solid var(--ink);
   outline-offset:2px;
   border-radius:4px;
 }
-body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
+body.pos-shell .pos-header :focus-visible{outline-color:var(--on-band-2)}
 
 /* === POS Login === */
 .pos-login{
@@ -1573,13 +1702,13 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
 }
 .pos-login h2{
   margin-bottom:24px;
-  color:var(--primary);
+  color:var(--band);
   font-size:1.4rem;
 }
 .pos-input{
   width:100%;
   padding:14px 16px;
-  border:2px solid var(--cream-dark);
+  border:2px solid var(--field-bd);
   border-radius:var(--radius);
   font-size:1rem;
   min-height:48px;
@@ -1590,15 +1719,15 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
 }
 .pos-input:focus{
   outline:none;
-  border-color:var(--primary);
+  border-color:var(--band);
   background:#fff;
-  box-shadow:0 0 0 3px rgba(107,66,38,.1);
+  box-shadow:0 0 0 3px rgba(58,42,31,.22);
 }
 
 /* === POS Buttons === */
 .pos-btn{
   padding:10px 18px;
-  border:2px solid var(--cream-dark);
+  border:2px solid var(--rule-strong);
   border-radius:var(--radius);
   background:#fff;
   font-size:.9rem;
@@ -1615,8 +1744,8 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
    controls row and inside modals, all of it thumb-operated on the counter
    tablet, so it keeps the 44px floor and only loses horizontal padding. */
 .pos-btn-sm{padding:9px 14px;font-size:.82rem;min-height:var(--tap);border-radius:10px}
-.pos-btn-outline{background:var(--cream,#f9f5f0);border-color:var(--primary,#6B4226);color:var(--primary,#6B4226)}
-.pos-btn-outline:hover{background:var(--primary,#6B4226);color:#fff}
+.pos-btn-outline{background:var(--quiet);border-color:var(--band);color:var(--band)}
+.pos-btn-outline:hover{background:var(--band);color:#fff}
 .pos-btn-lg{
   padding:14px 24px;
   font-size:1.05rem;
@@ -1626,27 +1755,27 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
   border-radius:var(--radius);
 }
 .pos-btn-primary{
-  background:linear-gradient(135deg,var(--primary) 0%,var(--primary-light) 100%);
+  background:var(--band);
   color:#fff;
-  border-color:var(--primary);
-  box-shadow:0 2px 8px rgba(107,66,38,.2);
+  border-color:var(--band);
+  box-shadow:var(--shadow-sm);
 }
 .pos-btn-primary:hover{
-  box-shadow:0 4px 12px rgba(107,66,38,.3);
-  background:linear-gradient(135deg,var(--primary-light) 0%,var(--primary) 100%);
+  box-shadow:var(--shadow);
+  background:var(--band-2);
 }
 .pos-btn-danger{
-  background:linear-gradient(135deg,var(--danger) 0%,#E74C3C 100%);
+  background:var(--danger);
   color:#fff;
   border-color:var(--danger);
-  box-shadow:0 2px 8px rgba(192,57,43,.2);
+  box-shadow:var(--shadow-sm);
 }
-.pos-btn-danger:hover{box-shadow:0 4px 12px rgba(192,57,43,.3);background:linear-gradient(135deg,#c0392b 0%,#d63031 100%);color:#fff}
+.pos-btn-danger:hover{box-shadow:var(--shadow);background:var(--stale-ink);border-color:var(--stale-ink);color:#fff}
 .pos-btn.active{
-  background:linear-gradient(135deg,#7C3AED 0%,#9F67FF 100%);
+  background:var(--band);
   color:#fff;
-  border-color:#7C3AED;
-  box-shadow:0 2px 8px rgba(124,58,237,.25);
+  border-color:var(--band);
+  box-shadow:var(--shadow-sm);
 }
 /* "Mark ready" is the OTHER quick action, so it gets the OTHER colour family.
    Approve and Ready were the same brown pill in the same slot on the card, which
@@ -1656,8 +1785,8 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
 .pos-btn-ready{
   background:linear-gradient(135deg,var(--ready-fill) 0%,var(--ready-fill-hi) 100%);
   color:#fff;
-  border-color:#155C30;
-  box-shadow:0 2px 8px rgba(21,92,48,.24);
+  border-color:var(--ready-ink);
+  box-shadow:var(--shadow-sm);
 }
 .pos-btn-ready:hover{
   background:linear-gradient(135deg,var(--ready-fill-hi) 0%,var(--ready-fill) 100%);
@@ -1670,17 +1799,17 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
    beside it, and legible at 6.99:1. */
 .pos-btn-secondary{
   background:var(--cream-dark);
-  border-color:#E0D2BE;
+  border-color:var(--rule-strong);
   color:var(--ink-quiet);
   font-weight:700;
 }
-.pos-btn-secondary:hover{background:#EDE1D2;border-color:var(--accent);color:var(--text)}
+.pos-btn-secondary:hover{background:var(--quiet-2);border-color:var(--accent);color:var(--text)}
 
 /* READY → collected: the lane's own family, but outlined. Handing a drink over
    is the end of the job, not another advance, so it does not compete with
    Approve or Mark ready for attention. */
-.pos-btn-collect{background:var(--cream);border-color:var(--ready-fill);color:#124F2B}
-.pos-btn-collect:hover{background:var(--success-bg);border-color:var(--ready-fill);color:#124F2B}
+.pos-btn-collect{background:var(--quiet);border-color:var(--ready-fill);color:var(--ready-ink)}
+.pos-btn-collect:hover{background:var(--success-bg);border-color:var(--ready-fill);color:var(--ready-ink)}
 
 /* The disabled state that did not exist. There was ONE partial variant —
    `.pos-btn-preorder-release[disabled]{opacity:.6;cursor:default}` — so every
@@ -1735,7 +1864,7 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
 .pos-user{
   font-weight:700;
   margin-right:auto;
-  color:var(--primary);
+  color:var(--band);
   font-size:.95rem;
   display:flex;
   align-items:center;
@@ -1762,12 +1891,12 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
   letter-spacing:.08em;
   border:1px solid transparent;
 }
-.pos-status-chip.is-open{color:#053C2C;background:#B7F3D6;border-color:#10B981}     /* 9.95:1 */
-.pos-status-chip.is-closed{color:#fff;background:var(--closed);border-color:#7F1D1D} /* 7.87:1 */
-.pos-status-chip.is-stale{color:#3B2A12;background:var(--accent-light);border-color:#B98B4E} /* 8.71:1 */
+.pos-status-chip.is-open{color:var(--ready-ink);background:var(--success-bg);border-color:var(--success)}   /* 7.94:1 */
+.pos-status-chip.is-closed{color:#fff;background:var(--closed);border-color:var(--stale-ink)} /* 7.87:1 */
+.pos-status-chip.is-stale{color:var(--pending-ink);background:var(--warning-bg);border-color:var(--warning)} /* 5.86:1 */
 .pos-status-dot.open{
   background:var(--success);
-  box-shadow:0 0 6px rgba(45,138,78,.5);
+  box-shadow:0 1px 6px rgba(15,107,61,.55);
   animation:dotPulse 2s ease-in-out infinite;
 }
 /* Closed is a STATE, not an absence — it gets the closed hue, not a grey that
@@ -1778,7 +1907,7 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
 }
 .pos-status-dot.stale{
   background:var(--stale);
-  box-shadow:0 0 0 2px rgba(176,39,26,.25);
+  box-shadow:0 1px 5px var(--urgent-glow);
 }
 @keyframes dotPulse{0%,100%{opacity:1}50%{opacity:.5}}
 
@@ -1803,13 +1932,13 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
   align-items:baseline;
   gap:5px;
   padding:3px 10px 3px 0;
-  border-right:1px solid #E4D6C4;
+  border-right:1px solid var(--rule-strong);
 }
 .pos-stat:last-child{border-right:0}
 .pos-stat-num{
   font-size:1.3rem;
   font-weight:800;
-  color:var(--primary);
+  color:var(--ink);
   line-height:1.1;
 }
 .pos-stat-lbl{
@@ -1826,8 +1955,8 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
   font-size:.75rem;font-weight:700;padding:5px 10px;border-radius:999px;
   white-space:nowrap;
 }
-.pos-flag-receipt{background:#E0E7FF;color:#2D2C8F}   /* 9.12:1 */
-.pos-flag-preorder{background:#EDE9FE;color:#4C1D95}  /* 9.23:1 */
+.pos-flag-receipt{background:var(--receipt);color:var(--on-brand)}       /* 7.90:1 */
+.pos-flag-preorder{background:var(--preorder-soft);color:var(--preorder-soft-ink)} /* 8.47:1 */
 
 /* Every number a volunteer compares — money, counts, wait times — is tabular,
    so digits line up between cards instead of dancing. */
@@ -1869,8 +1998,8 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
    and a taller tap target than its neighbours since it is used on a tablet
    while someone is waiting at the counter. */
 .pos-btn-walkup{
-  background:var(--brown,#6B4226);
-  border-color:var(--brown,#6B4226);
+  background:var(--brown);
+  border-color:var(--brown);
   color:#fff;
   font-weight:700;
   min-height:var(--tap);
@@ -1880,17 +2009,17 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
 }
 .pos-btn-walkup:hover,
 .pos-btn-walkup:focus-visible{
-  background:#5A3620;
-  border-color:#5A3620;
+  background:var(--band-2);
+  border-color:var(--band-2);
   color:#fff;
 }
 /* Bulk "release today's pre-orders". Same violet as the card ribbon so the
    button and the cards it acts on are obviously the same thing. Sized like
    Walk-up — it is a counter action, tapped with a thumb. */
 .pos-btn-preorder-release{
-  background:#7C3AED;
-  border-color:#7C3AED;
-  color:#fff;
+  background:var(--preorder);
+  border-color:var(--preorder);
+  color:var(--on-preorder);
   font-weight:700;
   min-height:var(--tap);
   padding:10px 16px;
@@ -1901,7 +2030,7 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
 .pos-btn-preorder-release:focus-visible{
   background:var(--preorder-deep);
   border-color:var(--preorder-deep);
-  color:#fff;
+  color:var(--on-preorder);
 }
 /* The `[disabled]{opacity:.6;cursor:default}` that used to sit here was the only
    disabled styling in the POS. It is now handled for every variant by the
@@ -1954,7 +2083,7 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
   display:flex;
   flex-direction:column;
   background:var(--cream-dark);
-  border:1px solid #E7D9C6;
+  border:1px solid var(--rule-strong);
   border-radius:var(--radius-lg);
   overflow:hidden;
 }
@@ -1983,7 +2112,7 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
   text-transform:uppercase;
   /* Offset + blur, so cards passing underneath are visibly behind it rather than
      colliding with it. */
-  box-shadow:0 3px 6px -2px rgba(74,44,23,.22);
+  box-shadow:0 3px 6px -2px rgba(36,26,20,.26);
 }
 .pos-col-n{
   margin-left:auto;
@@ -1999,17 +2128,17 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
 .pos-col-pending .pos-col-hdr{
   background:var(--warning-bg);
   color:var(--pending-ink);        /* 6.46:1 */
-  border-bottom:1px solid #E7C878;
+  border-bottom:1px solid var(--warning);
 }
 .pos-col-preparing .pos-col-hdr{
   background:var(--info-bg);
   color:var(--making-ink);         /* 8.01:1 */
-  border-bottom:1px solid #A9C6FB;
+  border-bottom:1px solid var(--info);
 }
 .pos-col-ready .pos-col-hdr{
   background:var(--success-bg);
   color:var(--ready-ink);          /* 6.77:1 */
-  border-bottom:1px solid #86D9AC;
+  border-bottom:1px solid var(--success);
 }
 .pos-col-cards{padding:10px 10px 20px;display:flex;flex-direction:column;gap:10px}
 .pos-col-cards .pos-card{margin-bottom:0}
@@ -2043,7 +2172,7 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
 /* "Not known" — the lane could not be read, which is not the same as empty. */
 .pos-col-empty-unknown{
   background:var(--danger-bg);
-  border-color:#F3C9C4;
+  border-color:var(--danger);
 }
 .pos-col-empty-unknown b{color:var(--stale-ink)}      /* 8.80:1 on --danger-bg */
 .pos-col-empty-unknown p{color:var(--stale-ink);font-weight:600}
@@ -2053,20 +2182,20 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
    scrollable. */
 .pos-col-scroll,.checklist-items,.pos-sidebar{
   scrollbar-width:thin;
-  scrollbar-color:var(--accent) var(--cream-dark);
+  scrollbar-color:var(--field-bd) var(--quiet-2);
 }
 .pos-col-scroll::-webkit-scrollbar,
 .checklist-items::-webkit-scrollbar,
 .pos-sidebar::-webkit-scrollbar{width:10px}
 .pos-col-scroll::-webkit-scrollbar-track,
 .checklist-items::-webkit-scrollbar-track,
-.pos-sidebar::-webkit-scrollbar-track{background:var(--cream-dark)}
+.pos-sidebar::-webkit-scrollbar-track{background:var(--quiet-2)}
 .pos-col-scroll::-webkit-scrollbar-thumb,
 .checklist-items::-webkit-scrollbar-thumb,
 .pos-sidebar::-webkit-scrollbar-thumb{
-  background:var(--accent);
+  background:var(--field-bd);
   border-radius:99px;
-  border:2px solid var(--cream-dark);
+  border:2px solid var(--quiet-2);
 }
 
 /* === List view === */
@@ -2088,11 +2217,11 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
   color:var(--ink-quiet);          /* was --text-light: 4.24:1 on --cream-dark */
   transition:var(--transition);
 }
-.pos-tab:hover{background:var(--accent-light)}
+.pos-tab:hover{background:var(--quiet-2)}
 .pos-tab.active{
-  background:var(--primary);
+  background:var(--band);
   color:#fff;
-  box-shadow:0 2px 8px rgba(107,66,38,.2);
+  box-shadow:var(--shadow-sm);
 }
 /* Counts on the tabs too, so switching tab is an informed choice rather than a
    guess at where the work is. */
@@ -2149,8 +2278,8 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
   animation:receiptPulse 2s ease-in-out infinite;
 }
 @keyframes receiptPulse{
-  0%,100%{box-shadow:0 0 0 0 rgba(67,56,202,0)}
-  50%    {box-shadow:0 0 0 3px rgba(67,56,202,.28)}
+  0%,100%{box-shadow:0 1px 2px var(--receipt-glow)}
+  50%    {box-shadow:0 2px 10px var(--receipt-glow)}
 }
 @media (prefers-reduced-motion:reduce){
   .pos-receipt-badge{animation:none}
@@ -2162,16 +2291,16 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
    adding to it. The cue also now lands on something a cashier can actually see:
    this card sorts FIRST in its lane instead of last. */
 .pos-card-urgent{
-  border-left-color:var(--danger);
+  border-left-color:var(--urgent);
   background:var(--urgent-tint);
   animation:urgentPulse 2.4s ease-in-out infinite;
 }
 @keyframes urgentPulse{
   0%,100%{box-shadow:var(--shadow-sm)}
-  50%    {box-shadow:0 3px 14px rgba(192,57,43,.34)}
+  50%    {box-shadow:0 3px 14px var(--urgent-glow)}
 }
 @media (prefers-reduced-motion:reduce){
-  .pos-card-urgent{animation:none;box-shadow:0 2px 10px rgba(192,57,43,.28)}
+  .pos-card-urgent{animation:none;box-shadow:0 2px 10px var(--urgent-glow)}
 }
 .pos-card-preparing{border-left-color:var(--info)}
 .pos-card-ready{border-left-color:var(--success)}
@@ -2225,8 +2354,8 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
   opacity:1;
   font-weight:700;
   font-size:.75rem;
-  background:#DBEAFE;
-  color:var(--making-ink);         /* 7.15:1 on #DBEAFE */
+  background:var(--info-bg);
+  color:var(--making-ink);         /* 7.70:1 on --info-bg */
 }
 /* Ministry pre-orders sit in the Pending tab from Wednesday to Sunday, and the
    ribbon is the primary way a volunteer spots one. Deliberately loud: a
@@ -2246,7 +2375,7 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
   border-top-left-radius:var(--radius);
   border-top-right-radius:var(--radius);
   background:var(--preorder);
-  color:#fff;
+  color:var(--on-preorder);
   font-size:.95rem;
   font-weight:800;
   letter-spacing:.09em;
@@ -2279,7 +2408,7 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
 .pos-card-qty{
   display:inline-block;
   min-width:2.1em;
-  color:var(--primary);
+  color:var(--ink);
   font-weight:800;
   font-variant-numeric:tabular-nums;
 }
@@ -2294,9 +2423,9 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
 /* "✏️ modified" pill on PENDING cards whose customer just edited the order. */
 .pos-card-modified{
   display:inline-block;
-  background:#FFF4E0;
-  color:#8C5A1F;
-  border:1px solid #E0B380;
+  background:var(--warning-bg);
+  color:var(--pending-ink);
+  border:1px solid var(--warning);
   border-radius:999px;
   padding:2px 10px;
   font-size:.7rem;
@@ -2310,28 +2439,28 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
   animation:pos-card-mutate 1.4s ease-in-out;
 }
 @keyframes pos-card-mutate{
-  0%   { box-shadow:0 0 0 2px transparent; background-color:inherit; }
-  20%  { box-shadow:0 0 0 3px #E8B466; background-color:#FFF8EC; }
-  100% { box-shadow:0 0 0 2px transparent; background-color:inherit; }
+  0%   { box-shadow:0 0 0 2px transparent,0 3px 12px rgba(168,119,0,0); background-color:inherit; }
+  20%  { box-shadow:0 0 0 3px var(--warning),0 3px 12px var(--warning-glow); background-color:var(--warning-bg); }
+  100% { box-shadow:0 0 0 2px transparent,0 3px 12px rgba(168,119,0,0); background-color:inherit; }
 }
 
 /* Top-right toast host for cancellation notices. */
 .pos-toast{
   background:#fff;
-  color:#3D2B1F;
-  border-left:4px solid #C0392B;
+  color:var(--ink);
+  border-left:4px solid var(--danger);
   border-radius:8px;
   padding:10px 14px;
   font-size:.9rem;
   font-weight:600;
-  box-shadow:0 4px 14px rgba(74,44,23,.18);
+  box-shadow:0 4px 14px rgba(36,26,20,.2);
   pointer-events:auto;
   max-width:300px;
   transition:opacity .3s ease;
 }
 .pos-toast-cancel{
-  background:#FBEAE6;
-  color:#7A1F12;
+  background:var(--danger-bg);
+  color:var(--stale-ink);
 }
 
 .pos-card-note{
@@ -2369,16 +2498,16 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
 .pos-archive-hint{
   font-size:.8rem;
   font-weight:700;
-  color:var(--archive-ink);        /* 5.92:1 on the white card */
+  color:var(--ink-2);              /* 6.58:1 — step 1 of 3: no hurry */
   margin-top:7px;
   letter-spacing:.2px;
 }
 .pos-archive-hint-soon{
-  color:#A85A1F;
+  color:var(--archive-ink);        /* 6.65:1 — step 2: soon */
   font-weight:700;
 }
 .pos-archive-hint-overdue{
-  color:#C0392B;
+  color:var(--urgent-ink);         /* 9.55:1 — step 3: overdue */
   font-weight:700;
   opacity:1;
   animation:pos-archive-pulse 1.4s ease-in-out infinite;
@@ -2423,15 +2552,15 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
   letter-spacing:.03em;
   text-transform:uppercase;
   line-height:1.5;
-  background:#F3F4F6;
-  color:#374151;
+  background:var(--disabled-bg);
+  color:var(--disabled-ink);
 }
-.discount-badge-newcomer   { background:#D1FAE5; color:#065F46; }
-.discount-badge-staff      { background:#DBEAFE; color:#1E40AF; }
-.discount-badge-pastor     { background:#EDE9FE; color:#5B21B6; }
-.discount-badge-celebration{ background:#FEF3C7; color:#92400E; }
-.discount-badge-preorder   { background:#CCFBF1; color:#115E59; }
-.discount-badge-voucher    { background:#FCE7F3; color:#9D174D; }
+.discount-badge-newcomer   { background:var(--success-bg); color:var(--ready-ink); }
+.discount-badge-staff      { background:var(--info-bg);    color:var(--making-ink); }
+.discount-badge-pastor     { background:var(--quiet-2);    color:var(--ink-quiet); }
+.discount-badge-celebration{ background:var(--warning-bg); color:var(--pending-ink); }
+.discount-badge-preorder   { background:var(--preorder-soft); color:var(--preorder-soft-ink); }
+.discount-badge-voucher    { background:var(--brand-soft); color:var(--brand-soft-ink); }
 .pos-card-actions{
   margin-top:10px;
   padding-top:9px;
@@ -2452,7 +2581,7 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
 .pos-modal-overlay{
   position:fixed;
   inset:0;
-  background:rgba(61,43,31,.6);
+  background:var(--scrim);
   backdrop-filter:blur(4px);
   -webkit-backdrop-filter:blur(4px);
   z-index:400;
@@ -2497,7 +2626,7 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
 .pos-modal-close:hover{background:var(--cream-dark);color:var(--text)}
 .pos-modal h3{
   font-size:1.2rem;
-  color:var(--primary);
+  color:var(--band);
   margin-bottom:4px;
 }
 .pos-detail-items{list-style:none;margin:16px 0}
@@ -2511,9 +2640,9 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
   font-weight:800;
   font-size:1.15rem;
   margin:16px 0;
-  color:var(--primary);
+  color:var(--ink);
   padding-top:12px;
-  border-top:2px solid var(--cream-dark);
+  border-top:2px solid var(--rule-strong);
 }
 .pos-detail-actions{
   display:flex;
@@ -2566,34 +2695,34 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
 .pos-walkup-item-soldout .pos-add-btn,
 .pos-walkup-item-soldout .pos-variant-btn{
   cursor:not-allowed;
-  background:var(--cream-dark,#E5DACB);
-  color:var(--text-light,#7A6355);
+  background:var(--cream-dark);
+  color:var(--text-light);
 }
 .pos-walkup-item-soldout .pos-add-btn:hover,
 .pos-walkup-item-soldout .pos-variant-btn:hover{
-  background:var(--cream-dark,#E5DACB);
-  border-color:var(--cream-dark,#E5DACB);
+  background:var(--cream-dark);
+  border-color:var(--cream-dark);
 }
 .pos-walkup-stock{
   font-weight:500;
   font-size:.78rem;
-  color:var(--text-light,#7A6355);
+  color:var(--text-light);
   margin-left:6px;
 }
 .pos-walkup-stock-out{
-  color:#B91C1C;
+  color:var(--stale-ink);
   font-weight:700;
 }
 .pos-add-btn,.pos-variant-btn{
   min-width:44px;
   min-height:44px;
   border-radius:50%;
-  border:2px solid var(--cream-dark);
+  border:2px solid var(--rule-strong);
   background:#fff;
   cursor:pointer;
   font-size:1.1rem;
   transition:var(--transition);
-  color:var(--primary);
+  color:var(--band);
 }
 .pos-add-btn:hover,.pos-variant-btn:hover{
   background:var(--cream);
@@ -2619,7 +2748,7 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
   align-items:center;
 }
 .pos-chip-legend{
-  color:var(--text-light,#7A6355);
+  color:var(--text-light);
   font-size:.8rem;
   font-weight:600;
   padding:0;
@@ -2646,29 +2775,31 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
   padding:8px 14px;
   font-size:.82rem;
   font-weight:600;
-  border:2px solid var(--cream-dark,#e8e0d8);
-  background:#fff;
-  color:var(--primary,#6B4226);
+  border:2px solid var(--rule-strong);
+  background:var(--card);
+  color:var(--band);
   transition:var(--transition,all .15s);
   line-height:1;
 }
 .pos-chip:hover > span{
-  background:var(--cream,#f9f5f0);
-  border-color:var(--accent,#B08968);
+  background:var(--cream);
+  border-color:var(--accent);
 }
 .pos-chip input[type="radio"]:checked + span{
-  background:var(--primary,#6B4226);
+  background:var(--band);
   color:#fff;
-  border-color:var(--primary,#6B4226);
-  box-shadow:0 2px 6px rgba(107,66,38,.3);
+  border-color:var(--band);
+  box-shadow:var(--shadow-sm);
 }
 .pos-chip input[type="radio"]:focus-visible + span{
-  outline:2px solid var(--accent,#B08968);
+  /* A focus ring is a control indicator, so it clears 3:1 — --tan is 2.73:1 on
+     white and is decorative only. Espresso is 13.72:1 and is the board's own. */
+  outline:2px solid var(--band);
   outline-offset:2px;
 }
 .pos-walkup-cart{margin:16px 0}
 .pos-walkup-cart h4{
-  color:var(--primary);
+  color:var(--band);
   margin-bottom:8px;
   font-size:.95rem;
 }
@@ -2694,15 +2825,15 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
 .pos-remove-item:hover{transform:scale(1.1)}
 .pos-cart-item-name{flex:1;font-weight:500}
 .pos-cart-item-controls{display:flex;align-items:center;gap:4px}
-.pos-cart-item-price{color:var(--text-light,#7A6355);font-size:.85rem;min-width:60px;text-align:right}
+.pos-cart-item-price{color:var(--text-light);font-size:.85rem;min-width:60px;text-align:right}
 /* Walk-up cart shows the discounted net beside a struck-out gross so the
    cashier can see what the discount did before submitting. */
-.pos-cart-item-gross{color:var(--text-light,#7A6355);opacity:.65;margin-right:4px}
-.pos-cart-savings{margin-top:6px;padding:4px 8px;border-radius:6px;background:#FEF3C7;color:#92400E;font-size:.78rem;font-weight:600;text-align:right}
+.pos-cart-item-gross{color:var(--text-light);opacity:.65;margin-right:4px}
+.pos-cart-savings{margin-top:6px;padding:4px 8px;border-radius:6px;background:var(--warning-bg);color:var(--pending-ink);font-size:.78rem;font-weight:600;text-align:right}
 .pos-qty-btn{
   border:none;
-  background:var(--cream,#F5EDE3);
-  color:var(--primary);
+  background:var(--cream);
+  color:var(--band);
   cursor:pointer;
   font-size:1rem;
   font-weight:700;
@@ -2714,7 +2845,7 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
   justify-content:center;
   transition:var(--transition);
 }
-.pos-qty-btn:hover{background:var(--cream-dark,#E5DACB)}
+.pos-qty-btn:hover{background:var(--cream-dark)}
 .pos-qty-btn:active{transform:scale(.9)}
 .pos-qty-value{
   min-width:20px;
@@ -2736,7 +2867,7 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
 /* Row for an item that's toggled OFF for today — visually muted so
    cashiers can tell at a glance which items are hidden from customers. */
 .pos-menu-toggle-row.is-disabled{opacity:.5}
-.pos-menu-toggle-row.is-disabled > span{text-decoration:line-through;color:var(--text-light,#7A6355)}
+.pos-menu-toggle-row.is-disabled > span{text-decoration:line-through;color:var(--text-light)}
 .pos-menu-toggle-row.is-disabled .pos-food-qty-input,
 .pos-menu-toggle-row.is-disabled [data-food-inc],
 .pos-menu-toggle-row.is-disabled [data-food-dec]{opacity:.6}
@@ -2745,7 +2876,7 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
 .pos-slider{
   position:absolute;
   inset:0;
-  background:#D1D5DB;
+  background:var(--rule-strong);
   border-radius:30px;
   cursor:pointer;
   transition:var(--transition);
@@ -2760,7 +2891,7 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
   background:#fff;
   border-radius:50%;
   transition:var(--transition);
-  box-shadow:0 1px 3px rgba(0,0,0,.2);
+  box-shadow:0 1px 3px rgba(36,26,20,.28);
 }
 .pos-switch input:checked+.pos-slider{background:var(--success)}
 .pos-switch input:checked+.pos-slider::before{transform:translateX(22px)}
@@ -2844,7 +2975,7 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
   height:22px;
   border-radius:50%;
   border:none;
-  background:rgba(0,0,0,.6);
+  background:var(--scrim);
   color:#fff;
   font-size:.7rem;
   cursor:pointer;
@@ -2865,13 +2996,13 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
 .stock-result-input{
   width:70px;
   padding:8px;
-  border:2px solid var(--cream-dark);
+  border:2px solid var(--field-bd);
   border-radius:var(--radius);
   text-align:center;
   font-weight:700;
   font-size:.95rem;
 }
-.stock-result-input:focus{border-color:var(--primary);outline:none}
+.stock-result-input:focus{border-color:var(--band);outline:none}
 .stock-result-note{
   font-size:.75rem;
   color:var(--text-light);
@@ -2912,7 +3043,7 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
   width:100%;
   transform-origin:left center;
   transform:scaleX(var(--cl-progress,0));
-  background:linear-gradient(90deg,var(--primary) 0%,var(--primary-light) 100%);
+  background:linear-gradient(90deg,var(--band-2) 0%,var(--band) 100%);
   border-radius:99px;
   transition:transform .25s ease;
 }
@@ -2973,7 +3104,7 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
   width:26px;
   height:26px;
   flex:0 0 auto;
-  accent-color:var(--primary);
+  accent-color:var(--band);
   cursor:pointer;
 }
 .checklist-badge{
@@ -2996,7 +3127,7 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
 /* Tapping a disabled "Open Café" scrolls to the first outstanding item and
    flashes it, instead of doing nothing at all. */
 .checklist-row.is-nudge{
-  background:#FFF6E5;
+  background:var(--warning-bg);
   box-shadow:inset 3px 0 0 var(--warning);
 }
 /* Explicit "there is more" affordance — honest count of what is off-screen,
@@ -3053,12 +3184,12 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
 
 /* === Scrollbar styling === */
 ::-webkit-scrollbar{width:6px}
-::-webkit-scrollbar-track{background:var(--cream)}
-::-webkit-scrollbar-thumb{background:var(--accent-light);border-radius:3px}
-::-webkit-scrollbar-thumb:hover{background:var(--accent)}
+::-webkit-scrollbar-track{background:var(--quiet-2)}
+::-webkit-scrollbar-thumb{background:var(--field-bd);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--ink-2)}
 
 /* === Selection === */
-::selection{background:var(--accent-light);color:var(--primary-dark)}
+::selection{background:var(--brand-soft);color:var(--brand-deep)}
 
 /* === Quick approve & prep view === */
 .pos-card-quick-approve{
@@ -3071,35 +3202,35 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
 .pos-receipt-mismatch{
   background:var(--warning-bg);
   color:var(--pending-ink);        /* 6.46:1 */
-  border:1px solid #E7C878;
+  border:1px solid var(--warning);
 }
 
 /* === Menu Search/Filter === */
 .menu-filter{margin:12px 0 8px;display:flex;flex-direction:column;gap:8px}
-.menu-search-input{width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:.95rem;background:#fff;box-sizing:border-box}
-.menu-search-input:focus{outline:none;border-color:var(--primary,#6B4226);box-shadow:0 0 0 2px rgba(107,66,38,.15)}
+.menu-search-input{width:100%;padding:10px 12px;border:1px solid var(--field-bd);border-radius:8px;font-size:.95rem;background:#fff;box-sizing:border-box}
+.menu-search-input:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 2px rgba(180,83,28,.22)}
 .menu-filter-tabs{display:flex;gap:6px}
-.menu-filter-tab{padding:6px 14px;border:1px solid #ddd;border-radius:20px;background:#fff;font-size:.85rem;cursor:pointer;transition:all .2s}
-.menu-filter-tab.active{background:var(--primary,#6B4226);color:#fff;border-color:var(--primary,#6B4226)}
+.menu-filter-tab{padding:6px 14px;border:1px solid var(--rule-strong);border-radius:20px;background:#fff;font-size:.85rem;cursor:pointer;transition:all .2s}
+.menu-filter-tab.active{background:var(--brand);color:#fff;border-color:var(--brand)}
 
 /* === POS Sidebar === */
 .pos-sidebar{
   position:fixed;top:var(--pos-hdr-h);left:0;bottom:0;width:220px;
-  background:#fff;border-right:1px solid var(--cream-dark,#e8e0d8);
+  background:#fff;border-right:1px solid var(--cream-dark);
   z-index:150;transform:translateX(-100%);transition:transform .25s ease;
   display:flex;flex-direction:column;overflow-y:auto;overscroll-behavior:contain;
-  box-shadow:2px 0 12px rgba(0,0,0,.08);
+  box-shadow:2px 0 12px rgba(36,26,20,.12);
 }
 .pos-sidebar.open{transform:translateX(0)}
 .pos-sidebar-header{
-  padding:20px 16px 12px;font-weight:800;font-size:1.1rem;color:var(--primary,#6B4226);
-  border-bottom:1px solid var(--cream-dark,#e8e0d8);
+  padding:20px 16px 12px;font-weight:800;font-size:1.1rem;color:var(--band);
+  border-bottom:1px solid var(--cream-dark);
 }
 /* Name on its own line, state under it: at 220px a name plus a status pill wraps
    into an orphaned word, and this row is read at a glance to confirm who is on. */
 .pos-sidebar-user{
-  padding:12px 14px;font-size:.85rem;color:var(--primary,#6B4226);font-weight:700;
-  border-bottom:1px solid var(--cream-dark,#e8e0d8);
+  padding:12px 14px;font-size:.85rem;color:var(--band);font-weight:700;
+  border-bottom:1px solid var(--cream-dark);
   display:flex;flex-direction:column;align-items:flex-start;gap:7px;
 }
 .pos-sidebar-nav{
@@ -3110,31 +3241,47 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
   min-height:var(--tap);
   border:2px solid transparent;background:none;border-radius:9px;cursor:pointer;
   font-family:inherit;
-  font-size:.9rem;font-weight:600;color:var(--text,#3D2B1F);transition:all .15s;
+  font-size:.9rem;font-weight:600;color:var(--text);transition:all .15s;
 }
-.pos-sidebar-btn:hover{background:var(--cream,#f9f5f0)}
-.pos-sidebar-btn.active{background:var(--primary,#6B4226);color:#fff}
-.pos-sidebar-btn.primary{background:var(--primary,#6B4226);color:#fff}
+.pos-sidebar-btn:hover{background:var(--cream)}
+.pos-sidebar-btn.active{background:var(--band);color:#fff}
+.pos-sidebar-btn.primary{background:var(--band);color:#fff}
 .pos-sidebar-btn.primary:hover{opacity:.9}
 .pos-sidebar-footer{
-  padding:16px;border-top:1px solid var(--cream-dark,#e8e0d8);
+  padding:16px;border-top:1px solid var(--cream-dark);
 }
 .pos-sidebar-logout{
   display:block;width:100%;text-align:center;padding:10px;
-  border:none;background:var(--danger-bg,#fef2f2);color:var(--danger,#DC2626);
+  border:none;background:var(--danger-bg);color:var(--danger);
   border-radius:8px;cursor:pointer;font-weight:600;font-size:.9rem;
 }
 .pos-sidebar-overlay{
-  position:fixed;inset:var(--pos-hdr-h) 0 0 0;background:rgba(61,43,31,.5);
+  position:fixed;inset:var(--pos-hdr-h) 0 0 0;background:var(--scrim-soft);
   z-index:140;display:none;
 }
 .pos-sidebar.open ~ .pos-sidebar-overlay{display:block}
+/* The drawer push is a TRANSFORM, not a margin. `margin-left` is a layout
+   property, so animating it relayouts the whole board — three lanes, every card
+   — on every one of the 15 frames of the transition, which is exactly the jank
+   the counter iPad shows. `.pos-sidebar` beside it already does this correctly
+   with `transform:translateX(-100%)`, so the panel and the content it pushes now
+   animate the same compositable property.
+
+   Below 900px only: at 900px and up the sidebar is DOCKED, so the indent is a
+   static `margin-left` that reserves real space and nothing animates at all.
+   The closed state is `transform:none` rather than `translateX(0)` on purpose —
+   a non-none transform makes the element a containing block for fixed-position
+   descendants, and resting state is where that would matter. */
 .pos-main{
-  margin-left:0;padding:0;transition:margin-left .25s ease;
+  margin-left:0;padding:0;
+  transition:transform .25s ease;
   min-height:calc(100dvh - var(--pos-hdr-h));
 }
-.pos-sidebar.open ~ .pos-main{margin-left:220px}
-.pos-sidebar:not(.open) ~ .pos-main{margin-left:0}
+.pos-sidebar.open ~ .pos-main{transform:translateX(220px)}
+.pos-sidebar:not(.open) ~ .pos-main{transform:none}
+@media(prefers-reduced-motion:reduce){
+  .pos-main{transition:none}
+}
 
 /* Dock the sidebar at ≥900px.
    This media query used to set `.pos-main{margin-left:220px}` and nothing else —
@@ -3149,8 +3296,15 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--accent-light)}
 @media(min-width:900px){
   .pos-sidebar,
   .pos-sidebar:not(.open){transform:none;box-shadow:none}
+  /* Docked: a static indent that reserves space. The push transform is
+     explicitly cancelled — including on `.open`, which is still toggled at this
+     width — or the board would slide 220px right instead of sitting beside the
+     panel. */
   .pos-sidebar ~ .pos-main,
-  .pos-sidebar:not(.open) ~ .pos-main{margin-left:220px}
+  .pos-sidebar.open ~ .pos-main,
+  .pos-sidebar:not(.open) ~ .pos-main{
+    margin-left:220px;transform:none;transition:none;
+  }
   /* Nothing to overlay and nothing to open: the panel is simply there. */
   .pos-sidebar ~ .pos-sidebar-overlay,
   .pos-sidebar.open ~ .pos-sidebar-overlay{display:none}
@@ -3211,17 +3365,20 @@ body.training-active.training-target-sidebar .pos-sidebar{
 /* POS Sidebar sections. More space above a section label than below it, so each
    label groups with what follows rather than floating between the two. */
 .pos-sidebar-section-label{padding:20px 14px 6px;font-size:.68rem;text-transform:uppercase;letter-spacing:.09em;color:var(--ink-quiet);font-weight:800}
-.pos-sidebar-actions{padding:0 8px 10px;display:flex;flex-direction:column;gap:6px;border-bottom:1px solid var(--cream-dark,#e8e0d8)}
+.pos-sidebar-actions{padding:0 8px 10px;display:flex;flex-direction:column;gap:6px;border-bottom:1px solid var(--cream-dark)}
 .pos-action-btn{display:flex;align-items:center;justify-content:center;width:100%;text-align:center;padding:10px 12px;min-height:var(--tap);border:2px solid transparent;border-radius:9px;cursor:pointer;font-family:inherit;font-size:.85rem;font-weight:700;transition:all .15s}
-.pos-action-primary{background:var(--primary,#6B4226);color:#fff;border-color:var(--primary,#6B4226)}
+.pos-action-primary{background:var(--band);color:#fff;border-color:var(--band)}
 .pos-action-primary:hover{opacity:.9}
 /* "Celebration: OFF" was #8a7d6d on #f4efe8 at .9 opacity — 3.51:1 before the
    opacity, and it states which pricing mode the till is in. */
-.pos-action-toggle{background:#f4efe8;color:var(--ink-quiet);border-color:#e3dcd1}
+.pos-action-toggle{background:var(--quiet);color:var(--ink-quiet);border-color:var(--rule)}
 .pos-action-toggle:hover{background:var(--cream-dark)}
-.pos-action-toggle.active{background:linear-gradient(180deg,#FCD34D 0%,#F59E0B 100%);border-color:#B45309;color:#5C2E00;box-shadow:0 0 0 2px rgba(245,158,11,.35),0 2px 6px rgba(245,158,11,.35);text-shadow:0 1px 0 rgba(255,255,255,.4);animation:celeb-pulse 2s ease-in-out infinite}
+.pos-action-toggle.active{background:var(--warning-bg);border-color:var(--warning);color:var(--pending-ink);box-shadow:0 0 0 2px var(--warning-glow),0 2px 6px var(--warning-glow);animation:celeb-pulse 2s ease-in-out infinite}
 .pos-action-toggle.active:hover{opacity:.95;filter:brightness(1.05)}
-@keyframes celeb-pulse{0%,100%{box-shadow:0 0 0 2px rgba(245,158,11,.35),0 2px 6px rgba(245,158,11,.35)}50%{box-shadow:0 0 0 4px rgba(245,158,11,.5),0 2px 10px rgba(245,158,11,.5)}}
+@keyframes celeb-pulse{
+  0%,100%{box-shadow:0 0 0 2px var(--warning-glow),0 2px 6px var(--warning-glow)}
+  50%    {box-shadow:0 0 0 4px rgba(168,119,0,.5),0 2px 10px rgba(168,119,0,.5)}
+}
 @media (prefers-reduced-motion: reduce){.pos-action-toggle.active{animation:none}}
 
 /* Celebration banner — persistent visual cue on the main POS view so a
@@ -3229,17 +3386,17 @@ body.training-active.training-target-sidebar .pos-sidebar{
    shown when #celebBanner has .visible. */
 .pos-celeb-banner{
   display:none;
-  background:linear-gradient(90deg,#FCD34D 0%,#F59E0B 50%,#FCD34D 100%);
+  background:linear-gradient(90deg,var(--warning-bg) 0%,var(--brand-soft) 50%,var(--warning-bg) 100%);
   background-size:200% 100%;
-  color:#5C2E00;
+  color:var(--pending-ink);
   font-weight:800;
   font-size:.95rem;
   letter-spacing:.02em;
   text-align:center;
   padding:10px 14px;
-  border-bottom:2px solid #B45309;
-  box-shadow:0 2px 6px rgba(245,158,11,.35);
-  text-shadow:0 1px 0 rgba(255,255,255,.4);
+  border-bottom:2px solid var(--warning);
+  box-shadow:0 2px 6px var(--warning-glow);
+  text-shadow:0 1px 0 rgba(255,255,255,.5);
   animation:celeb-shimmer 4s linear infinite;
   position:sticky;
   top:0;
@@ -3251,7 +3408,7 @@ body.training-active.training-target-sidebar .pos-sidebar{
   100%{background-position:200% 0}
 }
 @media (prefers-reduced-motion: reduce){
-  .pos-celeb-banner{animation:none;background:#F59E0B}
+  .pos-celeb-banner{animation:none;background:var(--warning-bg)}
 }
 
 /* Café-closed banner — urgent red alert shown whenever the café is not
@@ -3266,8 +3423,8 @@ body.training-active.training-target-sidebar .pos-sidebar{
   background:var(--closed);
   color:#fff;                      /* 7.87:1 */
   padding:12px 16px;
-  border-bottom:2px solid #6E0E0E;
-  box-shadow:0 3px 10px rgba(122,20,20,.28);
+  border-bottom:2px solid var(--stale-ink);
+  box-shadow:0 3px 10px rgba(119,23,14,.3);
   text-align:left;
   flex:0 0 auto;
   z-index:25;
@@ -3285,13 +3442,13 @@ body.training-active.training-target-sidebar .pos-sidebar{
   font-weight:800;
   letter-spacing:.02em;
 }
-.pos-closed-txt span{font-size:.85rem;color:#FFE0DE}   /* 6.36:1 on --closed */
+.pos-closed-txt span{font-size:.85rem;color:var(--on-band)}   /* 7.40:1 on --closed */
 /* White on the red band, so the one action is the brightest thing in it. */
 .pos-btn-open-cafe{
   min-height:52px;
   padding:12px 22px;
   background:#fff;
-  color:#7F1D1D;                   /* 10.02:1 */
+  color:var(--stale-ink);          /* 10.98:1 */
   border:2px solid #fff;
   border-radius:var(--radius);
   font:inherit;
@@ -3300,9 +3457,9 @@ body.training-active.training-target-sidebar .pos-sidebar{
   cursor:pointer;
   white-space:nowrap;
   flex:0 0 auto;
-  box-shadow:0 3px 10px rgba(0,0,0,.22);
+  box-shadow:0 3px 10px rgba(36,26,20,.3);
 }
-.pos-btn-open-cafe:hover{background:var(--cream);color:#7F1D1D}
+.pos-btn-open-cafe:hover{background:var(--cream);color:var(--stale-ink)}
 
 /* Connection lost / stale board — the P0.
    `renderBoard()` used to be reachable only inside the try, the catch only
@@ -3381,19 +3538,19 @@ body.training-active.training-target-sidebar .pos-sidebar{
   font-variant-numeric:tabular-nums;
 }
 .pos-header-badge.is-open{
-  color:#053C2C;
-  background:#B7F3D6;              /* 9.95:1 */
-  border-color:#10B981;
+  color:var(--ready-ink);
+  background:var(--success-bg);    /* 7.94:1 */
+  border-color:var(--success);
 }
 .pos-header-badge.is-closed{
   color:#fff;
   background:var(--closed);        /* 7.87:1 */
-  border-color:#7F1D1D;
+  border-color:var(--stale-ink);
 }
 .pos-header-badge.is-stale{
-  color:#3B2A12;
-  background:var(--accent-light);  /* 8.71:1 */
-  border-color:#B98B4E;
+  color:var(--pending-ink);
+  background:var(--warning-bg);   /* 5.86:1 */
+  border-color:var(--warning);
 }
 
 /* Shown while the café IS open, so its label is "Close Café" — a destructive
@@ -3412,37 +3569,37 @@ body.training-active.training-target-sidebar .pos-sidebar{
    now carries a primary ☀️ Open Café button), but it stays the affirmative green
    here so the sidebar and the banner read as the same offer. 6.78:1. */
 .pos-action-cafe-closed{
-  background:#D1FAE5;
-  color:#065F46;
-  border-color:#10B981;
+  background:var(--success-bg);
+  color:var(--ready-ink);
+  border-color:var(--success);
   animation:none;
 }
-.pos-action-cafe-closed:hover{background:#A7F3D0;color:#065F46}
+.pos-action-cafe-closed:hover{background:var(--success-bg);color:var(--ready-ink)}
 @media (prefers-reduced-motion: reduce){
   .pos-action-cafe-closed{animation:none}
 }
-.pos-action-danger{background:#fff;color:var(--danger,#DC2626);border-color:var(--danger,#DC2626)}
-.pos-action-danger:hover{background:var(--danger-bg,#fef2f2)}
+.pos-action-danger{background:#fff;color:var(--danger);border-color:var(--danger)}
+.pos-action-danger:hover{background:var(--danger-bg)}
 
 /* === Customer Profile === */
 .returning-btn{
   display:block;width:100%;margin-top:10px;padding:10px;
-  background:none;border:1px dashed var(--accent,#D4A574);border-radius:10px;
-  color:var(--primary,#6B4226);font-size:.85rem;font-weight:600;cursor:pointer;
+  background:none;border:1px dashed var(--field-bd);border-radius:10px;
+  color:var(--brand-ink);font-size:.85rem;font-weight:600;cursor:pointer;
   transition:all .15s;
 }
-.returning-btn:hover{background:var(--cream,#FFF8F0);border-style:solid}
+.returning-btn:hover{background:var(--cream);border-style:solid}
 .profile-badge{
   display:flex;align-items:center;gap:10px;padding:12px 16px;
-  background:linear-gradient(135deg,var(--cream,#FFF8F0),#fff);
-  border:2px solid var(--accent-light,#E8C9A0);border-radius:12px;
+  background:linear-gradient(135deg,var(--quiet),var(--card));
+  border:2px solid var(--rule-strong);border-radius:12px;
 }
 .profile-icon{font-size:1.3rem}
-.profile-name{font-weight:700;color:var(--primary,#6B4226);flex:1}
-.profile-orders{font-size:.8rem;color:var(--text-light,#7A6355);background:var(--cream-dark,#F5EDE4);padding:3px 8px;border-radius:20px}
+.profile-name{font-weight:700;color:var(--brand-ink);flex:1}
+.profile-orders{font-size:.8rem;color:var(--text-light);background:var(--cream-dark);padding:3px 8px;border-radius:20px}
 .profile-logout{
   background:none;border:none;font-size:1.1rem;cursor:pointer;
-  color:var(--text-light,#7A6355);padding:4px;opacity:.6;transition:opacity .15s;
+  color:var(--text-light);padding:4px;opacity:.6;transition:opacity .15s;
 }
 .profile-logout:hover{opacity:1}
 
@@ -3452,11 +3609,11 @@ body.training-active.training-target-sidebar .pos-sidebar{
   padding:24px 16px 32px;margin-top:20px;
 }
 .app-version{
-  font-size:.75rem;color:var(--text-light,#7A6355);opacity:.6;
+  font-size:.75rem;color:var(--text-light);opacity:.6;
 }
 .check-update-btn{
   background:none;border:none;font-size:.75rem;
-  color:var(--primary,#6B4226);cursor:pointer;
+  color:var(--brand-ink);cursor:pointer;
   text-decoration:underline;opacity:.7;transition:opacity .15s;
 }
 .check-update-btn:hover{opacity:1}
@@ -3466,33 +3623,33 @@ body.training-active.training-target-sidebar .pos-sidebar{
 /* ─── Featured Drink (POS) ───────────────────────────────────────── */
 .pos-btn-featured{ white-space:nowrap; }
 .pos-btn-featured-active{
-  background:linear-gradient(135deg,#F59E0B,#D97706)!important;
-  color:#fff!important; border-color:#D97706!important;
-  font-weight:600; box-shadow:0 0 8px rgba(245,158,11,.35);
+  background:var(--warning-bg)!important;
+  color:var(--pending-ink)!important; border-color:var(--warning)!important;
+  font-weight:600; box-shadow:0 2px 8px var(--warning-glow);
 }
 .pos-featured-list{ display:flex; flex-direction:column; gap:6px; }
 .pos-featured-pick{
   display:flex; justify-content:space-between; align-items:center;
-  padding:12px 16px; border:1px solid var(--cream-dark,#eee);
+  padding:12px 16px; border:1px solid var(--cream-dark);
   border-radius:8px; background:#fff; cursor:pointer;
   transition:background .15s,border-color .15s;
 }
-.pos-featured-pick:hover{ background:var(--cream,#FFF8F0); border-color:var(--primary,#6B4226); }
-.feat-name{ font-weight:600; color:var(--text,#3D2B1F); }
-.feat-price{ color:var(--text-light,#7A6355); font-size:.9rem; }
+.pos-featured-pick:hover{ background:var(--cream); border-color:var(--band); }
+.feat-name{ font-weight:600; color:var(--text); }
+.feat-price{ color:var(--text-light); font-size:.9rem; }
 
 /* ─── Featured Drink Hero (Order Screen) ─────────────────────────── */
 .featured-drink-hero{
   display:grid; grid-template-columns:1fr 1fr;
   gap:12px; align-items:center;
-  background:linear-gradient(135deg,#FFF8F0 0%,#FEF3C7 100%);
-  border:2px solid #F59E0B; border-radius:16px;
+  background:linear-gradient(135deg,var(--card) 0%,var(--warning-bg) 100%);
+  border:2px solid var(--warning); border-radius:16px;
   padding:16px; margin-bottom:20px;
   position:relative; overflow:hidden;
 }
 .featured-badge{
   position:absolute; top:8px; left:12px;
-  background:#F59E0B; color:#fff;
+  background:var(--pending-ink); color:var(--on-brand);
   font-size:.7rem; font-weight:700; text-transform:uppercase;
   padding:3px 8px; border-radius:4px;
 }
@@ -3507,10 +3664,10 @@ body.training-active.training-target-sidebar .pos-sidebar{
 }
 .featured-name{
   font-size:1.2rem; font-weight:700;
-  color:var(--text,#3D2B1F);
+  color:var(--text);
 }
 .featured-price{
-  font-size:1rem; color:var(--primary,#6B4226);
+  font-size:1rem; color:var(--brand-ink);
   font-weight:600; margin-top:4px;
 }
 .featured-drink-hero .qty-controls{
@@ -3521,8 +3678,8 @@ body.training-active.training-target-sidebar .pos-sidebar{
 
 /* --- Push Notification Prompt --- */
 .push-prompt{
-  background:linear-gradient(135deg,#EEF2FF,#E0E7FF);
-  border:1px solid #A5B4FC;
+  background:var(--brand-soft);
+  border:1px solid var(--brand);
   border-radius:12px; padding:14px 16px;
   margin:12px 0; animation:slideDown .3s ease;
 }
@@ -3530,7 +3687,7 @@ body.training-active.training-target-sidebar .pos-sidebar{
   display:flex; flex-wrap:wrap; align-items:center;
   justify-content:space-between; gap:10px;
 }
-.push-prompt-inner span{ font-weight:600; color:#3730A3; font-size:.9rem; }
+.push-prompt-inner span{ font-weight:600; color:var(--brand-soft-ink); font-size:.9rem; }
 .push-prompt-btns{ display:flex; gap:8px; }
 @keyframes slideDown{ from{opacity:0;transform:translateY(-10px)} to{opacity:1;transform:translateY(0)} }
 
@@ -3539,9 +3696,9 @@ body.training-active.training-target-sidebar .pos-sidebar{
   margin-top: 20px;
   padding: 16px;
   text-align: center;
-  color: #6b4f3b;
+  color: var(--ink-quiet);
   font-style: italic;
-  border-top: 1px solid #e8ddd4;
+  border-top: 1px solid var(--rule);
 }
 .verse-inline-text {
   font-size: 0.95rem;
@@ -3550,7 +3707,7 @@ body.training-active.training-target-sidebar .pos-sidebar{
 }
 .verse-inline-ref {
   font-size: 0.8rem;
-  color: #8b7355;
+  color: var(--ink-2);
   font-style: normal;
 }
 
@@ -3558,15 +3715,15 @@ body.training-active.training-target-sidebar .pos-sidebar{
 .tg-dialog{
   font-family:inherit !important;
   border-radius:16px !important;
-  box-shadow:0 8px 32px rgba(0,0,0,0.2) !important;
+  box-shadow:var(--shadow-lg) !important;
 }
 .tg-dialog-title{
-  color:var(--primary,#6B4226) !important;
+  color:var(--ink) !important;
   font-size:1.1rem !important;
 }
 .tg-dialog-body{
   font-size:.9rem !important;
-  color:var(--text,#3D2B1F) !important;
+  color:var(--text) !important;
 }
 .tg-dialog-btn{
   border-radius:8px !important;
@@ -3574,15 +3731,15 @@ body.training-active.training-target-sidebar .pos-sidebar{
 }
 .tg-dialog-btn.tg-dialog-btn-next,
 .tg-dialog-btn.tg-dialog-btn-complete{
-  background:var(--primary,#6B4226) !important;
+  background:var(--band) !important;
   color:#fff !important;
 }
 .training-banner{
   position:fixed; top:0; left:0; right:0; z-index:9999;
-  background:linear-gradient(135deg,#1e40af,#3b82f6);
+  background:linear-gradient(135deg,var(--making-ink),var(--info));
   color:#fff; padding:12px 20px; text-align:center;
   font-weight:600; font-size:.9rem;
-  box-shadow:0 2px 12px rgba(30,64,175,0.3);
+  box-shadow:var(--shadow);
 }
 .training-banner .training-progress-text{
   font-size:.75rem; opacity:.8; margin-top:4px;
@@ -3650,8 +3807,8 @@ body.training-active.training-target-sidebar .pos-sidebar{
   flex:0 0 auto;
   padding-top:12px;
   margin-top:4px;
-  border-top:2px solid var(--cream-dark,#E5DACB);
-  background:var(--white,#fff);
+  border-top:2px solid var(--rule-strong);
+  background:var(--white);
 }
 .pos-walkup-actions #wkSubmit{width:100%}
 
@@ -3677,12 +3834,12 @@ body.training-active.training-target-sidebar .pos-sidebar{
   font-weight:600;
   text-transform:uppercase;
   letter-spacing:.4px;
-  color:var(--text-light,#7A6355);
+  color:var(--text-light);
   margin-right:2px;
 }
 .pos-variant-btn.active{
-  background:var(--brown,#6B4226);
-  border-color:var(--brown,#6B4226);
+  background:var(--brown);
+  border-color:var(--brown);
   color:#fff;
 }
 
@@ -3699,9 +3856,9 @@ body.training-active.training-target-sidebar .pos-sidebar{
 .pos-walkup-menu-grid .pos-walkup-item{
   flex-direction:column;
   align-items:stretch;
-  border:2px solid var(--cream-dark,#E5DACB);
-  border-radius:var(--radius,10px);
-  background:var(--white,#fff);
+  border:2px solid var(--rule-strong);
+  border-radius:var(--radius);
+  background:var(--card);
   padding:12px;
   gap:8px;
   /* Cards in a row share the tallest height. Without this, an item with fewer
@@ -3711,7 +3868,7 @@ body.training-active.training-target-sidebar .pos-sidebar{
 }
 .pos-walkup-menu-grid .pos-variant-group{flex:0 0 auto}
 .pos-walkup-menu-grid .pos-add-btn{margin-top:auto}
-.pos-walkup-menu-grid .pos-walkup-item:last-child{border:2px solid var(--cream-dark,#E5DACB)}
+.pos-walkup-menu-grid .pos-walkup-item:last-child{border:2px solid var(--rule-strong)}
 .pos-walkup-menu-grid .pos-walkup-item-name{
   font-size:1.05rem;
   font-weight:700;
@@ -3759,18 +3916,18 @@ body.training-active.training-target-sidebar .pos-sidebar{
      often in a hurry, and the larger type needs room not to clip. */
   min-height:132px;
   padding:14px 16px;
-  border:2px solid var(--cream-dark,#E5DACB);
-  border-radius:var(--radius,10px);
-  background:var(--white,#fff);
+  border:2px solid var(--rule-strong);
+  border-radius:var(--radius);
+  background:var(--card);
   cursor:pointer;
   text-align:left;
   font:inherit;
-  color:var(--text,#3E2C1C);
+  color:var(--text);
   transition:transform .08s ease, border-color .15s ease, background .15s ease;
 }
 .pos-walkup-combo:hover{
-  border-color:var(--brown,#6B4226);
-  background:var(--cream,#f9f5f0);
+  border-color:var(--brown);
+  background:var(--cream);
 }
 /* Tap feedback matters here: the tile adds to the cart immediately, so the
    press needs to feel like it registered. */
@@ -3783,13 +3940,13 @@ body.training-active.training-target-sidebar .pos-sidebar{
 .pos-combo-variant{
   font-size:1.05rem;
   font-weight:600;
-  color:var(--text-light,#7A6355);
+  color:var(--text-light);
   line-height:1.2;
 }
 .pos-combo-price{
   font-size:1.25rem;
   font-weight:800;
-  color:var(--brown,#6B4226);
+  color:var(--brown);
   margin-top:auto;
 }
 /* Sold-out styling lives with the colour families below, where it has to win
@@ -3872,17 +4029,17 @@ body.tg-no-interaction .pos-modal-overlay *{
   margin-top:12px;
   padding:8px 12px;
   border-radius:10px;
-  background:var(--cream,#f9f5f0);
-  border:1px dashed var(--accent-light,#C89F73);
+  background:var(--cream);
+  border:1px dashed var(--rule-strong);
   font-size:.9rem;
-  color:var(--text-light,#7A6355);
+  color:var(--text-light);
 }
-.training-dwell-text b{color:var(--primary,#6B4226);font-size:1.05rem}
+.training-dwell-text b{color:var(--band);font-size:1.05rem}
 .training-dwell-hold{flex:0 0 auto;min-height:36px}
 .training-dwell-held{
-  background:#FFF7E6;
+  background:var(--warning-bg);
   border-style:solid;
-  border-color:#F59E0B;
+  border-color:var(--warning);
 }
 
 /* Not scoped to .pos-detail-actions: the Reject step cues a button in the
@@ -3911,12 +4068,12 @@ button.training-dim{
 .pos-walkup-combo.pos-walkup-item-soldout,
 .pos-walkup-combo.pos-walkup-item-soldout:hover{
   cursor:not-allowed;
-  background:var(--cream-dark,#E5DACB) !important;
-  border-color:#CFC3B4 !important;
-  border-left-color:#B9AB9A !important;
-  color:var(--text-light,#7A6355);
+  background:var(--cream-dark) !important;
+  border-color:var(--disabled-bd) !important;
+  border-left-color:var(--rule-strong) !important;
+  color:var(--text-light);
 }
-.pos-walkup-combo.pos-walkup-item-soldout .pos-combo-price{color:var(--text-light,#7A6355) !important}
+.pos-walkup-combo.pos-walkup-item-soldout .pos-combo-price{color:var(--text-light) !important}
 
 /* Walk-up + Menu grid mobile fallback.
    Single column on a phone: the 70/30 split has no room, and stacking means the

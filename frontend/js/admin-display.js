@@ -54,7 +54,7 @@ function renderDisplaySection(container, slides, settings){
     slides.forEach(s => {
       const st = slideStatus(s, todayIso);
       const preview = s.imageUrl
-        ? `<img src="${escapeAttr(s.imageUrl)}" alt="" style="width:120px;height:68px;object-fit:cover;border-radius:6px;background:#111;flex-shrink:0" onerror="this.style.display='none'">`
+        ? `<img src="${escapeAttr(s.imageUrl)}" alt="" style="width:120px;height:68px;object-fit:cover;border-radius:6px;background:var(--band-2);flex-shrink:0" onerror="this.style.display='none'">`
         : '';
       html += `<div class="admin-card">
         <div class="admin-card-header" style="align-items:center;gap:12px">
@@ -147,7 +147,7 @@ function openSlideUploadForm(container){
       <label>Image file</label>
       <input id="slideFile" type="file" accept="image/*" required class="pos-input">
       <div id="slidePreview" style="margin-top:8px;display:none">
-        <img id="slidePreviewImg" style="max-width:100%;max-height:180px;border-radius:8px;background:#111">
+        <img id="slidePreviewImg" style="max-width:100%;max-height:180px;border-radius:8px;background:var(--band-2)">
         <div id="slideSizeInfo" style="font-size:.75rem;color:var(--text-light);margin-top:4px"></div>
       </div>
     </div>

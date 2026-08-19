@@ -46,7 +46,7 @@ async function openHistory(){
         </div>
         <div class="pos-history-details">${items}</div>
         ${o.discountType && o.discountType !== 'NONE' ? `<div class="pos-history-discount" style="margin:4px 0;">${discountBadgeHtml(o.discountType)}</div>` : ''}
-        ${o.cancelReason ? `<div style="font-size:.75rem;color:var(--text-light,#7A6355);margin-top:4px">Cancelled: ${o.cancelReason}${o.cancelledBy?' · by '+o.cancelledBy:''}</div>` : ''}
+        ${o.cancelReason ? `<div style="font-size:.75rem;color:var(--text-light);margin-top:4px">Cancelled: ${o.cancelReason}${o.cancelledBy?' · by '+o.cancelledBy:''}</div>` : ''}
         <div class="pos-history-footer">
           <span>${priceHtml}</span>
           <span>${new Date(o.createdAt).toLocaleTimeString('en-MY',{hour:'2-digit',minute:'2-digit'})}</span>
@@ -74,9 +74,9 @@ async function openHistory(){
       const gridClass = historyGrid ? ' pos-history-grid' : '';
 
       if (!allOrders.length){
-        content.innerHTML = `<button class="pos-modal-close">✕</button><h3>Order History (Today)</h3>${filterRow}<div style="padding:24px;text-align:center;color:var(--text-light,#7A6355)">No completed orders yet</div>`;
+        content.innerHTML = `<button class="pos-modal-close">✕</button><h3>Order History (Today)</h3>${filterRow}<div style="padding:24px;text-align:center;color:var(--text-light)">No completed orders yet</div>`;
       } else if (!list.length) {
-        content.innerHTML = `<button class="pos-modal-close">✕</button><h3>Order History (Today)</h3>${filterRow}<div style="padding:24px;text-align:center;color:var(--text-light,#7A6355)">No orders match this filter.</div>`;
+        content.innerHTML = `<button class="pos-modal-close">✕</button><h3>Order History (Today)</h3>${filterRow}<div style="padding:24px;text-align:center;color:var(--text-light)">No orders match this filter.</div>`;
       } else {
         content.innerHTML = `<button class="pos-modal-close">✕</button><h3>Order History (Today)</h3>${filterRow}
           <div class="pos-history-list${gridClass}">${list.map(itemHtml).join('')}</div>`;

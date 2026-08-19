@@ -180,7 +180,7 @@ function showError(msg) {
 
 function showSuccess(msg) {
   errorBanner.textContent = msg;
-  errorBanner.style.background = 'var(--success, #2D8A4E)';
+  errorBanner.style.background = 'var(--success)';
   errorBanner.classList.add('show');
   setTimeout(() => { errorBanner.classList.remove('show'); errorBanner.style.background = ''; }, 4000);
 }
@@ -226,7 +226,7 @@ function renderOrder(order) {
   }
 
   if (order.customerName) {
-    html += `<p style="margin-bottom:8px;font-size:1.1rem;font-weight:600;color:var(--primary,#6B4226)">Hi, ${escHtml(order.customerName)}!</p>`;
+    html += `<p style="margin-bottom:8px;font-size:1.1rem;font-weight:600;color:var(--brand-ink)">Hi, ${escHtml(order.customerName)}!</p>`;
   }
 
   // "2 orders ahead · est. wait ~6 min" is meaningless on a pre-order that is not
@@ -235,7 +235,7 @@ function renderOrder(order) {
   const waitMin = Math.max(3, queueSize * 3);
   const showPreparingWait = order.status === 'PREPARING' && queueSize > 0;
   if (order.status === 'PENDING' && queueSize > 0 && !isPre) {
-    html += `<div style="text-align:center;font-size:.85rem;color:var(--text-light,#7A6355);margin-bottom:12px">Queue: ${queueSize} order${queueSize > 1 ? 's' : ''} ahead · Est. wait ~${waitMin} min</div>`;
+    html += `<div style="text-align:center;font-size:.85rem;color:var(--text-light);margin-bottom:12px">Queue: ${queueSize} order${queueSize > 1 ? 's' : ''} ahead · Est. wait ~${waitMin} min</div>`;
   }
 
   html += `<div class="status-indicator status-${order.status}"><h2>${statusIcon} ${statusText}</h2>`;
@@ -284,7 +284,7 @@ function renderOrder(order) {
     html += `<div class="payment-section preorder-notice">
       <h3>🎉 Ministry Pre-Order</h3>
       ${preNotes.collect ? `<p class="preorder-collect">🕘 Collect: <strong>${escHtml(preNotes.collect)}</strong></p>` : ''}
-      <p style="font-size:.85rem;color:var(--text-light,#7A6355);margin-top:8px">Nothing to pay. Come to the counter at your collection time and give your name.</p>
+      <p style="font-size:.85rem;color:var(--text-light);margin-top:8px">Nothing to pay. Come to the counter at your collection time and give your name.</p>
     </div>`;
   }
 
@@ -311,7 +311,7 @@ function renderOrder(order) {
     if (hasReceipt) {
       html += `<div class="receipt-uploaded">
         <span>✅ Receipt uploaded (RM ${order.receiptAmount?.toFixed(2) || '?'})</span>
-        <p style="font-size:.8rem;color:var(--text-light,#7A6355);margin-top:4px">Waiting for cashier to verify</p>
+        <p style="font-size:.8rem;color:var(--text-light);margin-top:4px">Waiting for cashier to verify</p>
       </div>`;
     } else {
       html += `<p class="pay-method">📱 Scan the DuitNow QR on your table</p>
@@ -346,7 +346,7 @@ function renderOrder(order) {
   html += `<div class="order-details"><h3>Order Details</h3>`;
   // For a pre-order only the customer's own note is shown — the machine-composed
   // "[PRE-ORDER: CODE] Collect: …" prefix is surfaced as a field above instead.
-  if (preNotes.tail) html += `<div style="background:var(--cream,#f9f5f0);padding:10px 12px;border-radius:8px;font-size:.85rem;margin-bottom:10px">📝 ${escHtml(preNotes.tail)}</div>`;
+  if (preNotes.tail) html += `<div style="background:var(--cream);padding:10px 12px;border-radius:8px;font-size:.85rem;margin-bottom:10px">📝 ${escHtml(preNotes.tail)}</div>`;
   html += `<ul id="orderItemsList">`;
   items.forEach((i, idx) => {
     const label = i.variant ? `${i.name} (${i.variant})` : i.name;
@@ -368,10 +368,10 @@ function renderOrder(order) {
   }
 
   if (['READY', 'ARCHIVED', 'CANCELLED', 'EXPIRED'].includes(order.status)) {
-    html += `<a href="index" style="display:inline-block;margin-top:20px;color:var(--primary,#6B4226);font-weight:600;text-decoration:underline">← Back to Menu</a>`;
+    html += `<a href="index" style="display:inline-block;margin-top:20px;color:var(--brand-ink);font-weight:600;text-decoration:underline">← Back to Menu</a>`;
   }
 
-  html += `<a href="track" style="display:block;margin-top:12px;color:var(--text-light,#7A6355);font-size:.9rem;text-decoration:underline">My Orders</a>`;
+  html += `<a href="track" style="display:block;margin-top:12px;color:var(--text-light);font-size:.9rem;text-decoration:underline">My Orders</a>`;
 
   // Slot for the past-orders section — populated async by renderPastOrders
   // after this innerHTML swap so the current order paints immediately.
@@ -408,7 +408,7 @@ function renderOrder(order) {
   // Bind show to cashier
   document.getElementById('btnShowCounter')?.addEventListener('click', () => {
     const statusEl = document.getElementById('uploadStatus');
-    if (statusEl) statusEl.innerHTML = '<div style="margin-top:14px;padding:16px;background:var(--cream,#f9f5f0);border-radius:10px;text-align:center"><p style="font-size:1.3rem;margin-bottom:8px">🙋</p><p style="font-weight:700;font-size:1.05rem;color:var(--primary,#6B4226)">Show your payment screen to the cashier now</p><p style="font-size:.85rem;color:var(--text-light,#7A6355);margin-top:6px">The cashier will tap "Payment Confirmed" on their end.<br>This page will update automatically.</p></div>';
+    if (statusEl) statusEl.innerHTML = '<div style="margin-top:14px;padding:16px;background:var(--cream);border-radius:10px;text-align:center"><p style="font-size:1.3rem;margin-bottom:8px">🙋</p><p style="font-weight:700;font-size:1.05rem;color:var(--brand-ink)">Show your payment screen to the cashier now</p><p style="font-size:.85rem;color:var(--text-light);margin-top:6px">The cashier will tap "Payment Confirmed" on their end.<br>This page will update automatically.</p></div>';
     clearInterval(pollTimer);
     setTimeout(() => { pollTimer = setInterval(pollOrder, 7000); pollOrder(); }, 8000);
   });
@@ -526,14 +526,14 @@ function enterEditMode(order) {
   document.querySelectorAll('.edit-extras').forEach(el => el.remove());
   actionsRow.insertAdjacentHTML('beforebegin', `
     <div class="edit-extras" style="margin-top:14px">
-      <button id="addItemBtn" type="button" style="width:100%;padding:12px;background:#fff;border:1px dashed var(--primary,#6B4226);color:var(--primary,#6B4226);border-radius:10px;font-size:.95rem;font-weight:600;cursor:pointer">+ Add item</button>
+      <button id="addItemBtn" type="button" style="width:100%;padding:12px;background:#fff;border:1px dashed var(--brand);color:var(--brand-ink);border-radius:10px;font-size:.95rem;font-weight:600;cursor:pointer">+ Add item</button>
       ${collectionHtml}
       <div style="margin-top:14px">
-        <label for="editNotes" style="display:block;font-size:.85rem;color:var(--text-light,#7A6355);margin-bottom:4px">Anything else about the whole order? (optional)</label>
-        <textarea id="editNotes" maxlength="${notesMax}" rows="2" placeholder="e.g. collecting for a group" style="width:100%;padding:10px;border:1px solid var(--cream-dark,#ddd);border-radius:8px;font-size:.9rem;resize:none;font-family:inherit;box-sizing:border-box"></textarea>
-        <div style="display:flex;justify-content:flex-end;font-size:.75rem;color:var(--text-light,#7A6355);margin-top:2px"><span id="editNotesCount">0</span>/${notesMax}</div>
+        <label for="editNotes" style="display:block;font-size:.85rem;color:var(--text-light);margin-bottom:4px">Anything else about the whole order? (optional)</label>
+        <textarea id="editNotes" maxlength="${notesMax}" rows="2" placeholder="e.g. collecting for a group" style="width:100%;padding:10px;border:1px solid var(--cream-dark);border-radius:8px;font-size:.9rem;resize:none;font-family:inherit;box-sizing:border-box"></textarea>
+        <div style="display:flex;justify-content:flex-end;font-size:.75rem;color:var(--text-light);margin-top:2px"><span id="editNotesCount">0</span>/${notesMax}</div>
       </div>
-      ${notesPrefix && !showCollectionPicker ? `<p style="font-size:.75rem;color:var(--text-light,#7A6355);margin-top:6px">Your collection time (${escHtml(preNotes.collect || '—')}) stays on the order.</p>` : ''}
+      ${notesPrefix && !showCollectionPicker ? `<p style="font-size:.75rem;color:var(--text-light);margin-top:6px">Your collection time (${escHtml(preNotes.collect || '—')}) stays on the order.</p>` : ''}
     </div>
   `);
 
@@ -624,10 +624,10 @@ function enterEditMode(order) {
       const menuItem = lookupMenuItem(i.menuItemId);
       const hasVariants = !!(menuItem && menuItem.variantGroups && menuItem.variantGroups.length);
       const toggleBtn = hasVariants
-        ? `<button class="edit-variant-toggle" data-idx="${idx}" title="Edit variants" style="background:none;border:none;color:var(--primary,#6B4226);font-size:1rem;cursor:pointer;padding:4px 8px">▾</button>`
+        ? `<button class="edit-variant-toggle" data-idx="${idx}" title="Edit variants" style="background:none;border:none;color:var(--brand-ink);font-size:1rem;cursor:pointer;padding:4px 8px">▾</button>`
         : '';
       const pickerDiv = hasVariants
-        ? `<div class="edit-variant-picker" data-idx="${idx}" style="display:none;margin-top:8px;padding:10px 12px;background:var(--cream,#f9f5f0);border-radius:8px"></div>`
+        ? `<div class="edit-variant-picker" data-idx="${idx}" style="display:none;margin-top:8px;padding:10px 12px;background:var(--cream);border-radius:8px"></div>`
         : '';
       // Quantity controls STAY here, unlike the customer cart: a stored order's
       // items can legitimately have quantity > 1 (walk-ups, and anything placed
@@ -699,7 +699,7 @@ function enterEditMode(order) {
 
         const menuItem = lookupMenuItem(items[idx].menuItemId);
         if (!menuItem) {
-          pickerEl.innerHTML = '<p style="color:var(--text-light,#7A6355);font-size:.85rem;margin:0">Variants unavailable</p>';
+          pickerEl.innerHTML = '<p style="color:var(--text-light);font-size:.85rem;margin:0">Variants unavailable</p>';
         } else {
           // Initial preselection comes from the working item's selectedVariants
           // if it was edited earlier in this session; otherwise the picker
@@ -737,10 +737,10 @@ function enterEditMode(order) {
 
     const overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(61,43,31,.6);backdrop-filter:blur(4px);z-index:400;display:flex;align-items:center;justify-content:center;padding:16px';
-    overlay.innerHTML = `<div style="background:#fff;border-radius:16px;width:100%;max-width:440px;max-height:80vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 8px 24px rgba(74,44,23,.15)">
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--cream-dark,#ddd)">
-        <h3 style="margin:0;color:var(--primary,#6B4226)">${isPre ? 'Add a drink' : 'Add an item'}</h3>
-        <button id="closePickerBtn" type="button" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--text-light,#7A6355);padding:4px 8px">✕</button>
+    overlay.innerHTML = `<div style="background:var(--card);border-radius:16px;width:100%;max-width:440px;max-height:80vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 8px 24px rgba(74,44,23,.15)">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--cream-dark)">
+        <h3 style="margin:0;color:var(--brand-ink)">${isPre ? 'Add a drink' : 'Add an item'}</h3>
+        <button id="closePickerBtn" type="button" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--text-light);padding:4px 8px">✕</button>
       </div>
       <ul id="pickerItemsList" style="margin:0;padding:0;list-style:none;overflow-y:auto;flex:1"></ul>
     </div>`;
@@ -748,12 +748,12 @@ function enterEditMode(order) {
 
     const pickerListEl = overlay.querySelector('#pickerItemsList');
     if (!picks.length) {
-      pickerListEl.innerHTML = `<li style="padding:20px;text-align:center;color:var(--text-light,#7A6355)">${isPre ? 'No other drinks are available on this pre-order link.' : 'No items available'}</li>`;
+      pickerListEl.innerHTML = `<li style="padding:20px;text-align:center;color:var(--text-light)">${isPre ? 'No other drinks are available on this pre-order link.' : 'No items available'}</li>`;
     } else {
       pickerListEl.innerHTML = picks.map((m, idx) => `
-        <li data-pick-idx="${idx}" style="padding:14px 20px;border-bottom:1px solid var(--cream-dark,#eee);cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px">
-          <div style="flex:1;min-width:0"><div style="font-weight:600;color:var(--text,#3D2B1F)">${escHtml(m.name)}</div>${m.category ? `<div style="font-size:.75rem;color:var(--text-light,#7A6355);margin-top:2px">${m.category === 'DRINK' ? '🥤 Drink' : '🍔 Food'}</div>` : ''}</div>
-          <span style="color:var(--primary,#6B4226);font-weight:700;white-space:nowrap">${isPre ? 'Free' : `RM ${(m.basePrice || 0).toFixed(2)}`}</span>
+        <li data-pick-idx="${idx}" style="padding:14px 20px;border-bottom:1px solid var(--cream-dark);cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px">
+          <div style="flex:1;min-width:0"><div style="font-weight:600;color:var(--text)">${escHtml(m.name)}</div>${m.category ? `<div style="font-size:.75rem;color:var(--text-light);margin-top:2px">${m.category === 'DRINK' ? '🥤 Drink' : '🍔 Food'}</div>` : ''}</div>
+          <span style="color:var(--brand-ink);font-weight:700;white-space:nowrap">${isPre ? 'Free' : `RM ${(m.basePrice || 0).toFixed(2)}`}</span>
         </li>
       `).join('');
 
@@ -784,8 +784,8 @@ function enterEditMode(order) {
   renderEditItems();
 
   actionsRow.innerHTML = `
-    <button class="edit-btn" id="saveEditBtn" style="background:var(--primary,#6B4226);color:#fff;border-color:var(--primary,#6B4226)">💾 Save Changes</button>
-    <button class="cancel-btn" id="cancelEditBtn" style="border-color:var(--text-light,#7A6355);color:var(--text-light,#7A6355)">Cancel Edit</button>
+    <button class="edit-btn" id="saveEditBtn" style="background:var(--brand);color:var(--on-brand);border-color:var(--brand)">💾 Save Changes</button>
+    <button class="cancel-btn" id="cancelEditBtn" style="border-color:var(--text-light);color:var(--text-light)">Cancel Edit</button>
   `;
 
   document.getElementById('saveEditBtn').addEventListener('click', async () => {
@@ -879,13 +879,13 @@ async function handleReceiptUpload(e) {
             <button class="upload-btn" id="retryUpload">📷 Try Again</button>
             <button class="upload-btn" id="showCashierFallback">🙋 Show Payment at the Counter</button>
           </div>
-          <p style="font-size:.8rem;color:var(--text-light,#7A6355);margin-top:8px">Paid a different amount? Just show your payment screen to the cashier.</p>`;
+          <p style="font-size:.8rem;color:var(--text-light);margin-top:8px">Paid a different amount? Just show your payment screen to the cashier.</p>`;
         statusEl.querySelector('#retryUpload').onclick = () => {
           pollTimer = setInterval(pollOrder, 7000);
           pollOrder();
         };
         statusEl.querySelector('#showCashierFallback').onclick = () => {
-          statusEl.innerHTML = '<div style="margin-top:14px;padding:16px;background:var(--cream,#f9f5f0);border-radius:10px;text-align:center"><p style="font-size:1.3rem;margin-bottom:8px">🙋</p><p style="font-weight:700;font-size:1.05rem;color:var(--primary,#6B4226)">Show your payment screen to the cashier now</p><p style="font-size:.85rem;color:var(--text-light,#7A6355);margin-top:6px">The cashier will tap "Payment Confirmed" on their end.<br>This page will update automatically.</p></div>';
+          statusEl.innerHTML = '<div style="margin-top:14px;padding:16px;background:var(--cream);border-radius:10px;text-align:center"><p style="font-size:1.3rem;margin-bottom:8px">🙋</p><p style="font-weight:700;font-size:1.05rem;color:var(--brand-ink)">Show your payment screen to the cashier now</p><p style="font-size:.85rem;color:var(--text-light);margin-top:6px">The cashier will tap "Payment Confirmed" on their end.<br>This page will update automatically.</p></div>';
           setTimeout(() => { pollTimer = setInterval(pollOrder, 7000); pollOrder(); }, 8000);
         };
       }
@@ -930,7 +930,7 @@ function renderDeadOrderLink() {
     <p>Orders are cleared after each Sunday service, so this link no longer points at anything.</p>
     <p>If you have already collected your drink, nothing is wrong.</p>
     <div class="load-failure-acts">
-      <a class="load-failure-btn-ghost" href="index" style="background:var(--primary);color:#fff;border-color:var(--primary)">See today’s menu</a>
+      <a class="load-failure-btn-ghost" href="index" style="background:var(--brand);color:var(--on-brand);border-color:var(--brand)">See today’s menu</a>
       <a class="load-failure-btn-ghost" href="track">My past orders</a>
     </div>
   </div>`;
@@ -1062,7 +1062,7 @@ async function buildPastOrders(hostEl, excludeOrderId) {
     hostEl.innerHTML = '';
     return;
   }
-  hostEl.innerHTML = '<div class="loading" style="padding:14px;color:var(--text-light,#7A6355)">Loading past orders…</div>';
+  hostEl.innerHTML = '<div class="loading" style="padding:14px;color:var(--text-light)">Loading past orders…</div>';
   let orders = [];
   try {
     const res = await fetch(`${API_BASE}/api/customers/${encodeURIComponent(profile.phone)}/orders`);
@@ -1072,15 +1072,15 @@ async function buildPastOrders(hostEl, excludeOrderId) {
   } catch (_e) {
     // Deliberately NOT cached: a failure should be retried on the next render,
     // whereas a successful list should not be re-fetched.
-    hostEl.innerHTML = '<div style="margin-top:24px;padding:12px;color:var(--text-light,#7A6355);font-size:.9rem">Could not load past orders.</div>';
+    hostEl.innerHTML = '<div style="margin-top:24px;padding:12px;color:var(--text-light);font-size:.9rem">Could not load past orders.</div>';
     return;
   }
   if (excludeOrderId) orders = orders.filter(o => o.orderId !== excludeOrderId);
 
   if (!orders.length) {
     pastOrdersHtml = `
-      <h3 style="margin:24px 0 12px;color:var(--primary,#6B4226)">📋 My Past Orders</h3>
-      <div style="padding:14px;color:var(--text-light,#7A6355);font-size:.9rem;border:1px solid var(--cream-dark,#E7DFD5);border-radius:10px">No past orders yet.</div>`;
+      <h3 style="margin:24px 0 12px;color:var(--brand-ink)">📋 My Past Orders</h3>
+      <div style="padding:14px;color:var(--text-light);font-size:.9rem;border:1px solid var(--cream-dark);border-radius:10px">No past orders yet.</div>`;
     hostEl.innerHTML = pastOrdersHtml;
     return;
   }
@@ -1107,25 +1107,25 @@ async function buildPastOrders(hostEl, excludeOrderId) {
     const cancelled = status === 'CANCELLED' || status === 'EXPIRED';
     const completed = status === 'ARCHIVED' || status === 'READY';
     const badge = cancelled
-      ? `<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:#FEE2E2;color:#7F1D1D;font-size:.72rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase">${status}</span>`
+      ? `<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:var(--danger-bg);color:var(--stale-ink);font-size:.72rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase">${status}</span>`
       : completed
-        ? `<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:#D1FAE5;color:#065F46;font-size:.72rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase">Completed</span>`
-        : `<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:#F3F4F6;color:#374151;font-size:.72rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase">${status || '—'}</span>`;
+        ? `<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:var(--success-bg);color:var(--ready-ink);font-size:.72rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase">Completed</span>`
+        : `<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:var(--quiet-2);color:var(--ink-quiet);font-size:.72rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase">${status || '—'}</span>`;
     const amountStyle = cancelled
-      ? 'color:var(--text-light,#7A6355);text-decoration:line-through'
-      : 'color:var(--primary,#6B4226);font-weight:700';
-    return `<a href="track?id=${encodeURIComponent(o.orderId)}" style="display:block;text-decoration:none;color:inherit;margin-bottom:10px;padding:12px 14px;border:1px solid var(--cream-dark,#E7DFD5);border-radius:10px;background:#fff">
+      ? 'color:var(--text-light);text-decoration:line-through'
+      : 'color:var(--brand-ink);font-weight:700';
+    return `<a href="track?id=${encodeURIComponent(o.orderId)}" style="display:block;text-decoration:none;color:inherit;margin-bottom:10px;padding:12px 14px;border:1px solid var(--cream-dark);border-radius:10px;background:#fff">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
         <span style="font-weight:600">${esc(dateStr)}</span>
         <span style="${amountStyle}">RM ${Number(o.totalAmount || 0).toFixed(2)}</span>
       </div>
-      <div style="font-size:.88rem;color:var(--text,#3D2B1F);margin-top:4px">${esc(items)}</div>
+      <div style="font-size:.88rem;color:var(--text);margin-top:4px">${esc(items)}</div>
       <div style="margin-top:6px">${badge}</div>
     </a>`;
   }).join('');
 
   pastOrdersHtml = `
-    <h3 style="margin:24px 0 12px;color:var(--primary,#6B4226)">📋 My Past Orders</h3>
+    <h3 style="margin:24px 0 12px;color:var(--brand-ink)">📋 My Past Orders</h3>
     ${rows}`;
   hostEl.innerHTML = pastOrdersHtml;
 }
@@ -1144,9 +1144,9 @@ function renderOrderHistory() {
 
   // Show active order prominently if exists
   if (lastId) {
-    html += `<a href="track?id=${encodeURIComponent(lastId)}" style="display:block;text-decoration:none;color:inherit;margin-bottom:16px;padding:16px;border:2px solid var(--primary,#6B4226);border-radius:10px;background:var(--cream,#f9f5f0)">
-      <div style="font-weight:700;color:var(--primary,#6B4226)">📍 Current Order</div>
-      <div style="font-size:.85rem;color:var(--text-light,#999);margin-top:4px">${escHtml(lastId.slice(0,8))}… — tap to view status</div>
+    html += `<a href="track?id=${encodeURIComponent(lastId)}" style="display:block;text-decoration:none;color:inherit;margin-bottom:16px;padding:16px;border:2px solid var(--brand);border-radius:10px;background:var(--cream)">
+      <div style="font-weight:700;color:var(--brand-ink)">📍 Current Order</div>
+      <div style="font-size:.85rem;color:var(--text-light);margin-top:4px">${escHtml(lastId.slice(0,8))}… — tap to view status</div>
     </a>`;
   }
 
@@ -1159,22 +1159,22 @@ function renderOrderHistory() {
   if (hasProfile) {
     html += '<div id="pastOrders"></div>';
   } else if (history.length) {
-    html += '<h3 style="margin:16px 0 10px;font-size:.9rem;color:var(--text-light,#7A6355)">Order History</h3>';
+    html += '<h3 style="margin:16px 0 10px;font-size:.9rem;color:var(--text-light)">Order History</h3>';
     history.forEach(o => {
       const date = new Date(o.date).toLocaleDateString(undefined, { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
-      html += `<a href="track?id=${encodeURIComponent(o.orderId)}" style="display:block;text-decoration:none;color:inherit;margin-bottom:10px;padding:14px 16px;border:1px solid var(--cream-dark,#ddd);border-radius:10px">
+      html += `<a href="track?id=${encodeURIComponent(o.orderId)}" style="display:block;text-decoration:none;color:inherit;margin-bottom:10px;padding:14px 16px;border:1px solid var(--cream-dark);border-radius:10px">
         <div style="display:flex;justify-content:space-between;align-items:center">
           <span style="font-weight:600">${escHtml(date)}</span>
-          <span style="color:var(--primary,#6B4226);font-weight:700">RM ${(Number(o.total)||0).toFixed(2)}</span>
+          <span style="color:var(--brand-ink);font-weight:700">RM ${(Number(o.total)||0).toFixed(2)}</span>
         </div>
-        <div style="font-size:.8rem;color:var(--text-light,#999);margin-top:4px">${escHtml(String(o.orderId).slice(0,8))}…</div>
+        <div style="font-size:.8rem;color:var(--text-light);margin-top:4px">${escHtml(String(o.orderId).slice(0,8))}…</div>
       </a>`;
     });
   } else if (!lastId) {
     html += '<p style="color:var(--text-light)">No orders yet</p>';
   }
 
-  html += '<p style="margin-top:24px"><a href="index" style="color:var(--primary,#6B4226);font-weight:600">← Back to menu</a></p>';
+  html += '<p style="margin-top:24px"><a href="index" style="color:var(--brand-ink);font-weight:600">← Back to menu</a></p>';
   trackApp.innerHTML = html;
 
   // Populate the server-side history if the customer has a profile.

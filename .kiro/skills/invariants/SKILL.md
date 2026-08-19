@@ -1,6 +1,6 @@
 ---
 name: invariants
-description: Reviewable invariants for RLC Café POS — the do-not-duplicate list (including Malaysia-time date conversion and dead code left behind by an early return), storage conventions, who may authorise a discount (cashier-selected vs customer-requested vs system-only), the pre-order ISO expiresAt exception, create/edit parity (a restriction enforced on create must be re-enforced on edit), bulk mutating routes and collection-route dispatch, API response shape, path-parameter handling, no un-awaited work after a handler returns (Lambda freezes the sandbox) and date-keyed markers for at-most-once cron side effects, no silently-skipped feature when its config is missing (config in SSM, never a wipeable Lambda env default), auth and release rules, frontend HTML escaping (a customer-controlled string is escaped at every innerHTML render site, not just the newest one — and a textContent sink must not be escaped; a partial escaper that covers only some of the five characters is more dangerous than a missing one, so audit escaper bodies and not call sites; `escapeHtml`/`escapeAttr` in `admin.js` are canonical for the whole admin bundle, `mfEsc` is gone, and `variants.js` keeps a module-private escaper because it loads on three pages whose bundles name theirs differently), frontend state and motion rules (a failure state must not render identically to an empty success state, two distinct persisted flags must not share one visual language, a `[disabled]` control must look disabled, animate transform/opacity and never a layout property), user-visible copy rules (copy asserting a domain fact is gated on the state that makes it true; the house payment fact — payment is QR-ONLY, no cash and no card, and the DuitNow QR is physical and printed on the café tables, so no surface may say "pay at the counter"; a pending feature is deleted rather than commented out, placeholder assets and READMEs included), Malaysia-time dates on the admin frontend via `mytToday()`, and test teeth (a guard is untested unless a fixture reaches it; a test that depends on the machine timezone is not a test). Each is a checkable assertion with the production bug it prevents. Use when reviewing a diff, writing or judging tests, before deploying, or when adding code that touches money, discounts, order status, expiry, pre-orders, collection times, item notes, emails, background or scheduled work, timezones, versions, routing, customer-facing payment copy, or the rendering of customer-supplied text into the DOM.
+description: Reviewable invariants for RLC Café POS — the do-not-duplicate list (including Malaysia-time date conversion and dead code left behind by an early return), storage conventions, who may authorise a discount (cashier-selected vs customer-requested vs system-only), the pre-order ISO expiresAt exception, create/edit parity (a restriction enforced on create must be re-enforced on edit), bulk mutating routes and collection-route dispatch, API response shape, path-parameter handling, no un-awaited work after a handler returns (Lambda freezes the sandbox) and date-keyed markers for at-most-once cron side effects, no silently-skipped feature when its config is missing (config in SSM, never a wipeable Lambda env default), auth and release rules, frontend HTML escaping (a customer-controlled string is escaped at every innerHTML render site, not just the newest one — and a textContent sink must not be escaped; a partial escaper that covers only some of the five characters is more dangerous than a missing one, so audit escaper bodies and not call sites; `escapeHtml`/`escapeAttr` in `admin.js` are canonical for the whole admin bundle, `mfEsc` is gone, and `variants.js` keeps a module-private escaper because it loads on three pages whose bundles name theirs differently), frontend state and motion rules (a failure state must not render identically to an empty success state, two distinct persisted flags must not share one visual language, a `[disabled]` control must look disabled, animate transform/opacity and never a layout property — no layout-property transitions remain as of v1.77.0), colour and contrast rules (every CSS custom property must be **defined** and never supplied by a `var(--tok,#hex)` fallback, since 261 such fallbacks had drifted into a second palette and three tokens existed only as fallbacks; `--brand` burnt orange is banned from the POS board except the header wordmark because it collides with `--warning` and `--danger` for deutan vision; a status needs a non-colour channel — a word, and for "receipt sent" a 2px outline plus band, because the old pre-order violet and preparing blue measured ΔE 0.4 deutan; the receipt indigo is deliberately un-harmonised; measured floors for control borders and placeholders and why `opacity` on text is a contrast change; mock deviations are recorded with their measurement), user-visible copy rules (copy asserting a domain fact is gated on the state that makes it true; the house payment fact — payment is QR-ONLY, no cash and no card, and the DuitNow QR is physical and printed on the café tables, so no surface may say "pay at the counter"; a pending feature is deleted rather than commented out, placeholder assets and READMEs included), Malaysia-time dates on the admin frontend via `mytToday()`, and test teeth (a guard is untested unless a fixture reaches it; a test that depends on the machine timezone is not a test). Each is a checkable assertion with the production bug it prevents. Use when reviewing a diff, writing or judging tests, before deploying, or when adding code that touches money, discounts, order status, expiry, pre-orders, collection times, item notes, emails, background or scheduled work, timezones, versions, routing, customer-facing payment copy, the rendering of customer-supplied text into the DOM, or any colour, CSS custom property, palette, theme, contrast, status badge or animated property in `frontend/css/`.
 ---
 
 # Invariants
@@ -19,6 +19,7 @@ production bug in this repo. Violations are defects, not style opinions.
 | Malaysia-time dates (backend) | `backend/src/lib/date.ts` | end-of-day emails headed "Saturday" for a Sunday service |
 | Malaysia-time dates (admin frontend) | `mytToday()` in `frontend/js/admin.js` | eight `toISOString()` sites: before 08:00 MYT the admin showed the previous day, and `admin-preorder.js` could stamp `serviceDate` as Saturday |
 | Runtime config (`/rlc-cafe/` SSM) | `backend/src/lib/ssm-config.ts` | two separate readers of the same prefix, each with its own unpaginated fetch: web push died in production, the end-of-day email was three parameters from the same fate |
+| Colour values | the `:root` block in `frontend/css/style.css` (admin-only tokens in `frontend/css/admin.css`) | **261** `var(--tok,#hex)` fallbacks had become a second, drifted palette — `--cream-dark` alone carried six different values — and three tokens existed *only* as fallbacks. See **Colour and contrast** |
 
 `lib/date.ts` (`malaysiaToday` / `malaysiaClock` / `malaysiaDayStartUtc`) is the
 one place the UTC+8 conversion lives. It was extracted from `routes/staffcode.ts`
@@ -345,8 +346,11 @@ or into an excluded paid option.
   which one it is counting.
 - ☐ **A `[disabled]` control must look disabled.** The POS had exactly one
   `[disabled]` rule (`.pos-btn-preorder-release`), so every other disabled primary
-  rendered as a full brown gradient with `cursor:pointer` — indistinguishable from
-  enabled, and tapped repeatedly. Style `:disabled` generically, not per button.
+  rendered as a full-strength brand gradient with `cursor:pointer` —
+  indistinguishable from enabled, and tapped repeatedly. Style `:disabled`
+  generically, not per button. (The gradient itself is gone as of v1.77.0 — see
+  **Colour and contrast** below — but the rule is about the `:disabled` state, not
+  the fill.)
 - ☐ **Copy that asserts a domain fact is gated on the state that makes it true.**
   A payment instruction rendered unconditionally is a false statement in every
   state that does not require payment. Found in v1.75.1: `app.js` rendered
@@ -382,9 +386,14 @@ or into an excluded paid option.
   `margin-left` and friends relayout every frame and jank on the counter iPad. The
   v1.75.0 checklist progress bar scales an always-full-width fill via
   `transform:scaleX(var(--cl-progress))` from a left origin rather than animating
-  `width`, and pairs it with a `prefers-reduced-motion:reduce` escape. Two known
-  offenders remain — `.admin-main` and `.pos-main` both transition `margin-left`
-  (follow-up (a)).
+  `width`, and pairs it with a `prefers-reduced-motion:reduce` escape. **As of
+  v1.77.0 there are no remaining layout-property transitions in `frontend/css/`.**
+  The last two — `.pos-main` and `.admin-main`, which transitioned `margin-left`
+  for the sidebar push (follow-up (a)) — now use
+  `transform:translateX(220px)` / `translateX(240px)` on the sidebar-open
+  sibling selector, each with a `prefers-reduced-motion:reduce` opt-out. Checkable
+  with: `grep -rE 'transition:[^;}]*(margin|width|height|top|left|right|bottom|padding)' frontend/css/*.css`
+  must return nothing.
 - ☐ **A customer-controlled string interpolated into `innerHTML` is escaped at
   EVERY render site, not just the newest one.** Escaping is a property of the
   *site*, not of the field: the same field being escaped somewhere else in the
@@ -457,6 +466,114 @@ or into an excluded paid option.
   admin page its global shadows the canonical one for every later caller. Harmless
   only while the two implementations stay identical. Follow-up (s) in
   `docs/update-20260817.md`.
+
+## Colour and contrast
+
+The palette was replaced wholesale in **v1.77.0** (`frontend/css/style.css`
+`:root`, mirrored for the admin-only tokens in `frontend/css/admin.css`). 87
+contrast pairs were measured in-browser: 76 PASS, 10 WCAG-exempt or documented
+bans, 1 deliberate diagnostic FAIL kept in the table to prove the brand split was
+necessary. The rules below are the ones that will otherwise be undone by someone
+"tidying up".
+
+- ☐ **A CSS custom property must be DEFINED. Never rely on a
+  `var(--tok, #fallback)` literal to supply a colour.** The fallback is invisible
+  to every grep for the value, and it silently becomes the live value the moment
+  the token is missing — which is not an edge case, it is what had happened.
+
+  Why it matters: before v1.77.0, **261** `var(--tok,#hex)` fallbacks in
+  `frontend/` were a second, drifted palette. `--cream-dark` alone was written
+  with **six different fallback values** across the tree
+  (`#E5DACB #E8E0D8 #E7DFD5 #F5EDE4 #EEE #DDD`), so "the" colour depended on which
+  rule you landed in. Worse, **three tokens were never defined at all** —
+  `--brown`, `--white`, `--cream-lighter` — so their fallback *was* the live
+  value. That is how the old `#6B4226` brown stayed pinned into the walk-up screen
+  behind a token name nobody could find a definition for. All 261 were stripped in
+  v1.77.0; it was a render no-op because every page loads `style.css` and every
+  token is now defined.
+
+  Checkable: every `--name` appearing inside a `var()` in `frontend/css/*.css`,
+  `frontend/*.html` and `frontend/js/*.js` has a `--name:` definition somewhere in
+  `frontend/css/`. The only permitted exceptions are properties **set inline by
+  JS**, which must be commented as such at the definition site —
+  currently just `--cl-progress` (set in the `style=""` attribute
+  `pos-checklist.js` writes, read as `transform:scaleX(var(--cl-progress,0))`).
+  A non-colour fallback (`var(--radius,8px)`, `var(--transition,all .15s)`) is
+  tolerated; a **colour** fallback is not.
+
+- ☐ **`--brand` must not appear anywhere on the POS board except the header
+  wordmark.** Board buttons are espresso; the confirm action is ready-green. This
+  looks arbitrary and is not: burnt orange sits *inside* the warm band the app's
+  status semantics already own.
+
+  The measurements, so nobody has to re-derive them:
+  `--brand #B4531C` vs `--warning #A87700` is **ΔE 9.2 normal / 6.6 deutan —
+  FAIL**; vs `--danger #A81E13` is **ΔE 9.9 normal — FAIL**. No recognisable
+  burnt orange clears both. So an orange primary on the board is a button a
+  deutan cashier may read as a warning or a rejection.
+
+  Admin is different and orange is wanted there — admin has no live order-status
+  band to collide with. Verified at v1.77.0 by a rendered-DOM hue scan: **0
+  occurrences on the board, 11 on admin.** Statically checkable: no rule body
+  matching a `.pos-` or `.board` selector may contain `var(--brand)` (the *fill*;
+  `--brand-ink`, `--brand-soft`, `--brand-deep` are text/tint tokens and are
+  fine).
+
+  `--brand` is also split in two for a second reason: the `#B4531C` fill measures
+  **4.18:1 on the raised surface `--quiet`**, under the body-text floor, so text
+  uses `--brand-ink #8F3F11` (7.27:1 on a card). Use the fill for fills and the
+  ink for text; do not use `--brand` as a text colour.
+
+- ☐ **A status must carry a non-colour channel as well as a colour one — a word
+  always, and for "receipt sent" a shape.** Hue alone is not a status channel.
+
+  Why it matters: this was a **live accessibility defect**, not a hypothetical.
+  The shipped pre-order violet and the preparing blue measured **ΔE 0.4 deutan** —
+  i.e. *the same colour* for a deutan cashier — and 12.4 normal-vision. Both FAIL.
+  Two different things a cashier must act on differently were indistinguishable to
+  a colour-blind volunteer, and had been since they shipped. The violet is retired:
+  the pre-order ribbon now takes espresso (**13.72:1 vs the card, up from 5.70**),
+  and the later-service variant goes **3.09 → 8.47:1** against its sibling. Worst
+  adjacent status separation across the six states is now **ΔE 6.0 deutan, up from
+  0.4**.
+
+  So: when adding a status, a badge or a state variant, it gets a **word**, and
+  the ΔE against every adjacent state is measured — a new hex that "looks
+  different" on a designer's monitor is not evidence.
+
+- ☐ **The receipt indigo `#4338CA` is deliberately NOT in the warm band. Do not
+  "harmonise" it.** "Money has arrived" is genuinely not a warm-band event, and it
+  could not be made to pass on hue alone against the warm statuses. Its channel is
+  therefore **shape**: a **2px full-card outline** plus a `RECEIPT SENT — check it`
+  band. That secondary encoding is **mandatory** — it is what carries the meaning,
+  the indigo is decoration. If the outline or the band is ever removed, the state
+  is gone for a deutan cashier even though the colour is still there.
+
+- ☐ **Control borders and placeholders have measured floors, and `opacity` on
+  text is a contrast change, not a styling choice.** Non-text UI (input borders,
+  focus rings, switch tracks) needs **3:1** per WCAG 1.4.11; text needs **4.5:1**.
+
+  Why it matters: **every text input in the app failed 1.4.11 at 1.58:1** before
+  v1.77.0, and the fix needed *all* of them, not just the one a brief happened to
+  name — `.pos-input`, both note textareas, `.stock-result-input`, the admin form
+  inputs, the number input and `.dash-date-select`. Use `--field-bd` (4.33:1) for
+  a control border; `scrollbar-color` uses it too at 3.18:1. Separately, two
+  placeholders composited **below** the floor purely because of `opacity:.8` —
+  3.62:1 and 4.09:1. **The opacity was the bug.** Set the colour you mean and
+  measure it; never dim text to "soften" it.
+
+  `--tan` is **decorative only** — 2.73:1 on white. It may not carry text, a
+  border, or a scrollbar thumb.
+
+- ☐ **When a shipped value deviates from an approved design mock, the deviation is
+  recorded with its measurement.** The mock is the reference document, so an
+  unexplained difference reads as a mistake and gets "fixed" back. v1.77.0 has
+  exactly three, all in `docs/update-20260817.md`: the mock's
+  `scrollbar-color:var(--tan)` (2.01:1, and the CSS already carried a comment that
+  a near-invisible thumb had been a real usability problem) → `--field-bd`; `--tan`
+  never measured in the mock at all → demoted to decorative; and five
+  white-labelled `--primary`→`--primary-light` gradients → flattened to solid
+  `--brand` (5.01:1), because white on the mock's light end is 3.26:1.
 
 ## Release
 

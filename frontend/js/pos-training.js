@@ -802,7 +802,7 @@ function startTrainingTour() {
         // `showStepDots` / `showStepProgress` both default to true — enabling
         // the bar as well rendered a bar under the title, a row of dots AND an
         // "n/22" counter. The bar reads best on the POS tablet.
-        progressBar: '#6B4226',
+        progressBar: '#3A2A1F',
         showStepDots: false,
         showStepProgress: false,
         showButtons: true,

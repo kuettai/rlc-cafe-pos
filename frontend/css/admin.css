@@ -6,7 +6,7 @@
    shell's equivalent, and it is what makes the sortable table headers and the
    dashboard accordion rows below visibly focusable. */
 .admin-app :focus-visible{
-  outline:3px solid var(--primary);
+  outline:3px solid var(--brand);
   outline-offset:2px;
   border-radius:4px;
 }
@@ -16,7 +16,7 @@
 .admin-app .dash-row-toggle:focus-visible{outline-offset:-3px}
 .sortable-col{cursor:pointer;user-select:none}
 .sortable-col:hover{color:var(--text)}
-.dash-row-toggle:hover td:first-child{color:var(--primary)}
+.dash-row-toggle:hover td:first-child{color:var(--brand-ink)}
 
 /* Login */
 .admin-login{
@@ -31,7 +31,7 @@
 }
 .admin-login h2{
   margin-bottom:8px;
-  color:var(--primary);
+  color:var(--brand-ink);
   font-size:1.4rem;
 }
 .admin-login p{
@@ -57,21 +57,21 @@
    and give the scroll an actual affordance. */
 .admin-sidebar{
   position:fixed;top:var(--pos-hdr-h);left:0;bottom:0;width:240px;
-  background:#fff;border-right:1px solid var(--cream-dark,#e8e0d8);
+  background:#fff;border-right:1px solid var(--cream-dark);
   z-index:150;transform:translateX(-100%);transition:transform .25s ease;
   display:flex;flex-direction:column;min-height:0;overflow:hidden;
-  box-shadow:2px 0 12px rgba(74,44,23,.09);
+  box-shadow:2px 0 12px rgba(36,26,20,.12);
 }
 .admin-sidebar.open{transform:translateX(0)}
 /* Pinned: who you are signed in as. Replaces the old "☕ Admin" title row,
    which only repeated the page header two lines above it. */
 .sidebar-top{
   flex:0 0 auto;display:flex;align-items:center;gap:8px;
-  padding:10px 8px 10px 14px;border-bottom:1px solid var(--cream-dark,#e8e0d8);
+  padding:10px 8px 10px 14px;border-bottom:1px solid var(--cream-dark);
 }
 .sidebar-who{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
 .sidebar-who-name{
-  font-size:.9rem;font-weight:800;color:var(--primary);
+  font-size:.9rem;font-weight:800;color:var(--brand-ink);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
 }
 .sidebar-who-role{font-size:.72rem;font-weight:600;color:var(--ink-muted)}
@@ -88,18 +88,18 @@
 .sidebar-nav{
   flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;
   padding:0 8px 10px;
-  scrollbar-width:thin;scrollbar-color:var(--accent) var(--cream-dark);
+  scrollbar-width:thin;scrollbar-color:var(--field-bd) var(--quiet-2);
   background:
     linear-gradient(#fff 30%,rgba(255,255,255,0)) top/100% 26px no-repeat,
     linear-gradient(rgba(255,255,255,0),#fff 70%) bottom/100% 26px no-repeat,
-    radial-gradient(farthest-side at 50% 0,rgba(74,44,23,.16),rgba(0,0,0,0)) top/100% 10px no-repeat,
-    radial-gradient(farthest-side at 50% 100%,rgba(74,44,23,.16),rgba(0,0,0,0)) bottom/100% 10px no-repeat;
+    radial-gradient(farthest-side at 50% 0,rgba(36,26,20,.18),rgba(36,26,20,0)) top/100% 10px no-repeat,
+    radial-gradient(farthest-side at 50% 100%,rgba(36,26,20,.18),rgba(36,26,20,0)) bottom/100% 10px no-repeat;
   background-attachment:local,local,scroll,scroll;
 }
 .sidebar-nav::-webkit-scrollbar{width:10px}
-.sidebar-nav::-webkit-scrollbar-track{background:var(--cream-dark)}
+.sidebar-nav::-webkit-scrollbar-track{background:var(--quiet-2)}
 .sidebar-nav::-webkit-scrollbar-thumb{
-  background:var(--accent);border-radius:99px;border:2px solid var(--cream-dark);
+  background:var(--field-bd);border-radius:99px;border:2px solid var(--quiet-2);
 }
 .sidebar-group-label{
   /* More space above the heading than below it. */
@@ -112,10 +112,10 @@
   display:flex;align-items:center;gap:9px;
   width:100%;text-align:left;min-height:var(--tap);padding:9px 11px;
   border:2px solid transparent;background:none;border-radius:9px;cursor:pointer;
-  font-size:.88rem;font-weight:600;color:var(--text,#3D2B1F);transition:all .15s;
+  font-size:.88rem;font-weight:600;color:var(--text);transition:all .15s;
 }
-.sidebar-nav button:hover{background:var(--cream,#f9f5f0)}
-.sidebar-nav button.active{background:var(--primary,#6B4226);color:#fff;font-weight:700}
+.sidebar-nav button:hover{background:var(--cream)}
+.sidebar-nav button.active{background:var(--brand);color:#fff;font-weight:700}
 .sidebar-nav .nav-ico{flex:0 0 1.15em;font-size:.98em}
 .sidebar-nav .nav-txt{flex:1;min-width:0}
 /* Unsaved-work marker: a tab you would lose work by leaving says so. */
@@ -123,30 +123,42 @@
   flex:0 0 auto;width:8px;height:8px;border-radius:50%;
   background:var(--warning);box-shadow:0 0 0 2px #fff;
 }
-.sidebar-nav button.active .nav-dot{box-shadow:0 0 0 2px var(--primary)}
+.sidebar-nav button.active .nav-dot{box-shadow:0 0 0 2px var(--brand)}
 /* Pinned: never below the fold, at any viewport height. */
 .sidebar-footer{
   flex:0 0 auto;padding:10px 12px;background:#fff;
-  border-top:1px solid var(--cream-dark,#e8e0d8);
+  border-top:1px solid var(--cream-dark);
   display:flex;flex-direction:column;gap:8px;
 }
 .sidebar-footer .nav-logout{
   display:flex;align-items:center;justify-content:center;
   width:100%;min-height:var(--tap);padding:10px;
   border:1px solid var(--danger-bg);border-radius:9px;
-  background:var(--danger-bg,#fef2f2);
+  background:var(--danger-bg);
   color:var(--stale-ink);            /* 8.80:1 on --danger-bg (was 4.63:1) */
   cursor:pointer;font-weight:700;font-size:.88rem;
 }
-.sidebar-footer .nav-logout:hover{background:#FAD9D9}
+.sidebar-footer .nav-logout:hover{background:var(--urgent-tint)}
 .admin-overlay{
-  position:fixed;inset:0;background:rgba(61,43,31,.34);
+  position:fixed;inset:0;background:var(--scrim-soft);
   z-index:140;display:none;
 }
 .admin-sidebar.open ~ .admin-overlay{display:block}
+/* The counter-iPad ground, same reasoning as `body.pos-shell` in style.css:
+   the admin scans white panels at 1.2m and needs something for them to lift off.
+   The wrapper carries it too, so the login view is on the same ground. */
+.admin-app{background:var(--board)}
+/* Transform push, not an animated `margin-left` — see the matching note on
+   `.pos-main` in style.css. Below 900px only; at 900px and up the panel is
+   docked and the indent is static. */
 .admin-main{
-  margin-left:0;padding:20px;transition:margin-left .25s ease;
+  margin-left:0;padding:20px;
+  background:var(--board);
+  transition:transform .25s ease;
   min-height:calc(100vh - var(--pos-hdr-h));
+}
+@media(prefers-reduced-motion:reduce){
+  .admin-main{transition:none}
 }
 /* The footer's update check is a real control on a tablet, not a caption: it
    measured 91x14. Scoped here because style.css is shared with three other
@@ -162,14 +174,27 @@
   display:inline-flex;align-items:center;
 }
 
-/* Desktop: sidebar open by default, hamburger toggles */
+.admin-sidebar.open ~ .admin-main{transform:translateX(240px)}
+.admin-sidebar:not(.open) ~ .admin-main{transform:none}
+
+/* The footer sits outside .admin-app, so without this it stayed true paper
+   under a warm ground. Scoped by the stylesheet: only admin.html and
+   reports.html load admin.css. */
+.app-footer{background:var(--board)}
+
+/* Desktop: sidebar docked, hamburger toggles nothing that needs animating.
+   Declared AFTER the two push rules above so it wins on source order at equal
+   specificity for the `.open` case as well. */
 @media(min-width:900px){
   .sidebar-close{display:none}
   .admin-sidebar.open ~ .admin-overlay{display:none}
-  .admin-main{margin-left:240px}
+  .admin-main,
+  .admin-sidebar ~ .admin-main,
+  .admin-sidebar.open ~ .admin-main,
+  .admin-sidebar:not(.open) ~ .admin-main{
+    margin-left:240px;transform:none;transition:none;
+  }
 }
-.admin-sidebar.open ~ .admin-main{margin-left:240px}
-.admin-sidebar:not(.open) ~ .admin-main{margin-left:0}
 
 /* Section container */
 .admin-section{
@@ -185,7 +210,7 @@
 }
 .admin-section-header h2{
   font-size:1.3rem;
-  color:var(--primary);
+  color:var(--brand-ink);
 }
 
 /* Cards / table rows */
@@ -216,13 +241,13 @@
   font-weight:600;
   text-transform:uppercase;
 }
-.badge-drink{background:#EDE9FE;color:#7C3AED}
+.badge-drink{background:var(--info-bg);color:var(--making-ink)}       /* 7.70:1 (was 4.42:1) */
 /* Both of these were uppercase 12px on a tint at 2.86:1 (food) and 3.85:1
    (active). The readable shades of the same hues already exist. */
-.badge-food{background:#FEF3C7;color:var(--pending-ink)}   /* 6.46:1 (was 2.86:1) */
+.badge-food{background:var(--warning-bg);color:var(--pending-ink)}    /* 5.86:1 */
 .badge-active{background:var(--success-bg);color:var(--ready-ink)} /* 6.77:1 (was 3.85:1) */
 .badge-inactive{background:var(--danger-bg);color:var(--danger)}
-.badge-admin{background:#EDE9FE;color:#7C3AED}
+.badge-admin{background:var(--preorder-soft);color:var(--preorder-soft-ink)} /* 8.47:1 */
 .badge-cashier{background:var(--info-bg);color:var(--info)}
 .badge-disabled{background:var(--danger-bg);color:var(--danger)}
 
@@ -239,7 +264,7 @@
   font-weight:700;
   letter-spacing:.06em;
   text-transform:uppercase;
-  color:var(--text-light,#7A6355);
+  color:var(--text-light);
   min-width:64px;
 }
 
@@ -276,7 +301,7 @@
 }
 .cl-row .cl-num{flex:0 0 26px;text-align:right;color:var(--ink-muted);font-weight:700;font-size:.85rem}
 .cl-row .cl-label{flex:1;min-width:0;margin:0;min-height:var(--tap);padding:9px 12px;background:#fff}
-.cl-row.is-disabled .cl-label{background:#F7F2EC;color:var(--disabled-ink)} /* 6.19:1 */
+.cl-row.is-disabled .cl-label{background:var(--disabled-bg);color:var(--disabled-ink)} /* 5.35:1 */
 .cl-row .cl-type{flex:0 0 148px;width:148px;margin:0;min-height:var(--tap);padding:8px 11px;font-size:.85rem}
 .cl-move-group{display:flex;gap:6px;flex-shrink:0}
 .cl-move{min-width:var(--tap);padding:8px}
@@ -315,7 +340,7 @@
   position:relative;
   z-index:5;
   transition:none;          /* .admin-card animates `all`, which would lag the drag */
-  border-color:var(--primary);
+  border-color:var(--brand);
   box-shadow:var(--shadow-lg);
 }
 
@@ -341,10 +366,10 @@
 .toggle-switch .toggle-slider{
   position:relative;
   width:52px;height:30px;flex:0 0 52px;
-  background:#BFB4A7;
+  background:var(--rule-strong);
   transition:background .18s ease;
   border-radius:999px;
-  box-shadow:inset 0 1px 2px rgba(74,44,23,.18);
+  box-shadow:inset 0 1px 2px rgba(36,26,20,.2);
 }
 .toggle-switch .toggle-slider::before{
   position:absolute;content:'';
@@ -352,11 +377,11 @@
   background:#fff;
   transition:transform .18s ease;
   border-radius:50%;
-  box-shadow:0 1px 3px rgba(74,44,23,.3);
+  box-shadow:0 1px 3px rgba(36,26,20,.32);
 }
 .toggle-switch input:checked + .toggle-slider{background:var(--ready-fill)}
 .toggle-switch input:checked + .toggle-slider::before{transform:translateX(22px)}
-.toggle-switch input:focus-visible + .toggle-slider{outline:3px solid var(--primary);outline-offset:2px}
+.toggle-switch input:focus-visible + .toggle-slider{outline:3px solid var(--brand);outline-offset:2px}
 .toggle-switch input:disabled + .toggle-slider{background:var(--disabled-bd);cursor:not-allowed}
 
 /* A switch whose meaning has to be NAMED, because the screen carries two
@@ -403,7 +428,7 @@
 .admin-pill-off{background:var(--cream-dark);color:var(--ink-quiet)}      /* 6.99:1 */
 .admin-pill-shelved{background:var(--warning-bg);color:var(--pending-ink)}/* 6.46:1 */
 .admin-pill-qty{
-  background:#fff;border:1px solid var(--cream-dark);color:var(--ink-muted);
+  background:var(--card);border:1px solid var(--rule-strong);color:var(--ink-muted);
   text-transform:none;letter-spacing:0;font-weight:700;
   font-variant-numeric:tabular-nums;
 }
@@ -419,7 +444,7 @@
 .admin-check-row:hover{background:var(--cream)}
 .admin-check-row input[type="checkbox"]{
   flex:0 0 auto;width:22px;height:22px;margin:0;
-  accent-color:var(--primary);cursor:pointer;
+  accent-color:var(--brand);cursor:pointer;
 }
 
 /* === Menu tab: the two-flag row ======================================
@@ -458,8 +483,8 @@
   margin:26px 0 8px;padding:8px 12px;
   background:var(--cream);border:1px solid var(--cream-dark);border-radius:10px;
   font-size:.76rem;font-weight:800;letter-spacing:.07em;text-transform:uppercase;
-  color:var(--primary);
-  box-shadow:0 1px 3px rgba(74,44,23,.08);
+  color:var(--brand-ink);
+  box-shadow:var(--shadow-sm);
 }
 .admin-group-head .admin-group-n{
   color:var(--ink-muted);font-weight:700;letter-spacing:0;text-transform:none;
@@ -489,7 +514,7 @@
   display:flex;align-items:center;gap:12px;flex-wrap:wrap;
   margin:18px -20px -24px;padding:12px 20px;
   background:#fff;border-top:1px solid var(--cream-dark);
-  box-shadow:0 -4px 14px rgba(74,44,23,.1);
+  box-shadow:0 -4px 14px rgba(36,26,20,.13);
 }
 .admin-save-state{flex:1;min-width:0;font-size:.86rem;font-weight:600;color:var(--ink-muted)}
 .admin-save-state.is-dirty{color:var(--pending-ink)}   /* 7.19:1 on #fff */
@@ -504,14 +529,14 @@
 .admin-guard-overlay{
   position:fixed;inset:0;z-index:400;
   display:flex;align-items:center;justify-content:center;padding:20px;
-  background:rgba(61,43,31,.42);
+  background:var(--scrim-soft);
 }
 .admin-guard{
   max-width:440px;width:100%;background:#fff;
   border-radius:var(--radius-lg);padding:20px 22px;
-  box-shadow:0 12px 32px rgba(74,44,23,.3);
+  box-shadow:0 12px 32px rgba(36,26,20,.34);
 }
-.admin-guard h3{font-size:1.05rem;color:var(--primary);margin-bottom:7px}
+.admin-guard h3{font-size:1.05rem;color:var(--brand-ink);margin-bottom:7px}
 .admin-guard p{font-size:.88rem;color:var(--ink-muted);margin-bottom:16px}
 .admin-guard p strong{color:var(--text);font-variant-numeric:tabular-nums}
 .admin-guard-actions{display:flex;gap:9px;flex-wrap:wrap}
@@ -527,7 +552,7 @@
 }
 .admin-form h3{
   margin-bottom:16px;
-  color:var(--primary);
+  color:var(--brand-ink);
   font-size:1.1rem;
 }
 .admin-form-row{
@@ -546,7 +571,7 @@
 .admin-form-group input,
 .admin-form-group select{
   padding:12px 14px;
-  border:2px solid var(--cream-dark);
+  border:2px solid var(--field-bd);
   border-radius:var(--radius);
   font-size:.95rem;
   min-height:44px;
@@ -557,9 +582,9 @@
 .admin-form-group input:focus,
 .admin-form-group select:focus{
   outline:none;
-  border-color:var(--primary);
+  border-color:var(--brand);
   background:#fff;
-  box-shadow:0 0 0 3px rgba(107,66,38,.1);
+  box-shadow:0 0 0 3px rgba(180,83,28,.22);
 }
 .admin-form-actions{
   display:flex;
@@ -571,7 +596,7 @@
 /* === Option groups (variantGroups) editor === */
 .admin-form-hint{
   font-size:.8rem;
-  color:var(--text-light,#7A6355);
+  color:var(--text-light);
   margin:2px 0 8px;
   line-height:1.4;
 }
@@ -579,11 +604,11 @@
 /* One bordered card per group, so it is visually clear which options belong to
    which group — the whole point of the format. */
 .vg-group{
-  border:1px solid var(--cream-dark,#E5DACB);
+  border:1px solid var(--cream-dark);
   border-radius:10px;
   padding:10px 12px;
   margin-bottom:10px;
-  background:var(--cream,#f9f5f0);
+  background:var(--cream);
 }
 .vg-group-head{
   display:flex;
@@ -594,7 +619,7 @@
 }
 .vg-group-head input{flex:2 1 160px;min-width:0}
 .vg-group-head select{flex:1 1 150px;min-width:0}
-.vg-options{padding-left:10px;border-left:3px solid var(--cream-dark,#E5DACB)}
+.vg-options{padding-left:10px;border-left:3px solid var(--cream-dark)}
 .vg-option-row{
   display:flex;
   gap:8px;
@@ -656,7 +681,7 @@
 .admin-stat-card .stat-value{
   font-size:1.8rem;
   font-weight:800;
-  color:var(--primary);
+  color:var(--brand-ink);
   margin-bottom:4px;
 }
 .admin-stat-card .stat-label{
@@ -683,7 +708,7 @@
   width:96px;
   min-height:var(--tap);
   padding:8px 12px;
-  border:2px solid var(--cream-dark);
+  border:2px solid var(--field-bd);
   border-radius:var(--radius);
   text-align:center;
   font-weight:600;
@@ -705,14 +730,14 @@
   align-items:center;
   padding:12px 16px;
   background:var(--warning-bg);
-  border:1px solid #F5D789;
+  border:1px solid var(--warning);
   border-radius:var(--radius);
   margin-bottom:8px;
 }
 .low-stock-item .stock-name{font-weight:600}
 .low-stock-item .stock-level{
   font-weight:700;
-  color:var(--danger);
+  color:var(--stale-ink);   /* 10.98:1 — was --danger as text */
 }
 
 /* === Dashboard (Admin > Dashboard) =================================== */
@@ -734,27 +759,39 @@
   --dash-6:32px;
 }
 .admin-dashboard{
-  --dash-surface:#fff;
-  --dash-rule:var(--cream-dark,#F5EDE4);
+  --dash-surface:var(--card);
+  --dash-rule:var(--rule);
   --dash-bar-h:14px;
-  /* Order-source categorical palette. Validated in light and dark (worst
-     adjacent CVD ΔE 8.4 protan, 19.5 normal-vision, all ≥3:1 on white).
-     Fixed order — never cycled, never reassigned by rank. */
-  --src-mobile:#B4691C;
+  /* Order-source categorical palette. Fixed order — never cycled, never
+     reassigned by rank. Measured on --dash-surface (#fff): worst adjacent CVD
+     ΔE 9.5 deutan, 17.2 normal-vision, all ≥3:1 on white.
+
+     Re-keyed in the palette replacement, and NOT for contrast — the incumbent
+     trio (#B4691C · #0C8C63 · #9457A6) also passed here, because this panel has
+     always been white so the surface under the marks never changed. Slot 1 moved
+     because #B4691C was three hex digits from the new brand accent #B4531C,
+     while charts B and C use the brand family for a different measure on this
+     same screen: one hue would have meant three things on one dashboard.
+     Honest cost, accepted: tritan separation drops 9.4 → 4.3. Tritan is
+     reported and not gated (~0.01% of people), and every chart here carries a
+     legend, an in-segment count and a full table view. */
+  --src-mobile:#1F6FB2;
   --src-walkin:#0C8C63;
-  --src-preorder:#9457A6;
+  --src-preorder:#93276A;
   /* Session 1 → Session 2 is an ORDERED pair, so it is a light→dark step of
-     the brand hue (sequential), not a categorical pair. */
-  --ses-1:var(--primary-light,#8B5E3C);
-  --ses-2:var(--primary-dark,#4A2C17);
+     the brand hue (sequential), not a categorical pair. --brand-light is a
+     fill-only token: white on it is 3.26:1, so no label is ever printed on
+     the light end of this ramp. */
+  --ses-1:var(--brand-light);
+  --ses-2:var(--brand-deep);
 }
 
 /* Header controls */
 .dash-controls{display:flex;align-items:center;gap:var(--dash-2);flex-wrap:wrap}
 .dash-date-select{
   padding:6px 10px;border-radius:6px;
-  border:1px solid var(--cream-dark,#F5EDE4);
-  background:#fff;color:var(--text);
+  border:1px solid var(--field-bd);
+  background:var(--card);color:var(--ink);
   /* The one dashboard control below the tap floor (was 36px). Nothing else
      about the v1.72.0 dashboard is touched. */
   font-size:.9rem;font-family:inherit;min-height:var(--tap);
@@ -771,8 +808,8 @@
   gap:var(--dash-2) var(--dash-5);
   padding:var(--dash-3) var(--dash-4);
   border-radius:var(--radius-lg,16px);
-  background:linear-gradient(135deg,var(--primary-dark,#4A2C17) 0%,var(--primary,#6B4226) 100%);
-  color:var(--cream,#FFF8F0);
+  background:linear-gradient(135deg,var(--band) 0%,var(--band-2) 100%);
+  color:var(--on-band);
   box-shadow:var(--shadow-sm);
 }
 .dash-live-title{
@@ -793,16 +830,16 @@
 .dash-zone > :first-child{margin-top:0}
 .dash-zone-title{
   margin:0 0 var(--dash-3);
-  color:var(--primary);font-size:1.1rem;
+  color:var(--brand-ink);font-size:1.1rem;
 }
 .dash-zone-title .dash-zone-basis{
   font-size:.78rem;font-weight:400;color:var(--text-light);
 }
 .dash-h3{
   margin:var(--dash-6) 0 var(--dash-3);
-  color:var(--primary);font-size:1.05rem;
+  color:var(--brand-ink);font-size:1.05rem;
 }
-.dash-h3.is-warning{color:var(--warning,#C47F17)}
+.dash-h3.is-warning{color:var(--pending-ink)}
 .dash-h3 .dash-h3-note{font-size:.82rem;font-weight:400;color:var(--text-light)}
 
 /* Revenue headline — one hero figure, the rest subordinate. */
@@ -823,7 +860,7 @@
 .dash-hero-value{
   margin-top:var(--dash-1);
   font-size:clamp(2.2rem,5.5vw,3.1rem);line-height:1.05;
-  font-weight:800;color:var(--primary);
+  font-weight:800;color:var(--brand-ink);
   font-variant-numeric:tabular-nums;
 }
 .dash-hero-note{margin-top:var(--dash-2);font-size:.8rem;color:var(--text-light)}
@@ -856,10 +893,10 @@
 .dash-details > summary{
   cursor:pointer;
   margin:var(--dash-6) 0 var(--dash-3);
-  color:var(--primary);
+  color:var(--brand-ink);
 }
 .dash-details > summary .dash-h3{display:inline;margin:0}
-.dash-details > summary:focus-visible{outline:2px solid var(--primary);outline-offset:3px;border-radius:4px}
+.dash-details > summary:focus-visible{outline:2px solid var(--brand);outline-offset:3px;border-radius:4px}
 .dash-details[open] > summary{margin-bottom:var(--dash-3)}
 
 /* Legend — required wherever there are ≥2 series, so identity is never
@@ -908,7 +945,7 @@
 }
 .dash-bar-fill{
   height:100%;min-width:3px;
-  background:var(--primary,#6B4226);
+  background:var(--brand);
   /* Square at the baseline, 4px rounded at the data end. */
   border-radius:0 4px 4px 0;
 }

@@ -186,6 +186,86 @@ of `index.html` / `track.html` that scored the pair 23/40. Session detail:
 - ⚠️ **Accepted duplication, recorded in the `invariants` skill:** `variants.js` now carries its own module-private `esc`. It loads on `index.html`, `track.html` **and** `pos.html`, whose bundles name their escapers `escHtml`, `escHtml` and `escapeHtmlPos` — borrowing a sibling global would emit raw HTML on whichever page lacks that name. This is a **5th** accepted entry on the do-not-duplicate exception list. Do not "consolidate" it
 - 📐 **Menu card density: measured, and the original premise was wrong.** The card is **282px**, not the 372px assumed, and 14 items total **4,575px**, not ~5,200px. The grid layout was measured as a candidate fix and is **worse** per card (520px), with **zero** cards fully above the fold in *either* layout — so `list` stays the default. The collapse was applied anyway (median card 282 → 241px, total scroll 4,575 → 4,075px) but is a minor lever: **the shell above the first card is 493px, 58% of an 844px viewport.** No card arithmetic gets a second drink above the fold while that stands. The **name wall** is the real next lever, since `promptName()` already asks again at checkout
 
+### Completed (2026-08-19 Sprint — v1.77.0)
+Wholesale palette replacement — the **"deliberate warm"** direction, chosen by the
+user from three previewed options and approved from a mock. Frontend only: **no
+`backend/src/` or `infra/` file changed.** Shipped **deliberately alone**, with
+nothing else folded in, so a visual regression cannot be confused with a
+behavioural one and `git revert` stays a real option. Session detail:
+`docs/update-20260817.md`.
+
+- ✅ **The new world:** true paper `#FFFFFF` instead of cream, espresso ink
+  `#241A14` (**17.03:1**), warm secondary `#6B5A4C`, espresso bands `#3A2A1F`, a
+  raised step of `#EFEAE1`, and a burnt-orange brand `#B4531C` **split into a fill
+  plus `--brand-ink #8F3F11` for text**, because the fill measures 4.18:1 on the
+  raised surface — under the body floor. **87 contrast pairs measured in-browser:
+  76 PASS, 10 WCAG-exempt or documented bans, 1 diagnostic FAIL** (`--brand` on
+  `--quiet`, kept in the table to prove why the brand had to split; no site uses it)
+- ✅ **A live accessibility defect fixed — the functional content of a nominally
+  cosmetic release.** The **shipped** pre-order violet and preparing blue measured
+  **ΔE 0.4 deutan** — the same colour for a deutan cashier — and 12.4
+  normal-vision. Both FAIL. The violet is retired: the pre-order ribbon takes
+  espresso (**13.72:1** vs the card, up from 5.70) and the later-service variant
+  goes **3.09 → 8.47:1** against its sibling. Worst adjacent status separation
+  across the six states is now **ΔE 6.0 deutan, up from 0.4**. Every state also
+  carries a **word**, so colour is the redundant channel
+- ✅ **The one system rule: `--brand` never appears on the POS board** except the
+  header wordmark, because burnt orange sits *inside* the warm band the app's
+  status semantics already own — vs `--warning` **ΔE 9.2 normal / 6.6 deutan
+  FAIL**, vs `--danger` **ΔE 9.9 normal FAIL**, and no recognisable burnt orange
+  clears both. Board buttons are espresso, confirm is ready-green. Verified by a
+  rendered-DOM hue scan: **0 occurrences on the board, 11 on admin**, where the
+  rule wants it. Recorded as an invariant — it will look arbitrary to whoever next
+  wants orange buttons on the board
+- ✅ **The receipt indigo `#4338CA` is deliberately UNCHANGED** — "money has
+  arrived" is genuinely not a warm-band event and could not be made to pass on hue
+  alone. Its channel is **shape**: a 2px full-card outline plus a
+  `RECEIPT SENT — check it` band. **Mandatory secondary encoding — do not
+  "harmonise" it later**
+- ✅ **Dashboard chart trio re-keyed** to `#1F6FB2 · #0C8C63 · #93276A` (ALL CHECKS
+  PASS on the new surface), slot 2 unchanged. **Not for contrast** — the old trio
+  also passed, since `admin.css` sets `--dash-surface:#fff` so the marks were always
+  on white — but because `--src-1 #B4691C` was **three hex digits** from the new
+  accent and two other charts on that dashboard use the accent family. Accepted
+  cost: tritan separation 9.4 → 4.5, mitigated by legend, in-segment counts and
+  table view
+- ✅ **Follow-up (a) CLOSED.** `.pos-main` and `.admin-main` converted from
+  animating `margin-left` to a transform-based push — the **last two
+  layout-property animations** in the codebase. `frontend/css/` now has zero.
+  `@keyframes training-cue-pulse` left alone deliberately: it is a functional
+  tutorial spotlight. Zero-offset coloured halos given an offset and a blur
+- ✅ **Five pre-existing defects found and fixed en route.** (1) **Three tokens were
+  never defined at all** — `--brown`, `--white`, `--cream-lighter` — so their
+  `var(…, fallback)` *was* the live value, which is how the old `#6B4226` brown
+  stayed pinned into the walk-up screen behind names nobody could grep for.
+  (2) **261 `var(--tok,#hex)` fallbacks were a second, drifted palette** —
+  `--cream-dark` alone carried **six** different values; all stripped, a render
+  no-op. (3) **Every text input in the app failed WCAG 1.4.11 at 1.58:1**, and the
+  fix needed *all* of them, not just the one named in the brief — new `--field-bd`
+  at 4.33:1. (4) Two placeholders composited below the floor via `opacity:.8`
+  (3.62:1, 4.09:1) — **the opacity was the bug**. (5) Two further cool greys the
+  earlier sweep missed
+- 📐 **Three deviations from the approved mock, each made on a measurement** — the
+  mock's `scrollbar-color:var(--tan)` is **2.01:1** and the CSS already carried a
+  comment that a near-invisible thumb had been a real usability problem, so
+  `--field-bd` (3.18:1) is used; `--tan` was never measured in the mock at all and
+  is **2.73:1** on white, now demoted to decorative-only; and five white-labelled
+  `--primary`→`--primary-light` gradients were flattened to solid `--brand`
+  (5.01:1), because white on the mock's light end is 3.26:1
+- ⚠️ **`frontend/manifest.json` is invalid JSON and has NEVER parsed** — three
+  shortcuts read `"url": ./track.html",` with a missing opening quote, so the PWA
+  has no theme colour, icons or shortcuts. The colour values inside it are now
+  correct, but the **syntax was deliberately NOT repaired**: fixing it would newly
+  *activate* the whole manifest, a behavioural change that does not belong in an
+  isolated repaint. High value and cheap — follow-up (ae)
+- ⚠️ **Deferred on purpose:** `display.html`/`display.css` (the TV board) and
+  `prep.html` keep their dark navy world, since a dark variant is a design decision
+  the user has not reviewed (af); the 8-way `.pos-fam-*` walk-up palette is
+  unreviewed and still holds three cool tints, plus `.pos-fam-tea` price ink at
+  4.40:1 and `.pos-fam-water` at 4.17:1 are **pre-existing** body-text failures
+  (ag); and pill/stepper resting borders sit at 1.87:1, below 1.4.11, consistently
+  by design (ah)
+
 ### TODO — Remaining
 - ✅ Email notifications — low stock alert (Sunday last run + Wednesday midweek) and end-of-day summary to admin (expiry cron, gated + exactly-once as of v1.72.0)
 - ✅ Customer order modify UI (change items while order is still PENDING) — Tier 1 (race-safe + cashier indicators), Tier 2 (add items + notes), Tier 3 (variant editing via shared variants.js)

@@ -27,7 +27,7 @@ function renderVersesSection(container, verses) {
     html += verses.map(v => `<div class="admin-form" style="margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:12px">
       <div style="flex:1">
         <span style="font-style:italic">"${escapeHtml(v.text.length > 80 ? v.text.slice(0,80)+'...' : v.text)}"</span>
-        <br><small style="color:var(--primary);font-weight:600">— ${escapeHtml(v.reference)}</small>
+        <br><small style="color:var(--brand-ink);font-weight:600">— ${escapeHtml(v.reference)}</small>
         ${v.isActive === false ? ' <span class="admin-card-badge badge-disabled">Disabled</span>' : ''}
       </div>
       <div style="display:flex;gap:6px">

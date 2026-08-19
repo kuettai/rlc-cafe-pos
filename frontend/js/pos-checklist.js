@@ -14,13 +14,13 @@ async function showShiftSummary(){
     modal.className = 'pos-modal-overlay';
     modal.innerHTML = `<div class="pos-modal" style="max-width:360px;text-align:center">
       <h3 style="font-size:1.5rem;margin-bottom:8px">🎉 Great shift!</h3>
-      <div style="border-top:2px solid var(--cream-dark,#eee);border-bottom:2px solid var(--cream-dark,#eee);padding:16px 0;margin:12px 0;text-align:left;font-size:1rem;line-height:2">
+      <div style="border-top:2px solid var(--cream-dark);border-bottom:2px solid var(--cream-dark);padding:16px 0;margin:12px 0;text-align:left;font-size:1rem;line-height:2">
         <div>Orders processed: <strong>${data.totalOrders}</strong></div>
         <div>Revenue: <strong>RM ${data.totalRevenue}</strong></div>
         <div>Newcomers served: <strong>${data.newcomersServed}</strong> 🙏</div>
         <div>Most popular: <strong>☕ ${data.peakItem}</strong></div>
       </div>
-      <p style="color:var(--text-light,#7A6355);margin-bottom:16px">See you next Sunday!</p>
+      <p style="color:var(--text-light);margin-bottom:16px">See you next Sunday!</p>
       <button class="pos-btn pos-btn-primary" id="shiftSummaryClose">Close</button>
     </div>`;
     document.body.appendChild(modal);

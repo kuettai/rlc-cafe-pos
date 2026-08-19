@@ -46,7 +46,7 @@ function openVoucherFlow(){
     modal.innerHTML = `<div class="pos-modal" style="max-width:420px">
       <button class="pos-modal-close">✕</button>
       <h3>🎟️ Redeem Voucher</h3>
-      <p style="font-size:.85rem;color:var(--text-light,#7A6355);margin:8px 0 14px">
+      <p style="font-size:.85rem;color:var(--text-light);margin:8px 0 14px">
         Enter the customer's phone number to look up their vouchers.
       </p>
       <input id="vfPhone" type="tel" inputmode="tel" autocomplete="off"
@@ -78,7 +78,7 @@ function openVoucherFlow(){
 
   async function lookupVouchers(){
     modal.innerHTML = `<div class="pos-modal" style="max-width:420px;text-align:center">
-      <p style="margin:24px 0;color:var(--text-light,#7A6355)">Looking up vouchers…</p>
+      <p style="margin:24px 0;color:var(--text-light)">Looking up vouchers…</p>
     </div>`;
     try{
       const data = await api('GET', `/api/pos/vouchers/${encodeURIComponent(state.phone)}`);
@@ -96,10 +96,10 @@ function openVoucherFlow(){
   function renderList(){
     const eligibleHtml = state.eligible.length
       ? state.eligible.map(v => voucherCardHtml(v, true)).join('')
-      : '<p style="text-align:center;color:var(--text-light,#7A6355);padding:16px 0;font-size:.9rem">No eligible vouchers.</p>';
+      : '<p style="text-align:center;color:var(--text-light);padding:16px 0;font-size:.9rem">No eligible vouchers.</p>';
 
     const pastHtml = state.past.length
-      ? `<h4 style="margin:20px 0 8px;color:var(--text-light,#7A6355);font-size:.9rem">Past (${state.past.length})</h4>` +
+      ? `<h4 style="margin:20px 0 8px;color:var(--text-light);font-size:.9rem">Past (${state.past.length})</h4>` +
         state.past.map(v => voucherCardHtml(v, false)).join('')
       : '';
 
@@ -114,7 +114,7 @@ function openVoucherFlow(){
         <h3 style="margin:0;flex:1">${headline}</h3>
       </div>
       ${state.eligible.length === 0 && state.past.length === 0
-        ? '<p style="text-align:center;color:var(--text-light,#7A6355);padding:32px 0">No vouchers found for this number.</p>'
+        ? '<p style="text-align:center;color:var(--text-light);padding:32px 0">No vouchers found for this number.</p>'
         : `<h4 style="margin:12px 0 8px;font-size:.9rem">Available (${state.eligible.length})</h4>${eligibleHtml}${pastHtml}`}
     </div>`;
 
@@ -147,11 +147,11 @@ function openVoucherFlow(){
   function voucherCardHtml(v, isEligible){
     let typeBadge;
     if(v.voucherType === 'FREE_DRINK'){
-      typeBadge = '<span class="pos-card-tag" style="background:#3B82F6;color:#fff">🥤 FREE DRINK</span>';
+      typeBadge = '<span class="pos-card-tag" style="background:var(--info-bg);color:var(--making-ink)">🥤 FREE DRINK</span>';
     } else if(v.voucherType === 'FREE_FOOD'){
-      typeBadge = '<span class="pos-card-tag" style="background:#F59E0B;color:#fff">🍪 FREE FOOD</span>';
+      typeBadge = '<span class="pos-card-tag" style="background:var(--warning-bg);color:var(--pending-ink)">🍪 FREE FOOD</span>';
     } else {
-      typeBadge = '<span class="pos-card-tag" style="background:#7C3AED;color:#fff">🥤🍪 FREE COMBO</span>';
+      typeBadge = '<span class="pos-card-tag" style="background:var(--brand-soft);color:var(--brand-soft-ink)">🥤🍪 FREE COMBO</span>';
     }
 
     const opacity = isEligible ? '1' : '.55';
@@ -167,7 +167,7 @@ function openVoucherFlow(){
            `Expires in ${daysLeft} days (${expiresAt.toLocaleDateString()})`)
         : '';
       bottom = `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
-        <span style="font-size:.8rem;color:var(--text-light,#7A6355)">${expiryText}</span>
+        <span style="font-size:.8rem;color:var(--text-light)">${expiryText}</span>
         <button class="pos-btn pos-btn-primary pos-btn-sm" data-redeem-id="${v.voucherId}">Use →</button>
       </div>`;
     } else {
@@ -181,12 +181,12 @@ function openVoucherFlow(){
         const when = v.expiresAt ? new Date(v.expiresAt).toLocaleDateString() : '';
         detail = `Expired ${when}`;
       }
-      bottom = `<div style="font-size:.8rem;color:var(--text-light,#7A6355);margin-top:6px">${detail}</div>`;
+      bottom = `<div style="font-size:.8rem;color:var(--text-light);margin-top:6px">${detail}</div>`;
     }
 
     return `<div class="pos-card" style="opacity:${opacity};cursor:${cursor};margin-bottom:8px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">${typeBadge}<strong>${escapeHtmlPos(v.campaignName || 'Voucher')}</strong></div>
-      ${v.note ? '<div style="font-size:.8rem;color:var(--text-light,#7A6355)">'+escapeHtmlPos(v.note)+'</div>' : ''}
+      ${v.note ? '<div style="font-size:.8rem;color:var(--text-light)">'+escapeHtmlPos(v.note)+'</div>' : ''}
       ${bottom}
     </div>`;
   }
@@ -194,7 +194,7 @@ function openVoucherFlow(){
   // ── Step 3: item picker ──────────────────────────────────────────
   async function loadMenuForVoucher(){
     modal.innerHTML = `<div class="pos-modal" style="max-width:420px;text-align:center">
-      <p style="margin:24px 0;color:var(--text-light,#7A6355)">Loading menu…</p>
+      <p style="margin:24px 0;color:var(--text-light)">Loading menu…</p>
     </div>`;
     try{
       const data = await api('GET', '/api/menu');
@@ -222,7 +222,7 @@ function openVoucherFlow(){
     else if(v.voucherType === 'FREE_FOOD')  typeLabel = '🍪 FREE FOOD';
     else                                    typeLabel = '🥤🍪 FREE COMBO';
     const stepLabel = isCombo
-      ? `<span style="color:var(--text-light,#7A6355);font-size:.85rem;margin-left:8px">Step ${state.pickIndex + 1} of ${state.slots.length}: pick a ${slot.label}</span>`
+      ? `<span style="color:var(--text-light);font-size:.85rem;margin-left:8px">Step ${state.pickIndex + 1} of ${state.slots.length}: pick a ${slot.label}</span>`
       : '';
 
     const filtered = state.allMenuItems.filter(m => m.category === slot.category);
@@ -231,21 +231,21 @@ function openVoucherFlow(){
           const id = m.menuItemId || m.id;
           const isSelected = pick && (pick.menuItem.menuItemId || pick.menuItem.id) === id;
           const price = m.basePrice || 0;
-          return `<div class="pos-card" data-pick-id="${id}" style="cursor:pointer;margin-bottom:6px;${isSelected ? 'border:2px solid var(--primary,#6B4226)' : ''}">
+          return `<div class="pos-card" data-pick-id="${id}" style="cursor:pointer;margin-bottom:6px;${isSelected ? 'border:2px solid var(--band)' : ''}">
             <div style="display:flex;justify-content:space-between;align-items:center">
               <strong>${escapeHtmlPos(m.name)}</strong>
-              <span style="color:var(--text-light,#7A6355);font-size:.85rem">RM ${price.toFixed(2)}</span>
+              <span style="color:var(--text-light);font-size:.85rem">RM ${price.toFixed(2)}</span>
             </div>
           </div>`;
         }).join('')
-      : '<p style="text-align:center;color:var(--text-light,#7A6355);padding:24px 0">No items available.</p>';
+      : '<p style="text-align:center;color:var(--text-light);padding:24px 0">No items available.</p>';
 
     let variantHtml = '';
     if(pick){
       const m = pick.menuItem;
       const hasVariants = (m.variantGroups && m.variantGroups.length) || (m.variants && m.variants.length);
       if(hasVariants){
-        variantHtml = `<div style="margin-top:12px;padding:12px;background:var(--cream-lighter,#FAF6F0);border-radius:var(--radius,8px)">
+        variantHtml = `<div style="margin-top:12px;padding:12px;background:var(--cream-lighter);border-radius:var(--radius,8px)">
           <div style="font-size:.85rem;font-weight:600;margin-bottom:6px">Pick options</div>
           <div id="vfVariantHost"></div>
         </div>`;
@@ -266,7 +266,7 @@ function openVoucherFlow(){
         <button class="pos-btn pos-btn-sm pos-btn-outline" id="vfBackList">${backLabel}</button>
         <h3 style="margin:0;flex:1">${typeLabel}${stepLabel}</h3>
       </div>
-      <p style="font-size:.85rem;color:var(--text-light,#7A6355);margin:4px 0 12px">
+      <p style="font-size:.85rem;color:var(--text-light);margin:4px 0 12px">
         ${escapeHtmlPos(v.campaignName || '')} · ${state.phone}${state.customerName ? ' · '+escapeHtmlPos(state.customerName) : ''}
       </p>
       <div style="max-height:45vh;overflow-y:auto;margin-bottom:12px">${itemsHtml}</div>
@@ -340,11 +340,11 @@ function openVoucherFlow(){
       return `<div class="pos-card" style="margin-bottom:8px">
         <div style="display:flex;justify-content:space-between;align-items:center">
           <div>
-            <div style="font-size:.75rem;color:var(--text-light,#7A6355);text-transform:uppercase;letter-spacing:.05em">${escapeHtmlPos(state.slots[i].label)}</div>
+            <div style="font-size:.75rem;color:var(--text-light);text-transform:uppercase;letter-spacing:.05em">${escapeHtmlPos(state.slots[i].label)}</div>
             <strong>${escapeHtmlPos(m.name)}</strong>
-            ${vlabel ? '<div style="font-size:.85rem;color:var(--text-light,#7A6355)">'+escapeHtmlPos(vlabel)+'</div>' : ''}
+            ${vlabel ? '<div style="font-size:.85rem;color:var(--text-light)">'+escapeHtmlPos(vlabel)+'</div>' : ''}
           </div>
-          <span style="color:var(--text-light,#7A6355);font-size:.85rem;text-decoration:line-through">RM ${price.toFixed(2)}</span>
+          <span style="color:var(--text-light);font-size:.85rem;text-decoration:line-through">RM ${price.toFixed(2)}</span>
         </div>
       </div>`;
     }).join('');
@@ -359,7 +359,7 @@ function openVoucherFlow(){
         <button class="pos-btn pos-btn-sm pos-btn-outline" id="vfBackPick">← Back</button>
         <h3 style="margin:0;flex:1">🥤🍪 Review Redemption</h3>
       </div>
-      <p style="font-size:.85rem;color:var(--text-light,#7A6355);margin:4px 0 12px">
+      <p style="font-size:.85rem;color:var(--text-light);margin:4px 0 12px">
         ${escapeHtmlPos(v.campaignName || '')} · ${state.phone}${state.customerName ? ' · '+escapeHtmlPos(state.customerName) : ''}
       </p>
       ${rows}

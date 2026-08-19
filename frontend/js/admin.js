@@ -788,7 +788,7 @@ function renderPreorderTemplatesSection(host, templates) {
       <div class="admin-form-group">
         <label>Excluded Options (default)</label>
         <p style="font-size:.75rem;color:var(--text-light);margin:2px 0 6px">Options pre-ticked as blocked on a NEW link — e.g. Oat Milk, which is free on pre-orders and costly. Each link can still be adjusted individually.</p>
-        <div id="tplOptionList" style="max-height:200px;overflow-y:auto;border:1px solid var(--cream-dark);border-radius:8px;padding:8px 12px;background:#fff">
+        <div id="tplOptionList" style="max-height:200px;overflow-y:auto;border:1px solid var(--cream-dark);border-radius:8px;padding:8px 12px;background:var(--card)">
           <div class="loading">Loading options…</div>
         </div>
       </div>
@@ -891,7 +891,7 @@ function renderPreorderTemplatesSection(host, templates) {
     // A menu fetch failure must not make the rest of the form unusable, but the
     // checkboxes are the only record of the saved value, so warn rather than
     // silently saving an empty list.
-    if (listEl) listEl.innerHTML = '<div style="color:var(--danger,#B91C1C);padding:4px 0">Could not load drink options — saving now would leave this list unchanged.</div>';
+    if (listEl) listEl.innerHTML = '<div style="color:var(--danger);padding:4px 0">Could not load drink options — saving now would leave this list unchanged.</div>';
   });
 
   host.querySelector('#tplAddKeyword').onclick = () => {
@@ -987,7 +987,7 @@ function renderReportsSection(container, daily, inventory, weekly, discounts, se
 
   let html = `<div class="admin-section">
     <div class="admin-section-header"><h2>Reports</h2></div>
-    <h3 style="margin-bottom:14px;color:var(--primary)">Today's Summary — ${daily.date||'—'}</h3>
+    <h3 style="margin-bottom:14px;color:var(--brand-ink)">Today's Summary — ${daily.date||'—'}</h3>
     <div class="admin-stats">
       <div class="admin-stat-card"><div class="stat-value">${daily.totalOrders||0}</div><div class="stat-label">Total Orders</div></div>
       <div class="admin-stat-card"><div class="stat-value">RM ${(daily.totalRevenue||0).toFixed(2)}</div><div class="stat-label">Gross Revenue</div></div>
@@ -1013,12 +1013,12 @@ function renderReportsSection(container, daily, inventory, weekly, discounts, se
         </div>
       </div>`;
     }
-    html += '<h3 style="margin:24px 0 14px;color:var(--primary)">Session Comparison</h3>';
+    html += '<h3 style="margin:24px 0 14px;color:var(--brand-ink)">Session Comparison</h3>';
     html += `<div style="display:flex;gap:16px;flex-wrap:wrap">${sessionCard('Session 1 (10:15-11:30)',s1,s1Better)}${sessionCard('Session 2 (12:45-13:30)',s2,s2Better)}</div>`;
   }
 
   if(popular.length){
-    html += '<h3 style="margin:24px 0 14px;color:var(--primary)">Popular Items Today</h3>';
+    html += '<h3 style="margin:24px 0 14px;color:var(--brand-ink)">Popular Items Today</h3>';
     html += '<div class="admin-form"><table style="width:100%;border-collapse:collapse">';
     html += '<tr style="border-bottom:2px solid var(--cream-dark)"><th style="text-align:left;padding:8px 0">Item</th><th style="text-align:right;padding:8px 0">Qty Sold</th></tr>';
     popular.forEach(([name, count], i) => {
@@ -1030,7 +1030,7 @@ function renderReportsSection(container, daily, inventory, weekly, discounts, se
   // Weekly Report
   if(weekly && weekly.totals){
     const t = weekly.totals;
-    html += `<h3 style="margin:32px 0 14px;color:var(--primary)">Weekly Report — ${fmtDate(weekly.startDate)} to ${fmtDate(weekly.endDate)}</h3>
+    html += `<h3 style="margin:32px 0 14px;color:var(--brand-ink)">Weekly Report — ${fmtDate(weekly.startDate)} to ${fmtDate(weekly.endDate)}</h3>
     <div class="admin-stats">
       <div class="admin-stat-card"><div class="stat-value">${t.totalOrders}</div><div class="stat-label">Total Orders</div></div>
       <div class="admin-stat-card"><div class="stat-value">RM ${t.totalRevenue.toFixed(2)}</div><div class="stat-label">Total Revenue</div></div>
@@ -1066,7 +1066,7 @@ function renderReportsSection(container, daily, inventory, weekly, discounts, se
 
   // Monthly Summary
   if(monthly){
-    html += `<h3 style="margin:32px 0 14px;color:var(--primary)">📊 Monthly Summary — ${monthly.period}</h3>
+    html += `<h3 style="margin:32px 0 14px;color:var(--brand-ink)">📊 Monthly Summary — ${monthly.period}</h3>
     <div class="admin-stats">
       <div class="admin-stat-card"><div class="stat-value">${monthly.totalOrders}</div><div class="stat-label">Total Orders</div></div>
       <div class="admin-stat-card"><div class="stat-value">RM ${monthly.totalRevenue.toLocaleString()}</div><div class="stat-label">Revenue</div></div>
@@ -1086,7 +1086,7 @@ function renderReportsSection(container, daily, inventory, weekly, discounts, se
   }
 
   // Restock Shopping List
-  html += `<h3 style="margin:24px 0 14px;color:var(--primary)">🛒 Restock Shopping List</h3>
+  html += `<h3 style="margin:24px 0 14px;color:var(--brand-ink)">🛒 Restock Shopping List</h3>
     <button class="pos-btn pos-btn-primary" id="btnLoadRestock">Load Restock List</button>
     <div id="restockResult"></div>`;
 
@@ -1105,7 +1105,7 @@ function renderReportsSection(container, daily, inventory, weekly, discounts, se
       VOUCHER: 'Voucher',
     })[t] || (t.charAt(0)+t.slice(1).toLowerCase());
     const summary = discounts.summary || {};
-    html += `<h3 style="margin:32px 0 14px;color:var(--primary)">💰 Discount & Offset Summary</h3>`;
+    html += `<h3 style="margin:32px 0 14px;color:var(--brand-ink)">💰 Discount & Offset Summary</h3>`;
     html += '<div class="admin-form"><table style="width:100%;border-collapse:collapse">';
     html += '<tr style="border-bottom:2px solid var(--cream-dark)"><th style="text-align:left;padding:8px 0">Type</th><th style="text-align:right;padding:8px 0">Orders</th><th style="text-align:right;padding:8px 0">Total Offset (RM)</th></tr>';
     types.forEach(t=>{

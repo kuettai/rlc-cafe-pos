@@ -311,7 +311,7 @@ async function openWalkup(){
               + `${variantHtml}`
               + `<button class="pos-add-btn" data-mid="${mid}" data-mname="${m.name}" data-mp="${price}"${soldOut?' disabled aria-disabled="true"':''}>+</button>`
               + `</div>`;
-          }).join('') : '<div style="padding:16px;text-align:center;color:var(--text-light,#7A6355)">No items match</div>';
+          }).join('') : '<div style="padding:16px;text-align:center;color:var(--text-light)">No items match</div>';
   }
 
   /** Repaint just the menu pane, preserving its scroll position. */

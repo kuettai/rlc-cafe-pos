@@ -336,7 +336,7 @@ function renderMenu() {
         ? preorderInfo.collectionOptions
         : ['After 1st Service', 'After 2nd Service'];
       shell += `<section class="collection-section">
-        <label>Collection Time <span style="color:var(--danger,#C0392B)">*</span></label>
+        <label>Collection Time <span style="color:var(--danger)">*</span></label>
         <div class="collection-radios">
           ${opts.map(t => `<label class="collection-radio">
             <input type="radio" name="collectionTime" value="${escHtml(t)}"${collectionTime === t ? ' checked' : ''}>
@@ -689,7 +689,7 @@ function renderCartPanel() {
         placeholder="Note for this drink (e.g. less sugar)"
         aria-label="Note for ${escHtml(displayName)}" value="${escHtml(c.note || '')}">
     </div>`;
-  }).join('') + `<label for="orderNotes" style="display:block;font-size:.85rem;font-weight:600;color:var(--text-light,#7A6355);margin-top:16px">Anything else about the whole order?</label><textarea id="orderNotes" placeholder="e.g. collecting for a group, please bag them together" style="width:100%;margin-top:6px;padding:10px;border:1px solid var(--cream-dark,#ddd);border-radius:8px;font-size:.9rem;resize:none;font-family:inherit;box-sizing:border-box" rows="2">${escHtml(localStorage.getItem('orderNotes') || '')}</textarea>${
+  }).join('') + `<label for="orderNotes" style="display:block;font-size:.85rem;font-weight:600;color:var(--text-light);margin-top:16px">Anything else about the whole order?</label><textarea id="orderNotes" placeholder="e.g. collecting for a group, please bag them together" style="width:100%;margin-top:6px;padding:10px;border:1px solid var(--cream-dark);border-radius:8px;font-size:.9rem;resize:none;font-family:inherit;box-sizing:border-box" rows="2">${escHtml(localStorage.getItem('orderNotes') || '')}</textarea>${
     // The only way to pay is the DuitNow QR printed on the café tables — no cash,
     // no card, and no in-app QR. This line is the first place the customer is told
     // that, so it must not promise a counter transaction that cannot happen.
@@ -699,8 +699,8 @@ function renderCartPanel() {
     // preorderMode: a payment instruction is only true in the state that requires
     // payment.
     preorderMode
-      ? `<p style="font-size:.82rem;color:var(--text-light,#7A6355);margin-top:12px;text-align:center">🎉 Free — nothing to pay</p>`
-      : `<p style="font-size:.82rem;color:var(--text-light,#7A6355);margin-top:12px;text-align:center">📱 Pay by scanning the DuitNow QR on your table</p>`
+      ? `<p style="font-size:.82rem;color:var(--text-light);margin-top:12px;text-align:center">🎉 Free — nothing to pay</p>`
+      : `<p style="font-size:.82rem;color:var(--text-light);margin-top:12px;text-align:center">📱 Pay by scanning the DuitNow QR on your table</p>`
   }`;
 
   cartItems.querySelectorAll('button[data-cart-action]').forEach(btn => {
@@ -737,17 +737,17 @@ function promptName() {
   return new Promise(resolve => {
     const overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(61,43,31,.6);backdrop-filter:blur(4px);z-index:400;display:flex;align-items:center;justify-content:center';
-    overlay.innerHTML = `<div style="background:#fff;border-radius:var(--radius-xl,16px);padding:28px 24px;width:90%;max-width:340px;box-shadow:0 8px 24px rgba(74,44,23,.15)">
-      <h3 style="color:var(--primary,#6B4226);margin-bottom:8px">What's your name?</h3>
-      <p style="font-size:.85rem;color:var(--text-light,#7A6355);margin-bottom:16px">So we can call you when your order is ready ☕</p>
-      <input id="promptNameInput" type="text" placeholder="Your name" style="width:100%;padding:14px 16px;border:2px solid var(--accent-light,#E8C9A0);border-radius:12px;font-size:1rem;background:var(--cream,#FFF8F0)" autofocus>
-      <button id="promptNameOk" style="width:100%;padding:14px;margin-top:14px;background:linear-gradient(135deg,var(--primary,#6B4226),var(--primary-light,#8B5E3C));color:#fff;border:none;border-radius:12px;font-size:1.05rem;font-weight:700;cursor:pointer">Continue</button>
+    overlay.innerHTML = `<div style="background:var(--card);border-radius:var(--radius-xl);padding:28px 24px;width:90%;max-width:340px;box-shadow:var(--shadow-lg)">
+      <h3 style="color:var(--brand-ink);margin-bottom:8px">What's your name?</h3>
+      <p style="font-size:.85rem;color:var(--text-light);margin-bottom:16px">So we can call you when your order is ready ☕</p>
+      <input id="promptNameInput" type="text" placeholder="Your name" style="width:100%;padding:14px 16px;border:2px solid var(--accent-light);border-radius:12px;font-size:1rem;background:var(--cream)" autofocus>
+      <button id="promptNameOk" style="width:100%;padding:14px;margin-top:14px;background:var(--brand);color:#fff;border:none;border-radius:12px;font-size:1.05rem;font-weight:700;cursor:pointer">Continue</button>
     </div>`;
     document.body.appendChild(overlay);
     const input = overlay.querySelector('#promptNameInput');
     const btn = overlay.querySelector('#promptNameOk');
     input.focus();
-    const submit = () => { const v = input.value.trim(); if (v) { overlay.remove(); resolve(v); } else { input.style.borderColor = 'var(--danger,#C0392B)'; } };
+    const submit = () => { const v = input.value.trim(); if (v) { overlay.remove(); resolve(v); } else { input.style.borderColor = 'var(--danger)'; } };
     btn.onclick = submit;
     input.onkeydown = e => { if (e.key === 'Enter') submit(); };
     overlay.onclick = e => { if (e.target === overlay) { overlay.remove(); resolve(null); } };
@@ -911,7 +911,7 @@ async function init() {
         <p>See you next Sunday! ☕</p>
         <p style="margin-top:16px;font-size:.9rem;color:var(--text-light)">⏰ Opens 10:15 AM & 12:45 PM</p>
         <p style="margin-top:8px;font-size:.85rem">📍 Lot 5, Jalan 51A/221, 46100 PJ</p>
-        <p style="margin-top:20px"><a href="track" style="color:var(--primary,#6B4226);font-weight:600;text-decoration:underline">Track an existing order →</a></p>
+        <p style="margin-top:20px"><a href="track" style="color:var(--brand-ink);font-weight:600;text-decoration:underline">Track an existing order →</a></p>
       </div>`;
       return;
     }
@@ -938,13 +938,13 @@ async function init() {
 function showPhoneLookup() {
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(61,43,31,.6);backdrop-filter:blur(4px);z-index:400;display:flex;align-items:center;justify-content:center';
-  overlay.innerHTML = `<div style="background:#fff;border-radius:var(--radius-xl,16px);padding:28px 24px;width:90%;max-width:340px;box-shadow:0 8px 24px rgba(74,44,23,.15)">
-    <h3 style="color:var(--primary,#6B4226);margin-bottom:8px">Welcome back!</h3>
-    <p style="font-size:.85rem;color:var(--text-light,#7A6355);margin-bottom:16px">Enter your phone number to load your profile</p>
-    <input id="phoneLookupInput" type="tel" placeholder="e.g. 0121234567" style="width:100%;padding:14px 16px;border:2px solid var(--accent-light,#E8C9A0);border-radius:12px;font-size:1rem;background:var(--cream,#FFF8F0)" autofocus>
-    <div id="phoneLookupError" style="color:var(--danger,#C0392B);font-size:.85rem;margin-top:8px;display:none"></div>
-    <button id="phoneLookupBtn" style="width:100%;padding:14px;margin-top:14px;background:linear-gradient(135deg,var(--primary,#6B4226),var(--primary-light,#8B5E3C));color:#fff;border:none;border-radius:12px;font-size:1.05rem;font-weight:700;cursor:pointer">Find My Profile</button>
-    <button id="phoneLookupCancel" style="width:100%;padding:10px;margin-top:8px;background:none;border:none;color:var(--text-light,#7A6355);font-size:.9rem;cursor:pointer">Continue as guest</button>
+  overlay.innerHTML = `<div style="background:var(--card);border-radius:var(--radius-xl);padding:28px 24px;width:90%;max-width:340px;box-shadow:var(--shadow-lg)">
+    <h3 style="color:var(--brand-ink);margin-bottom:8px">Welcome back!</h3>
+    <p style="font-size:.85rem;color:var(--text-light);margin-bottom:16px">Enter your phone number to load your profile</p>
+    <input id="phoneLookupInput" type="tel" placeholder="e.g. 0121234567" style="width:100%;padding:14px 16px;border:2px solid var(--accent-light);border-radius:12px;font-size:1rem;background:var(--cream)" autofocus>
+    <div id="phoneLookupError" style="color:var(--danger);font-size:.85rem;margin-top:8px;display:none"></div>
+    <button id="phoneLookupBtn" style="width:100%;padding:14px;margin-top:14px;background:var(--brand);color:#fff;border:none;border-radius:12px;font-size:1.05rem;font-weight:700;cursor:pointer">Find My Profile</button>
+    <button id="phoneLookupCancel" style="width:100%;padding:10px;margin-top:8px;background:none;border:none;color:var(--text-light);font-size:.9rem;cursor:pointer">Continue as guest</button>
   </div>`;
   document.body.appendChild(overlay);
 
@@ -981,14 +981,14 @@ function showPhoneLookup() {
 function showRegistrationPrompt(orderId) {
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(61,43,31,.6);backdrop-filter:blur(4px);z-index:400;display:flex;align-items:center;justify-content:center';
-  overlay.innerHTML = `<div style="background:#fff;border-radius:var(--radius-xl,16px);padding:28px 24px;width:90%;max-width:340px;box-shadow:0 8px 24px rgba(74,44,23,.15)">
-    <h3 style="color:var(--primary,#6B4226);margin-bottom:4px">Save your profile?</h3>
-    <p style="font-size:.85rem;color:var(--text-light,#7A6355);margin-bottom:16px">Faster ordering next time + earn rewards 🎁</p>
-    <input id="regPhone" type="tel" placeholder="Phone number (e.g. 0121234567)" style="width:100%;padding:14px 16px;border:2px solid var(--accent-light,#E8C9A0);border-radius:12px;font-size:1rem;background:var(--cream,#FFF8F0);margin-bottom:10px">
-    <input id="regBirthday" type="text" placeholder="Birthday (MM-DD, optional)" style="width:100%;padding:14px 16px;border:2px solid var(--accent-light,#E8C9A0);border-radius:12px;font-size:1rem;background:var(--cream,#FFF8F0)">
-    <div id="regError" style="color:var(--danger,#C0392B);font-size:.85rem;margin-top:8px;display:none"></div>
-    <button id="regSubmit" style="width:100%;padding:14px;margin-top:14px;background:linear-gradient(135deg,var(--primary,#6B4226),var(--primary-light,#8B5E3C));color:#fff;border:none;border-radius:12px;font-size:1.05rem;font-weight:700;cursor:pointer">Save Profile</button>
-    <button id="regSkip" style="width:100%;padding:10px;margin-top:8px;background:none;border:none;color:var(--text-light,#7A6355);font-size:.9rem;cursor:pointer">Maybe later</button>
+  overlay.innerHTML = `<div style="background:var(--card);border-radius:var(--radius-xl);padding:28px 24px;width:90%;max-width:340px;box-shadow:var(--shadow-lg)">
+    <h3 style="color:var(--brand-ink);margin-bottom:4px">Save your profile?</h3>
+    <p style="font-size:.85rem;color:var(--text-light);margin-bottom:16px">Faster ordering next time + earn rewards 🎁</p>
+    <input id="regPhone" type="tel" placeholder="Phone number (e.g. 0121234567)" style="width:100%;padding:14px 16px;border:2px solid var(--accent-light);border-radius:12px;font-size:1rem;background:var(--cream);margin-bottom:10px">
+    <input id="regBirthday" type="text" placeholder="Birthday (MM-DD, optional)" style="width:100%;padding:14px 16px;border:2px solid var(--accent-light);border-radius:12px;font-size:1rem;background:var(--cream)">
+    <div id="regError" style="color:var(--danger);font-size:.85rem;margin-top:8px;display:none"></div>
+    <button id="regSubmit" style="width:100%;padding:14px;margin-top:14px;background:var(--brand);color:#fff;border:none;border-radius:12px;font-size:1.05rem;font-weight:700;cursor:pointer">Save Profile</button>
+    <button id="regSkip" style="width:100%;padding:10px;margin-top:8px;background:none;border:none;color:var(--text-light);font-size:.9rem;cursor:pointer">Maybe later</button>
   </div>`;
   document.body.appendChild(overlay);
 

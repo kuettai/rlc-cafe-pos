@@ -91,6 +91,13 @@
 ### 3.2 PWA Configuration
 
 - `manifest.json` with app name, icons, theme colour (church branding)
+  — ⚠️ **as designed, not as shipped: the manifest is invalid JSON and has never
+  parsed.** Three `shortcuts` entries read `"url": ./track.html",` with a missing
+  opening quote, so the browser discards the whole file and the PWA has **no theme
+  colour, no icons and no shortcuts**. Confirmed at v1.77.0 and present at every
+  earlier commit checked. Deliberately not repaired in the v1.77.0 palette release,
+  because fixing the syntax newly *activates* the manifest — a behavioural change.
+  Follow-up **(ae)** in `docs/update-20260817.md`.
 - Service worker caches static shell (HTML/CSS/JS) for fast load
 - Data always fetched live from API (no offline data sync needed — WiFi required for payment anyway)
 
