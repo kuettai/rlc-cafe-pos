@@ -3,7 +3,7 @@
 Sprint-by-sprint completion log, moved out of `.kiro/steering.md` so it does not
 consume context on every turn. See `docs/update-YYYYMMDD.md` for session detail.
 
-## Current Status (as of 2026-08-18)
+## Current Status (as of 2026-08-19)
 ### Completed (Foundation)
 - ✅ All backend routes (auth, cafe, menu, orders, pos, admin)
 - ✅ Customer ordering PWA (menu, cart, order submission)
@@ -166,6 +166,25 @@ feature. Session detail: `docs/update-20260817.md`.
 - ✅ Dead code removed: a 15-line commented-out in-app QR block (placeholder image, dummy account numbers), six superseded/dead CSS rules (`.qr-container`, `.qr-image`, `.qr-amount`, `.qr-hint`, `.receipt-upload-area` and its `p`), and `frontend/img/qr-payment.svg`, which never rendered and was never in the `sw.js` `SHELL` array
 - ✅ `frontend/img/README.md` had instructed the next person to *"Place `qr-payment.png` here"* — the same pending-feature trap in a second location, aimed at whoever came next. Rewritten to describe the `menu/` photos it actually governs, plus a line stating the QR is physical
 - ✅ **Verified and deliberately kept, so it is not "corrected" later:** *"Instant AI verification — cashier gets notified automatically"* is accurate. `backend/src/routes/receipt.ts` really invokes Bedrock to extract amount/date/reference and rejects a mismatch, and the cashier really is alerted in-app — `pos.js` plays a receipt sound on a rising receipt count, renders a pulsing `💰 Receipt: RM…` badge, and v1.75.0's receipt-first sort tier lifts the order to the top of Pending
+
+### Completed (2026-08-19 Sprint — v1.76.0)
+Customer-screen pass, on top of v1.75.1 (**already pushed and deployed**).
+Frontend only: **no `backend/src/` file changed.** From an `/impeccable` critique
+of `index.html` / `track.html` that scored the pair 23/40. Session detail:
+`docs/update-20260817.md`.
+- ✅ **Escaping sweep across the two customer pages, and the real finding was not the missing escapes — it was four *incomplete* escapers that looked finished.** Old `app.js` carried `esc` at `:226` and `:251` handling only `[<>&]`, `escAttr` at `:275` handling only `"`, and `escText` at `:276` handling only `[<>&]`; the `escAttr` one guarded a **quoted attribute**, where an unescaped `'` or `&` is exactly what matters. A partial escaper is worse than none, because a reviewer greps for `esc(` and sees a call. All four deleted; both pages now route every non-literal string through the single complete five-character `escHtml`
+- ✅ Raw render sites closed well beyond the three that were known (`customerProfile.name`, the name input `value`, the search input `value`): `item.description`, item names in both the card and the featured hero **including their `aria-label`s**, slugs in `src`, `item.id` in `data-id`, the pre-order banner message and name, the staff-link label, the collection-time options, the verse text and reference, `flaggedItems`, `order.reason` (cashier free text), and `orderId` / `date` in the order history — plus a missing `encodeURIComponent`. `variants.js` alone had **eleven** raw sites
+- ✅ `customerProfile.name` is the load-bearing one: it arrives from `GET /api/customers/{phone}` (verified — `backend/src/routes/customers.ts:188` → `lookupCustomer`), so it is a **stored, cross-user** value. One person's name renders in another person's page
+- ✅ **Cart total and Place Order pinned.** `index.html`'s cart is now three bands — fixed head, one scrolling region, pinned foot. Measured with five drinks in the cart, the total and the primary button sat **322 / 249 / 174px below the bottom edge** at 390 / 932 / 1024 viewport widths; now **21px clear at all three**, and only the rows scroll
+- ✅ **A price on every cart line** — there were none at all. Staff mode shows the struck-through gross beside RM 5.00 on drinks; a free ministry pre-order shows FREE per line and makes no payment claim
+- ✅ **Fix: the premature `Notification.requestPermission()` on `track.js` load is deleted.** It fired with no user gesture and, worse, with no `subscribe()` after it — so the single permission grant a customer will ever be asked for was spent before the 🔔 banner ran, after which tapping "Yes, notify me" returned in silence. The dialog is now raised from that tap, `vapidRes.ok` is checked, and all three failure paths (denied / dismissed / setup failed) now say something
+- ✅ **404 split from offline on both customer pages.** A dead order id used to render "Loading order… / Connection error, retrying…" for ever — wrong diagnosis, no end to it, no link out. It now shows `This order has closed` with links back, and **polling stops** (measured: 1 request across 16s, was continuous). A 500 gets its own distinct screen and keeps polling
+- ✅ **Variant group names printed**, with `role="group"`, `aria-label` and `aria-pressed`. `aria-pressed` was `null` on the newer `.variantGroups` path while the legacy `.variants` path it replaced had always set it — the newer code was the **less** accessible of the two. Pickers are now opt-in collapsible (`opts.collapsible`), used on the 14-card menu but not the one-item-at-a-time edit and voucher pickers
+- ✅ Past orders now fetched **once per load** instead of once per 7s poll — was ~8.5 extra requests/min plus permanent flicker
+- ✅ `Track · Preparing` now leads with a two-line wait: the ETA is the only question left on that screen, so it stops being the quietest line on the page
+- ✅ **Sold-out card contrast, using tokens that already existed.** The blanket `opacity:.5` is gone: "Sold out" goes **2.25:1 → 8.43:1**, the name 2.96 → 5.62:1, the price 2.49 → 4.64:1
+- ⚠️ **Accepted duplication, recorded in the `invariants` skill:** `variants.js` now carries its own module-private `esc`. It loads on `index.html`, `track.html` **and** `pos.html`, whose bundles name their escapers `escHtml`, `escHtml` and `escapeHtmlPos` — borrowing a sibling global would emit raw HTML on whichever page lacks that name. This is a **5th** accepted entry on the do-not-duplicate exception list. Do not "consolidate" it
+- 📐 **Menu card density: measured, and the original premise was wrong.** The card is **282px**, not the 372px assumed, and 14 items total **4,575px**, not ~5,200px. The grid layout was measured as a candidate fix and is **worse** per card (520px), with **zero** cards fully above the fold in *either* layout — so `list` stays the default. The collapse was applied anyway (median card 282 → 241px, total scroll 4,575 → 4,075px) but is a minor lever: **the shell above the first card is 493px, 58% of an 844px viewport.** No card arithmetic gets a second drink above the fold while that stands. The **name wall** is the real next lever, since `promptName()` already asks again at checkout
 
 ### TODO — Remaining
 - ✅ Email notifications — low stock alert (Sunday last run + Wednesday midweek) and end-of-day summary to admin (expiry cron, gated + exactly-once as of v1.72.0)

@@ -414,21 +414,49 @@ header h1{
   padding-top:12px;
   border-top:1px solid var(--cream-dark);
 }
+/* Collapsed, the picker is no longer a SECTION of the card — it is one line of
+   text next to a button — so it does not earn a rule of its own. Two horizontal
+   rules on a 244px card is chrome pretending to be structure. */
+.menu-item .variant-groups.is-collapsible{
+  padding-top:10px;
+  border-top:none;
+}
 .menu-item .qty-controls{
   justify-content:center;
   padding-top:12px;
   border-top:1px solid var(--cream-dark);
 }
 
+/* Sold out: an INERT surface, not a faded one. `opacity:.5` composited every
+   string on the card through the background — "Sold out" landed at 2.25:1, the
+   item name at 2.96:1, the price at 2.49:1, the tagline at 2.10:1. The
+   --disabled-* trio already existed in :root at a measured 5.62:1 and says the
+   same thing without making it unreadable. Same hues, no new tokens: the palette
+   replacement is a separate pass. */
 .menu-item.sold-out{
-  opacity:.5;
+  background:var(--disabled-bg);
+  border-color:var(--disabled-bd);
+  box-shadow:none;
+}
+.menu-item.sold-out:hover{
+  box-shadow:none;
+  transform:none;
+}
+.menu-item.sold-out .item-name,
+.menu-item.sold-out .item-price,
+.menu-item.sold-out .menu-item-desc,
+.menu-item.sold-out .item-description{
+  color:var(--disabled-ink);
+}
+.menu-item.sold-out .item-price{
+  background:var(--disabled-bd);
 }
 .menu-item.sold-out .qty-controls{
   display:none;
 }
 .menu-item.sold-out .item-stock{
-  color:var(--danger);
-  font-weight:600;
+  color:var(--stale-ink);
+  font-weight:700;
 }
 
 /* === Grid layout === */
@@ -490,13 +518,76 @@ header h1{
 }
 .variant-groups{margin-bottom:14px}
 .variant-group{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px}
+.variant-group-block:last-child .variant-group{margin-bottom:0}
+/* The group name. Without it three anonymous pill rows ask a first-timer
+   "Normal / Less / None" of WHAT. Uppercase micro-copy, so --ink-quiet. */
+.variant-group-label{
+  display:block;
+  font-size:.72rem;
+  font-weight:800;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  color:var(--ink-quiet);
+  margin-bottom:5px;
+}
+/* "optional" rides in the same label rather than a second line: a group that may
+   legitimately end up empty is otherwise indistinguishable from a single-select
+   the customer has failed to answer. */
+.variant-group-label em{
+  font-style:normal;
+  text-transform:none;
+  letter-spacing:0;
+  font-weight:600;
+  color:var(--ink-muted);
+}
 .vg-btn{
   padding:8px 16px;border:2px solid var(--cream-dark);border-radius:24px;
   background:#fff;font-size:.85rem;min-height:44px;min-width:44px;
   cursor:pointer;transition:var(--transition);font-weight:500;color:var(--text);
+  display:inline-flex;align-items:center;gap:5px;
 }
 .vg-btn:hover{border-color:var(--accent);background:var(--cream)}
 .vg-btn.active{background:var(--primary);color:#fff;border-color:var(--primary);box-shadow:0 2px 8px rgba(107,66,38,.25)}
+/* Selection is never carried by colour alone. */
+.vg-btn[aria-pressed="true"]::before{content:"✓";font-weight:800;font-size:.8rem}
+
+/* === Collapsed variant picker (customer menu only, opt-in via
+   pickerHtml(item,{collapsible:true})) ===
+   Three always-open pill rows per card made ONE drink fit the first viewport on
+   a 390px phone. The chosen options stay on screen as a line of text; the pills
+   arrive on demand. */
+.variant-groups.is-collapsible{margin-bottom:0}
+.variant-chosen{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.variant-chosen-text{
+  flex:1;
+  min-width:0;
+  font-size:.85rem;
+  color:var(--ink-muted);
+  line-height:1.35;
+  font-weight:600;
+}
+.variant-chosen-toggle{
+  flex:0 0 auto;
+  min-height:var(--tap);
+  padding:0 14px;
+  background:var(--cream);
+  border:1px solid var(--cream-dark);
+  border-radius:999px;
+  color:var(--primary);
+  font-family:inherit;
+  font-weight:700;
+  font-size:.82rem;
+  cursor:pointer;
+  white-space:nowrap;
+  transition:var(--transition);
+}
+.variant-chosen-toggle:hover{border-color:var(--accent)}
+.variant-group-list{padding-top:11px}
+.variant-group-list[hidden]{display:none}
 
 /* === Qty controls === */
 .qty-controls{
@@ -577,18 +668,69 @@ header h1{
   align-items:flex-end;
 }
 .cart-overlay.open{display:flex}
+/* Sheet layout: head / scroll / foot, so the total and Place Order are pinned
+   inside the sheet and only the rows move. `min-height:0` on the scroll band is
+   load-bearing — a flex child defaults to min-height:auto and would refuse to
+   shrink below its content, pushing the foot back off the bottom. */
 .cart-panel{
   background:#fff;
   width:100%;
-  max-height:75vh;
+  max-height:82vh;
   border-radius:var(--radius-xl) var(--radius-xl) 0 0;
-  padding:28px 24px;
-  overflow-y:auto;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
   animation:slideUp .3s ease;
 }
 @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.cart-panel-head{
+  flex:0 0 auto;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:10px;
+  padding:20px 24px 12px;
+  border-bottom:1px solid var(--cream-dark);
+}
+.cart-panel-close{
+  width:var(--tap);
+  height:var(--tap);
+  flex:0 0 auto;
+  border:1px solid var(--cream-dark);
+  border-radius:50%;
+  background:#fff;
+  font-size:1.15rem;
+  color:var(--ink-muted);
+  cursor:pointer;
+  transition:var(--transition);
+}
+.cart-panel-close:hover{background:var(--cream);color:var(--text)}
+.cart-panel-scroll{
+  flex:1;
+  min-height:0;
+  overflow-y:auto;
+  padding:6px 24px 16px;
+  /* The scrollbar is part of the design too — the default cool grey belongs to
+     no palette in this file. */
+  scrollbar-width:thin;
+  scrollbar-color:var(--accent) var(--cream-dark);
+}
+.cart-panel-scroll::-webkit-scrollbar{width:9px}
+.cart-panel-scroll::-webkit-scrollbar-track{background:var(--cream-dark)}
+.cart-panel-scroll::-webkit-scrollbar-thumb{
+  background:var(--accent);
+  border-radius:99px;
+  border:2px solid var(--cream-dark);
+}
+.cart-panel-foot{
+  flex:0 0 auto;
+  padding:14px 24px 20px;
+  border-top:1px solid var(--cream-dark);
+  background:#fff;
+  /* Offset + soft blur, upward: an edge that says "there is more above me". */
+  box-shadow:0 -6px 14px rgba(74,44,23,.07);
+}
 .cart-panel h2{
-  margin-bottom:18px;
   font-size:1.3rem;
   color:var(--primary);
 }
@@ -631,6 +773,35 @@ header h1{
 .cart-item .cart-item-info{flex:1;min-width:0}
 .cart-item .cart-item-name{font-weight:600;font-size:1rem;color:var(--text)}
 .cart-item .cart-item-variant{font-size:.82rem;color:var(--text-light);margin-top:2px}
+/* The cart used to show no ringgit figure at all — five rows, two of them named
+   "Latte", and the tracking page itemised while the screen the customer commits
+   on did not. Tabular figures so a column of prices lines up. */
+.cart-item-price{
+  flex:0 0 auto;
+  font-weight:800;
+  font-size:1rem;
+  color:var(--primary);
+  white-space:nowrap;
+  font-variant-numeric:tabular-nums;
+  font-feature-settings:"tnum";
+}
+.cart-item-price-was{
+  display:block;
+  font-weight:600;
+  font-size:.78rem;
+  color:var(--ink-muted);
+  text-decoration:line-through;
+}
+.cart-item-price-free{
+  display:inline-block;
+  background:var(--ready-fill);
+  color:#fff;
+  font-size:.7rem;
+  font-weight:800;
+  letter-spacing:.05em;
+  padding:2px 8px;
+  border-radius:999px;
+}
 .cart-item-actions{display:flex;align-items:center;gap:10px}
 .cart-item-actions button{
   width:36px;
@@ -648,6 +819,13 @@ header h1{
 .cart-item-actions button:hover{border-color:var(--accent);background:var(--cream)}
 .cart-item-actions .remove-btn{color:var(--danger);border-color:#F5C6C6}
 .cart-item-actions .remove-btn:hover{background:var(--danger-bg)}
+
+/* Inside the pinned foot the two elements are a tight pair, not two sections. */
+.cart-panel-foot .order-total{
+  margin-top:0;
+  margin-bottom:10px;
+}
+.cart-panel-foot .cart-submit{margin-top:0}
 
 .cart-submit{
   width:100%;
@@ -770,6 +948,43 @@ header h1{
   color:var(--text-light);
 }
 .status-READY h2{font-size:1.8rem;color:var(--success)}
+
+/* === PREPARING: the wait ===
+   On this one screen "how long?" is the only question left, and it used to be the
+   quietest text on the page — 0.85rem --text-light, above the status card. Two
+   lines on purpose: the estimate is the answer, the queue position is the reason.
+   Sits directly under the status card, so the customer learns what is happening
+   before they learn how long it takes. */
+.track-wait{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:2px;
+  margin:-16px 0 22px;
+  padding:14px 18px;
+  background:#fff;
+  border:1px solid #93C5FD;
+  border-radius:var(--radius-lg);
+  box-shadow:var(--shadow-sm);
+}
+.track-wait-eta{
+  font-size:1.05rem;
+  font-weight:600;
+  color:var(--text);
+}
+.track-wait-eta strong{
+  font-weight:800;
+  color:var(--making-ink);
+  font-variant-numeric:tabular-nums;
+  font-feature-settings:"tnum";
+}
+.track-wait-queue{
+  font-size:.88rem;
+  font-weight:600;
+  color:var(--ink-muted);
+  font-variant-numeric:tabular-nums;
+  font-feature-settings:"tnum";
+}
 
 .order-details{
   text-align:left;
@@ -1160,6 +1375,86 @@ header h1{
   padding:60px;
   color:var(--text-light);
   font-size:1rem;
+}
+
+/* === Load failure / dead end (customer pages) ===
+   Shared by "the menu won't load" on index.html and "this order link is dead" on
+   track.html. Both used to render the initial "Loading…" for ever behind a 4-second
+   toast, so the page looked busy rather than broken and offered no way out. Each
+   one now NAMES what failed and carries the one action that helps.
+   Not a card grid, not an icon-heading-text template: one block, one exit. */
+.load-failure{
+  text-align:center;
+  padding:40px 24px;
+  margin-top:20px;
+  background:#fff;
+  border:1px solid var(--cream-dark);
+  border-radius:var(--radius-xl);
+  box-shadow:var(--shadow-sm);
+}
+.load-failure.is-stale{
+  background:var(--danger-bg);
+  border-color:#F0C9C4;
+}
+.load-failure-icon{font-size:2.2rem;line-height:1}
+.load-failure h2{
+  font-size:1.25rem;
+  color:var(--primary);
+  margin:10px 0 8px;
+  text-wrap:balance;
+}
+.load-failure.is-stale h2{color:var(--stale-ink)}
+.load-failure p{
+  font-size:.92rem;
+  color:var(--ink-muted);
+  max-width:34ch;
+  margin:0 auto 8px;
+  line-height:1.5;
+}
+.load-failure.is-stale p{color:var(--stale-ink)}
+.load-failure-btn,
+.load-failure-btn-ghost{
+  min-height:var(--tap);
+  padding:0 20px;
+  margin-top:14px;
+  border-radius:999px;
+  font-family:inherit;
+  font-size:.95rem;
+  font-weight:700;
+  cursor:pointer;
+  transition:var(--transition);
+}
+.load-failure-btn{
+  border:none;
+  background:linear-gradient(135deg,var(--primary) 0%,var(--primary-light) 100%);
+  color:#fff;
+  box-shadow:var(--shadow-warm);
+}
+.load-failure-btn:hover{box-shadow:var(--shadow-lg)}
+.load-failure-btn:disabled{
+  background:var(--disabled-bg);
+  color:var(--disabled-ink);
+  box-shadow:none;
+  cursor:not-allowed;
+}
+.load-failure-btn-ghost{
+  display:inline-block;
+  background:#fff;
+  border:2px solid var(--primary);
+  color:var(--primary);
+  text-decoration:none;
+  line-height:calc(var(--tap) - 4px);
+}
+.load-failure-btn-ghost:hover{background:var(--cream)}
+.load-failure-acts{
+  display:flex;
+  flex-direction:column;
+  align-items:stretch;
+  gap:0;
+}
+.load-failure-foot{
+  margin-top:16px;
+  font-size:.85rem;
 }
 
 

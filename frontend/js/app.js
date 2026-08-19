@@ -11,11 +11,22 @@ const errorBanner = document.getElementById('errorBanner');
 
 
 
-// Escape all five HTML-significant characters. Free text the customer types
-// (per-item notes) is rendered back into the cart row, including into a quoted
-// value="…" attribute, so it must be escaped at every render site. Same
-// implementation as track.js and pos.js — there is no shared util module here
-// and adding one would mean a new file in the sw.js SHELL array.
+// Escape all five HTML-significant characters — `& < > " '` — so the SAME helper
+// is safe inside a quoted attribute as well as in text. Do not add a second,
+// narrower escaper beside it: this file used to carry four inline ones
+// (`esc`/`escAttr`/`escText`) that handled only `<>&` or only `"`, and the value
+// they were protecting was in some cases a quoted attribute.
+//
+// Escaping is a property of the SITE, not of the field. Everything
+// customer-controlled (per-item notes, the typed name, the search term) and
+// everything admin- or API-controlled that renders in a customer's browser
+// (menu names and descriptions, campaign banners, the stored profile name from
+// GET /api/customers/{phone} — one person's name in another person's page) goes
+// through this on the way into innerHTML.
+//
+// Counterpart rule: a `textContent` sink must NOT be escaped — see showError.
+// Same implementation as track.js and pos.js; there is no shared util module
+// here and adding one would mean a new file in the sw.js SHELL array.
 function escHtml(s) {
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -159,8 +170,59 @@ function showError(msg) {
 
 async function apiFetch(path) {
   const res = await fetch(`${API_BASE}${path}`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) {
+    // The server ANSWERED. A 500 on the menu and a phone with no signal are
+    // different problems with different recoveries, and the customer can only act
+    // on one of them — so carry the status and let init() tell them apart,
+    // instead of both landing in one catch that renders "Loading…" for ever
+    // under a toast promising a retry.
+    const err = new Error(`HTTP ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
   return res.json();
+}
+
+// ─── Load failure ───────────────────────────────────────────────────
+// Which failure screen is on the page right now, so the 3s auto-retry does not
+// rebuild an identical block (and flicker) on every tick. `null` means the page
+// is in a good state.
+let loadFailureKind = null;
+let initRetryTimer = null;
+
+/**
+ * Replace the page with a named failure state.
+ *
+ * A failure must not render identically to an empty success state: the previous
+ * behaviour left the initial "Loading..." on screen for ever behind a 4s toast,
+ * so the page looked like it was still working and offered no way out.
+ *
+ * @param {'offline'|'server'} kind
+ */
+function renderLoadFailure(kind) {
+  if (loadFailureKind === kind) {
+    // Same screen already up — just release the retry button we disabled.
+    const b = document.getElementById('retryLoadBtn');
+    if (b) { b.disabled = false; b.textContent = 'Try now'; }
+    return;
+  }
+  loadFailureKind = kind;
+  const offline = kind === 'offline';
+  app.innerHTML = `<div class="load-failure" role="alert">
+    <div class="load-failure-icon" aria-hidden="true">${offline ? '📶' : '⚠️'}</div>
+    <h2>${offline ? 'Can’t reach the café' : 'Can’t load today’s menu'}</h2>
+    <p>${offline
+      ? 'Your phone looks offline. The menu will appear as soon as you are back on a connection — we keep trying every few seconds.'
+      : 'The café’s system did not answer. Your connection looks fine, so this one is on us — we keep trying every few seconds.'}</p>
+    <button type="button" id="retryLoadBtn" class="load-failure-btn">Try now</button>
+    <p class="load-failure-foot">You can still order at the counter — the volunteers are there.</p>
+  </div>`;
+  document.getElementById('retryLoadBtn').addEventListener('click', e => {
+    e.target.disabled = true;
+    e.target.textContent = 'Trying…';
+    clearTimeout(initRetryTimer);
+    init();
+  });
 }
 
 function getAvailable(item) {
@@ -223,12 +285,11 @@ function renderMenu() {
         ? new Date(preorderInfo.serviceDate + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' })
         : '';
       const label = preorderInfo?.name ? String(preorderInfo.name) : 'Sunday Service';
-      const esc = s => String(s || '').replace(/[<>&]/g, ch => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[ch]));
       const customBanner = preorderInfo?.bannerMessage;
       let bannerBody;
       if (customBanner) {
         // Preserve line breaks the admin used in the textarea.
-        const lines = String(customBanner).split(/\r?\n/).map(esc);
+        const lines = String(customBanner).split(/\r?\n/).map(escHtml);
         bannerBody = lines.map((line, i) =>
           i === 0
             ? `<div><strong>${line}</strong></div>`
@@ -237,7 +298,7 @@ function renderMenu() {
       } else {
         bannerBody =
           `<div><strong>Ministry Pre-Order</strong> — Kindly select one drink</div>` +
-          `<div class="preorder-banner-sub">${esc(label)}${svcDateDisplay ? ' · Collect ' + svcDateDisplay : ''}</div>`;
+          `<div class="preorder-banner-sub">${escHtml(label)}${svcDateDisplay ? ' · Collect ' + escHtml(svcDateDisplay) : ''}</div>`;
       }
       shell += `<div class="preorder-banner" role="status" aria-live="polite">
         <span class="preorder-banner-icon">🎉</span>
@@ -248,9 +309,8 @@ function renderMenu() {
     // food unchanged — and that the cashier still confirms it, so nobody is
     // surprised at the counter.
     if (staffMode) {
-      const esc = s => String(s || '').replace(/[<>&]/g, ch => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[ch]));
       const staffPrice = Number(window.CafePricing?.STAFF_DRINK_PRICE ?? 5);
-      const label = staffInfo?.label ? esc(staffInfo.label) : '';
+      const label = staffInfo?.label ? escHtml(staffInfo.label) : '';
       shell += `<div class="staff-banner" role="status" aria-live="polite">
         <span class="staff-banner-icon">🎫</span>
         <div class="staff-banner-text">
@@ -260,9 +320,12 @@ function renderMenu() {
       </div>`;
     }
     if (customerProfile) {
-      shell += `<section class="name-section"><div class="profile-badge"><span class="profile-icon">👤</span><span class="profile-name">${customerProfile.name}</span><span class="profile-orders">${customerProfile.orderCount || 0} orders</span><button id="profileLogout" class="profile-logout">✕</button></div><div style="display:flex;gap:8px;align-items:center;margin-top:8px"><a href="track" class="layout-toggle" aria-label="My Orders" title="My Orders" style="text-decoration:none">📋</a><button id="layoutToggle" class="layout-toggle" aria-label="Toggle view">${menuLayout === 'grid' ? '☰' : '⊞'}</button></div></section>`;
+      // `customerProfile.name` is NOT self-inflicted: it arrives from
+      // GET /api/customers/{phone}, so it is a stored value and one person's
+      // name renders in another person's browser.
+      shell += `<section class="name-section"><div class="profile-badge"><span class="profile-icon">👤</span><span class="profile-name">${escHtml(customerProfile.name)}</span><span class="profile-orders">${Number(customerProfile.orderCount) || 0} orders</span><button id="profileLogout" class="profile-logout" aria-label="Sign out of this profile">✕</button></div><div style="display:flex;gap:8px;align-items:center;margin-top:8px"><a href="track" class="layout-toggle" aria-label="My Orders" title="My Orders" style="text-decoration:none">📋</a><button id="layoutToggle" class="layout-toggle" aria-label="Toggle view">${menuLayout === 'grid' ? '☰' : '⊞'}</button></div></section>`;
     } else {
-      shell += `<section class="name-section"><label for="nameInput">Your Name</label><div style="display:flex;gap:8px;align-items:center"><input type="text" id="nameInput" value="${name}" placeholder="Enter your name" aria-required="true" style="flex:1"><a href="track" class="layout-toggle" aria-label="My Orders" title="My Orders" style="text-decoration:none">📋</a><button id="layoutToggle" class="layout-toggle" aria-label="Toggle view">${menuLayout === 'grid' ? '☰' : '⊞'}</button></div><button id="returningBtn" class="returning-btn">Returning customer? Tap here</button></section>`;
+      shell += `<section class="name-section"><label for="nameInput">Your Name</label><div style="display:flex;gap:8px;align-items:center"><input type="text" id="nameInput" value="${escHtml(name)}" placeholder="Enter your name" aria-required="true" style="flex:1"><a href="track" class="layout-toggle" aria-label="My Orders" title="My Orders" style="text-decoration:none">📋</a><button id="layoutToggle" class="layout-toggle" aria-label="Toggle view">${menuLayout === 'grid' ? '☰' : '⊞'}</button></div><button id="returningBtn" class="returning-btn">Returning customer? Tap here</button></section>`;
     }
     // Collection-time picker — required in pre-order mode. Sits between
     // the name section and the menu filter so it's hard to miss. Options
@@ -272,20 +335,18 @@ function renderMenu() {
       const opts = Array.isArray(preorderInfo?.collectionOptions) && preorderInfo.collectionOptions.length
         ? preorderInfo.collectionOptions
         : ['After 1st Service', 'After 2nd Service'];
-      const escAttr = s => String(s || '').replace(/"/g, '&quot;');
-      const escText = s => String(s || '').replace(/[<>&]/g, ch => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[ch]));
       shell += `<section class="collection-section">
         <label>Collection Time <span style="color:var(--danger,#C0392B)">*</span></label>
         <div class="collection-radios">
           ${opts.map(t => `<label class="collection-radio">
-            <input type="radio" name="collectionTime" value="${escAttr(t)}"${collectionTime === t ? ' checked' : ''}>
-            <span>${escText(t)}</span>
+            <input type="radio" name="collectionTime" value="${escHtml(t)}"${collectionTime === t ? ' checked' : ''}>
+            <span>${escHtml(t)}</span>
           </label>`).join('')}
         </div>
         <p class="collection-hint">Drinks are prepared to be ready around this time.</p>
       </section>`;
     }
-    shell += `<div class="menu-filter"><input type="text" id="menuSearch" placeholder="🔍 Search menu..." value="${menuFilter}" class="menu-search-input"><div class="menu-filter-tabs"><button class="menu-filter-tab${menuCategory==='ALL'?' active':''}" data-cat="ALL">All</button><button class="menu-filter-tab${menuCategory==='DRINK'?' active':''}" data-cat="DRINK">Drinks</button>${preorderMode ? '' : `<button class="menu-filter-tab${menuCategory==='FOOD'?' active':''}" data-cat="FOOD">Food</button>`}</div></div>`;
+    shell += `<div class="menu-filter"><input type="text" id="menuSearch" placeholder="🔍 Search menu..." value="${escHtml(menuFilter)}" class="menu-search-input"><div class="menu-filter-tabs"><button class="menu-filter-tab${menuCategory==='ALL'?' active':''}" data-cat="ALL">All</button><button class="menu-filter-tab${menuCategory==='DRINK'?' active':''}" data-cat="DRINK">Drinks</button>${preorderMode ? '' : `<button class="menu-filter-tab${menuCategory==='FOOD'?' active':''}" data-cat="FOOD">Food</button>`}</div></div>`;
     if (!preorderMode && celebrationMode) {
       shell += `<div class="celebration-banner" aria-live="polite">🎉 Celebration Day! Selected drinks at <strong>RM ${celebrationPrice.toFixed(2)}</strong></div>`;
     }
@@ -325,17 +386,17 @@ function renderMenu() {
       const featDisplayName = stripEmoji(featItem.name);
       const featPrice = (celebrationMode && featItem.celebrationEligible === true) ? celebrationPrice : featItem.basePrice;
       const featQty = cart.filter(c => c.id === featItem.id).reduce((s, c) => s + c.qty, 0);
-      html += `<div class="featured-drink-hero" data-id="${featItem.id}">
+      html += `<div class="featured-drink-hero" data-id="${escHtml(featItem.id)}">
         <div class="featured-badge">⭐ Featured Today</div>
-        <img class="featured-img" src="img/menu/${featSlug}.png" alt="${featDisplayName}" loading="lazy" onerror="this.style.display='none'">
+        <img class="featured-img" src="img/menu/${escHtml(featSlug)}.png" alt="${escHtml(featDisplayName)}" loading="lazy" onerror="this.style.display='none'">
         <div class="featured-info">
-          <div class="featured-name">${featDisplayName}</div>
+          <div class="featured-name">${escHtml(featDisplayName)}</div>
           <div class="featured-price">RM ${featPrice.toFixed(2)}</div>
         </div>
         <div class="qty-controls">
-          <button aria-label="Decrease ${featDisplayName}" data-action="dec" data-id="${featItem.id}">−</button>
+          <button type="button" aria-label="Decrease ${escHtml(featDisplayName)}" data-action="dec" data-id="${escHtml(featItem.id)}">−</button>
           <span aria-live="polite">${featQty}</span>
-          <button aria-label="Increase ${featDisplayName}" data-action="inc" data-id="${featItem.id}">+</button>
+          <button type="button" aria-label="Increase ${escHtml(featDisplayName)}" data-action="inc" data-id="${escHtml(featItem.id)}">+</button>
         </div>
       </div>`;
     }
@@ -372,20 +433,25 @@ function renderMenu() {
         priceHtml = `${celebrationMode && item.category === 'DRINK' && item.celebrationEligible === true ? '<s style="opacity:.5;font-size:.8em">RM '+item.basePrice.toFixed(2)+'</s> ' : ''}RM ${displayPrice.toFixed(2)}`;
       }
 
-      html += `<div class="menu-item${item.isPinned ? ' menu-item-pinned' : ''}${soldOut ? ' sold-out' : ''}" data-id="${item.id}">`;
+      html += `<div class="menu-item${item.isPinned ? ' menu-item-pinned' : ''}${soldOut ? ' sold-out' : ''}" data-id="${escHtml(item.id)}">`;
 
       // Top row: image + info (name, tagline, description, price, stock)
       html += `<div class="menu-item-header">`;
       if (slug) {
-        html += `<img class="menu-item-img" src="img/menu/${slug}.png" alt="" loading="lazy" onerror="this.style.display='none'">`;
+        html += `<img class="menu-item-img" src="img/menu/${escHtml(slug)}.png" alt="" loading="lazy" onerror="this.style.display='none'">`;
       }
       html += `<div class="menu-item-info">`;
-      html += `<div class="item-name">${item.isPinned ? '⭐ ' : ''}${displayName}</div>`;
+      // `item.name` and `item.description` are admin-controlled and stored, so
+      // they render into every customer's browser — the same class of injection
+      // as a stored customer name, not "our own copy".
+      html += `<div class="item-name">${item.isPinned ? '⭐ ' : ''}${escHtml(displayName)}</div>`;
       if (tagline) {
-        html += `<p class="menu-item-desc">${tagline}</p>`;
+        // MENU_DESCRIPTIONS is a literal in this file, so the only interpolation
+        // here is our own copy. Escaped anyway: the rule is about the site.
+        html += `<p class="menu-item-desc">${escHtml(tagline)}</p>`;
       }
       if (item.description) {
-        html += `<div class="item-description">${item.description}</div>`;
+        html += `<div class="item-description">${escHtml(item.description)}</div>`;
       }
       html += `<div class="item-price">${priceHtml}</div>`;
       if (item.category === 'FOOD' && avail !== Infinity) {
@@ -396,17 +462,22 @@ function renderMenu() {
       // Middle row: variant pickers (full-width, separated by top border).
       // On a pre-order link, options the campaign excludes are stripped first so
       // the customer never sees a choice the backend would reject.
+      // `collapsible: true` is the customer menu's own choice, not the picker's
+      // default: 14 cards × three always-open pill rows put exactly ONE drink in
+      // the first viewport at 390×844 (measured). The chosen options stay
+      // readable on one line; the pills come back on "Change". The order-edit and
+      // voucher pickers show one item at a time, so they keep the open picker.
       const pickerItem = applyPreorderOptionExclusions(item);
       if ((pickerItem.variantGroups && pickerItem.variantGroups.length) ||
           (pickerItem.variants && pickerItem.variants.length)) {
-        html += RLCVariants.pickerHtml(pickerItem, { itemId: item.id });
+        html += RLCVariants.pickerHtml(pickerItem, { itemId: item.id, collapsible: true });
       }
 
       // Bottom row: qty controls (centered, separated by top border)
       html += `<div class="qty-controls">`;
-      html += `<button aria-label="Decrease ${displayName}" data-action="dec" data-id="${item.id}">−</button>`;
+      html += `<button type="button" aria-label="Decrease ${escHtml(displayName)}" data-action="dec" data-id="${escHtml(item.id)}">−</button>`;
       html += `<span aria-live="polite">${qty}</span>`;
-      html += `<button aria-label="Increase ${displayName}" data-action="inc" data-id="${item.id}" ${soldOut || (avail <= qty && item.category === 'FOOD') ? 'disabled' : ''}>+</button>`;
+      html += `<button type="button" aria-label="Increase ${escHtml(displayName)}" data-action="inc" data-id="${escHtml(item.id)}" ${soldOut || (avail <= qty && item.category === 'FOOD') ? 'disabled' : ''}>+</button>`;
       html += `</div></div>`;
     });
     html += `</div>`;
@@ -560,6 +631,38 @@ function updateCartBar() {
   }
 }
 
+/**
+ * What one cart row costs, and what it would have cost.
+ *
+ * Display only. Every number comes from the stored line or from CafePricing (the
+ * mirror of backend/src/lib/pricing.ts); the backend re-prices the order on
+ * submit and its number is the one charged. Nothing here decides a charge.
+ *
+ * `price` on a stored line already has celebration pricing folded in and
+ * `grossPrice` is the undiscounted counterpart, so the strike-through is the same
+ * net-vs-gross pair the menu card and the cart bar already show.
+ */
+function cartLinePriceParts(c) {
+  const qty = Number(c.qty) || 1;
+  if (staffMode && window.CafePricing) {
+    const p = CafePricing.priceCartLine(cartLineForPricing(c), staffPricingOpts());
+    return { net: p.unitPrice * qty, gross: p.grossUnitPrice * qty };
+  }
+  const net = (Number(c.price) || 0) * qty;
+  const gross = (Number(c.grossPrice != null ? c.grossPrice : c.price) || 0) * qty;
+  return { net, gross };
+}
+
+/** The price cell for one cart row. */
+function cartLinePriceHtml(c) {
+  // A ministry pre-order is genuinely RM 0 at order level, so the row says FREE
+  // rather than a figure the customer will never be asked for.
+  if (preorderMode) return `<div class="cart-item-price"><span class="cart-item-price-free">FREE</span></div>`;
+  const { net, gross } = cartLinePriceParts(c);
+  const was = gross > net + 0.001 ? `<span class="cart-item-price-was">RM ${gross.toFixed(2)}</span>` : '';
+  return `<div class="cart-item-price">${was}RM ${net.toFixed(2)}</div>`;
+}
+
 function renderCartPanel() {
   if (!cart.length) { cartItems.innerHTML = '<p>Cart is empty</p>'; cartSubmit.disabled = true; return; }
   cartSubmit.disabled = false;
@@ -577,8 +680,9 @@ function renderCartPanel() {
     return `<div class="cart-item">
       <div class="cart-item-main">
         <div class="cart-item-info"><div class="cart-item-name">${escHtml(displayName)}</div>${variantLabel ? `<div class="cart-item-variant">${escHtml(variantLabel)}</div>` : ''}</div>
+        ${cartLinePriceHtml(c)}
         <div class="cart-item-actions">
-          <button class="remove-btn" aria-label="Remove ${escHtml(displayName)}" data-cart-idx="${i}" data-cart-action="remove">✕</button>
+          <button type="button" class="remove-btn" aria-label="Remove ${escHtml(displayName)}" data-cart-idx="${i}" data-cart-action="remove">✕</button>
         </div>
       </div>
       <input type="text" class="cart-item-note" maxlength="${NOTE_MAX}" data-cart-idx="${i}"
@@ -799,6 +903,8 @@ async function init() {
     featuredDrink = status.featuredDrink || null;
     // Pre-order bypass: skip the café-closed lockout so ministry volunteers
     // can order ahead of Sunday service.
+    loadFailureKind = null;
+    clearTimeout(initRetryTimer);
     if (!preorderMode && status.cafeStatus === 'CLOSED') {
       app.innerHTML = `<div class="closed-msg">
         <h2>Café is closed</h2>
@@ -821,8 +927,11 @@ async function init() {
     if (cart.length !== prevLen) saveCart();
     renderMenu();
   } catch (e) {
-    showError('Connection error, retrying...');
-    setTimeout(init, 3000);
+    // `e.status` is present only when the API answered with a non-2xx. No status
+    // means the request never completed — DNS, no signal, aeroplane mode.
+    renderLoadFailure(e && e.status != null ? 'server' : 'offline');
+    clearTimeout(initRetryTimer);
+    initRetryTimer = setTimeout(init, 3000);
   }
 }
 

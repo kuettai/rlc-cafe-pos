@@ -5,7 +5,22 @@ let pollTimer = null;
 let prevStatus = null;
 let queueSize = 0;
 let isEditing = false;
+// True once an order has actually painted. A failure before that has nothing on
+// screen to fall back on, so it needs a page, not a toast.
+let hasRenderedOrder = false;
 
+/**
+ * Escape all five HTML-significant characters — `& < > " '` — so the same helper
+ * is safe inside a quoted attribute as well as in text.
+ *
+ * This is the ONE escaper for this page. Escaping is a property of the render
+ * SITE, not of the field, so every string that is not a literal in this file goes
+ * through it: customer text (notes, name), cashier text (the cancellation
+ * reason), admin text (verses, menu names) and anything the API returns.
+ *
+ * Counterpart rule: a `textContent` sink must NOT be escaped — see showError /
+ * showSuccess, which are correct as they stand.
+ */
 function escHtml(s) {
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -112,25 +127,47 @@ async function offerPushSubscription(orderId, customerName) {
   banner.querySelector('#pushYes').onclick = async () => {
     banner.remove();
     try {
+      // This is the FIRST time the browser dialog is raised, and it is raised from
+      // this tap. The page used to call requestPermission() unprompted on load,
+      // fourteen lines before this banner was even inserted, with no subscribe()
+      // after it — so the one permission the customer will ever be asked for was
+      // spent on a dialog that explained nothing, and if they dismissed it this
+      // handler returned here in silence.
       const permission = await Notification.requestPermission();
-      if (permission !== 'granted') return;
+      if (permission !== 'granted') {
+        showError(permission === 'denied'
+          ? 'Notifications are blocked for this site — this page still updates on its own.'
+          : 'No notifications then — this page still updates on its own.');
+        return;
+      }
 
       const reg = await navigator.serviceWorker.ready;
       const vapidRes = await fetch(`${API_BASE}/api/push/vapid-public-key`);
+      // Unchecked, this fell through to urlBase64ToUint8Array(undefined), which
+      // throws inside atob and lands in the catch below as a console line nobody
+      // reads. The endpoint answers 500 whenever the VAPID triple is incomplete
+      // — which it was, in production, for weeks.
+      if (!vapidRes.ok) throw new Error(`vapid-public-key HTTP ${vapidRes.status}`);
       const { publicKey } = await vapidRes.json();
+      if (!publicKey) throw new Error('vapid-public-key returned no key');
 
       const sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(publicKey),
       });
 
-      await fetch(`${API_BASE}/api/push/subscribe`, {
+      const subRes = await fetch(`${API_BASE}/api/push/subscribe`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ orderId, subscription: sub.toJSON(), customerName }),
       });
+      if (!subRes.ok) throw new Error(`push/subscribe HTTP ${subRes.status}`);
+      showSuccess('We’ll notify you when your drink is ready 🔔');
     } catch (e) {
+      // Say so. A granted permission that then silently fails is the worst of the
+      // three outcomes: the customer believes they will be told and walks away.
       console.error('Push subscription failed:', e);
+      showError('Couldn’t set up notifications — keep this page open and it will update itself.');
     }
   };
 }
@@ -195,8 +232,10 @@ function renderOrder(order) {
   // "2 orders ahead · est. wait ~6 min" is meaningless on a pre-order that is not
   // being made yet — it may be days from its collection time. It becomes true
   // again once the cashier releases it (PREPARING).
-  if (['PENDING', 'PREPARING'].includes(order.status) && queueSize > 0 && !(isPre && order.status === 'PENDING')) {
-    html += `<div style="text-align:center;font-size:.85rem;color:var(--text-light,#7A6355);margin-bottom:12px">Queue: ${queueSize} order${queueSize > 1 ? 's' : ''} ahead · Est. wait ~${Math.max(3, queueSize * 3)} min</div>`;
+  const waitMin = Math.max(3, queueSize * 3);
+  const showPreparingWait = order.status === 'PREPARING' && queueSize > 0;
+  if (order.status === 'PENDING' && queueSize > 0 && !isPre) {
+    html += `<div style="text-align:center;font-size:.85rem;color:var(--text-light,#7A6355);margin-bottom:12px">Queue: ${queueSize} order${queueSize > 1 ? 's' : ''} ahead · Est. wait ~${waitMin} min</div>`;
   }
 
   html += `<div class="status-indicator status-${order.status}"><h2>${statusIcon} ${statusText}</h2>`;
@@ -207,8 +246,21 @@ function renderOrder(order) {
   }
   if (order.status === 'PREPARING') html += `<p style="margin-top:8px">Sit tight, your order is being made!</p>`;
   if (order.status === 'READY') html += `<p style="margin-top:8px">Collect your order at the counter</p>`;
-  if (order.status === 'CANCELLED' && order.reason) html += `<p>${order.reason}</p>`;
+  // Cashier-typed free text on the cancel dialog — escaped like any other
+  // human-supplied string reaching innerHTML.
+  if (order.status === 'CANCELLED' && order.reason) html += `<p>${escHtml(order.reason)}</p>`;
   html += `</div>`;
+
+  // PREPARING is the one screen where the queue estimate IS the whole answer —
+  // "how long?" is the only question left — so it stops being the quietest line
+  // on the page. Two lines deliberately: the wait is what the customer came for,
+  // the queue position is why it is that long.
+  if (showPreparingWait) {
+    html += `<div class="track-wait" role="status">
+      <span class="track-wait-eta">⏱️ Ready in about <strong>${waitMin} min</strong></span>
+      <span class="track-wait-queue">${queueSize} order${queueSize > 1 ? 's' : ''} ahead of you</span>
+    </div>`;
+  }
 
   // T3 — Edit Order was already implemented but nobody knew it existed: the
   // buttons sit below the item list, and app.js redirects straight here after
@@ -286,7 +338,8 @@ function renderOrder(order) {
 
   if (order.flaggedItems && order.flaggedItems.length) {
     html += `<div class="flagged-warning" role="alert"><strong>⚠️ Some items became unavailable:</strong><ul>`;
-    order.flaggedItems.forEach(f => { html += `<li>${f}</li>`; });
+    // Each entry is built from stored item names, so it is admin-controlled text.
+    order.flaggedItems.forEach(f => { html += `<li>${escHtml(f)}</li>`; });
     html += `</ul><a href="index">Update your order</a></div>`;
   }
 
@@ -337,9 +390,11 @@ function renderOrder(order) {
         .then(r => r.json())
         .then(data => {
           if (data.verse) {
+            // Verses are seeded/edited server-side, so this is admin-controlled
+            // text arriving over the network — escaped like any other.
             verseSlot.innerHTML = `<div class="verse-inline">
-              <p class="verse-inline-text">"${data.verse.text}"</p>
-              <p class="verse-inline-ref">— ${data.verse.reference}</p>
+              <p class="verse-inline-text">"${escHtml(data.verse.text)}"</p>
+              <p class="verse-inline-ref">— ${escHtml(data.verse.reference)}</p>
             </div>`;
           }
         })
@@ -854,13 +909,67 @@ function fileToBase64(file) {
   });
 }
 
+// Which failure screen is currently on the page, so a 7s poll that keeps failing
+// does not rebuild an identical block (and re-flicker) every tick.
+let trackFailureKind = null;
+
+/**
+ * The order id does not resolve. Orders are cleared after each Sunday service,
+ * so a bookmarked or shared link going dead is the ordinary case — not a
+ * connection fault, and not something a retry will ever fix.
+ *
+ * Previously a 404 threw into the same catch as a network error, so this landed
+ * on "Loading order…" for ever under "Connection error, retrying…": the wrong
+ * diagnosis, no end to it, and no link back to the menu anywhere on screen.
+ */
+function renderDeadOrderLink() {
+  trackFailureKind = 'dead';
+  trackApp.innerHTML = `<div class="load-failure" role="alert">
+    <div class="load-failure-icon" aria-hidden="true">🕰️</div>
+    <h2>This order has closed</h2>
+    <p>Orders are cleared after each Sunday service, so this link no longer points at anything.</p>
+    <p>If you have already collected your drink, nothing is wrong.</p>
+    <div class="load-failure-acts">
+      <a class="load-failure-btn-ghost" href="index" style="background:var(--primary);color:#fff;border-color:var(--primary)">See today’s menu</a>
+      <a class="load-failure-btn-ghost" href="track">My past orders</a>
+    </div>
+  </div>`;
+}
+
+/**
+ * The very first poll failed, so there is no last-known order on screen to fall
+ * back on and a 4s toast would be the only signal the page ever gave.
+ *
+ * @param {Boolean} serverAnswered  true when the API replied with a non-2xx.
+ */
+function renderTrackLoadFailure(serverAnswered) {
+  const kind = serverAnswered ? 'server' : 'offline';
+  if (trackFailureKind === kind) return;
+  trackFailureKind = kind;
+  trackApp.innerHTML = `<div class="load-failure is-stale" role="alert">
+    <div class="load-failure-icon" aria-hidden="true">${serverAnswered ? '⚠️' : '📶'}</div>
+    <h2>${serverAnswered ? 'Can’t load your order' : 'Can’t reach the café'}</h2>
+    <p>${serverAnswered
+      ? 'The café’s system did not answer. We keep trying every few seconds — your order is safe either way.'
+      : 'Your phone looks offline. This page will fill in as soon as you are back on a connection.'}</p>
+    <p>Your drink is still on the counter’s list. If you are waiting, just give your name.</p>
+    <div class="load-failure-acts">
+      <a class="load-failure-btn-ghost" href="index">Back to the menu</a>
+    </div>
+  </div>`;
+}
+
 async function pollOrder() {
   try {
     const [res, statusRes] = await Promise.all([
       fetch(`${API_BASE}/api/orders/${orderId}`),
       fetch(`${API_BASE}/api/cafe/status`)
     ]);
-    if (!res.ok) throw new Error();
+    if (!res.ok) {
+      const err = new Error(`HTTP ${res.status}`);
+      err.status = res.status;
+      throw err;
+    }
     const order = await res.json();
     if (statusRes.ok) { const s = await statusRes.json(); queueSize = s.queueSize || 0; }
     if (prevStatus && order.status !== prevStatus) {
@@ -884,13 +993,43 @@ async function pollOrder() {
       isEditing = false;
       showError('The counter has started your order — it can no longer be edited.');
     }
+    trackFailureKind = null;
     renderOrder(order);
-  } catch {
+    hasRenderedOrder = true;
+  } catch (e) {
+    const status = e && e.status;
+    // 404 (and 410, should the API ever start using it) means the id is not a
+    // thing — a dead end, not a dropped connection. Stop polling something that
+    // will never appear and hand the customer a way out.
+    if (status === 404 || status === 410) {
+      clearInterval(pollTimer);
+      renderDeadOrderLink();
+      return;
+    }
+    if (!hasRenderedOrder) {
+      renderTrackLoadFailure(status != null);
+      return;
+    }
+    // Something real IS on screen. Keep the last-known view — a stale order is
+    // more use than a blank page — and say the connection dropped.
     showError('Connection error, retrying...');
   }
 }
 
 // ─── Past Orders (server-authoritative, requires a customer profile) ───
+
+// The rendered "📋 My Past Orders" markup, kept for the life of the page.
+//
+// `renderPastOrders` is called from `renderOrder`, which `pollOrder` runs every
+// 7 seconds — and it reset the host to "Loading past orders…" first. Measured
+// before this cache: 2 calls at t=1s, 4 at t=16s, i.e. ~8.5 extra requests a
+// minute and a section that flickered for ever. Past orders do not change while
+// the customer watches one order, so this fetches ONCE per page load and the
+// later renders re-inject the same HTML.
+//
+// `null` = never fetched. `inFlight` deduplicates two calls that overlap.
+let pastOrdersHtml = null;
+let pastOrdersInFlight = null;
 
 /**
  * Renders "📋 My Past Orders" into `hostEl`. No-op when the browser has
@@ -902,9 +1041,24 @@ async function pollOrder() {
  */
 async function renderPastOrders(hostEl, excludeOrderId) {
   if (!hostEl) return;
+  // Already fetched this page load — paint from cache, issue no request, and
+  // never flash the loading placeholder again.
+  if (pastOrdersHtml !== null) { hostEl.innerHTML = pastOrdersHtml; return; }
+  if (pastOrdersInFlight) {
+    await pastOrdersInFlight;
+    if (pastOrdersHtml !== null) hostEl.innerHTML = pastOrdersHtml;
+    return;
+  }
+  pastOrdersInFlight = buildPastOrders(hostEl, excludeOrderId)
+    .finally(() => { pastOrdersInFlight = null; });
+  return pastOrdersInFlight;
+}
+
+async function buildPastOrders(hostEl, excludeOrderId) {
   let profile;
   try { profile = JSON.parse(localStorage.getItem('customerProfile') || 'null'); } catch { profile = null; }
   if (!profile || !profile.phone) {
+    pastOrdersHtml = '';
     hostEl.innerHTML = '';
     return;
   }
@@ -916,21 +1070,25 @@ async function renderPastOrders(hostEl, excludeOrderId) {
     const data = await res.json();
     orders = Array.isArray(data.orders) ? data.orders : [];
   } catch (_e) {
+    // Deliberately NOT cached: a failure should be retried on the next render,
+    // whereas a successful list should not be re-fetched.
     hostEl.innerHTML = '<div style="margin-top:24px;padding:12px;color:var(--text-light,#7A6355);font-size:.9rem">Could not load past orders.</div>';
     return;
   }
   if (excludeOrderId) orders = orders.filter(o => o.orderId !== excludeOrderId);
 
   if (!orders.length) {
-    hostEl.innerHTML = `
+    pastOrdersHtml = `
       <h3 style="margin:24px 0 12px;color:var(--primary,#6B4226)">📋 My Past Orders</h3>
       <div style="padding:14px;color:var(--text-light,#7A6355);font-size:.9rem;border:1px solid var(--cream-dark,#E7DFD5);border-radius:10px">No past orders yet.</div>`;
+    hostEl.innerHTML = pastOrdersHtml;
     return;
   }
 
-  const esc = s => String(s == null ? '' : s)
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  // Uses this page's own escHtml. The byte-identical local `esc` that used to sit
+  // here was a second copy inside ONE file — the exact drift hazard the
+  // per-page-bundle exception is allowed on condition of not doing.
+  const esc = escHtml;
   const stripEmoji = s => String(s || '').replace(/^[\p{Emoji}\p{Emoji_Presentation}\s]+/u, '').trim();
 
   const rows = orders.map(o => {
@@ -966,9 +1124,10 @@ async function renderPastOrders(hostEl, excludeOrderId) {
     </a>`;
   }).join('');
 
-  hostEl.innerHTML = `
+  pastOrdersHtml = `
     <h3 style="margin:24px 0 12px;color:var(--primary,#6B4226)">📋 My Past Orders</h3>
     ${rows}`;
+  hostEl.innerHTML = pastOrdersHtml;
 }
 
 function renderOrderHistory() {
@@ -985,9 +1144,9 @@ function renderOrderHistory() {
 
   // Show active order prominently if exists
   if (lastId) {
-    html += `<a href="track?id=${lastId}" style="display:block;text-decoration:none;color:inherit;margin-bottom:16px;padding:16px;border:2px solid var(--primary,#6B4226);border-radius:10px;background:var(--cream,#f9f5f0)">
+    html += `<a href="track?id=${encodeURIComponent(lastId)}" style="display:block;text-decoration:none;color:inherit;margin-bottom:16px;padding:16px;border:2px solid var(--primary,#6B4226);border-radius:10px;background:var(--cream,#f9f5f0)">
       <div style="font-weight:700;color:var(--primary,#6B4226)">📍 Current Order</div>
-      <div style="font-size:.85rem;color:var(--text-light,#999);margin-top:4px">${lastId.slice(0,8)}… — tap to view status</div>
+      <div style="font-size:.85rem;color:var(--text-light,#999);margin-top:4px">${escHtml(lastId.slice(0,8))}… — tap to view status</div>
     </a>`;
   }
 
@@ -1003,12 +1162,12 @@ function renderOrderHistory() {
     html += '<h3 style="margin:16px 0 10px;font-size:.9rem;color:var(--text-light,#7A6355)">Order History</h3>';
     history.forEach(o => {
       const date = new Date(o.date).toLocaleDateString(undefined, { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
-      html += `<a href="track?id=${o.orderId}" style="display:block;text-decoration:none;color:inherit;margin-bottom:10px;padding:14px 16px;border:1px solid var(--cream-dark,#ddd);border-radius:10px">
+      html += `<a href="track?id=${encodeURIComponent(o.orderId)}" style="display:block;text-decoration:none;color:inherit;margin-bottom:10px;padding:14px 16px;border:1px solid var(--cream-dark,#ddd);border-radius:10px">
         <div style="display:flex;justify-content:space-between;align-items:center">
-          <span style="font-weight:600">${date}</span>
-          <span style="color:var(--primary,#6B4226);font-weight:700">RM ${(o.total||0).toFixed(2)}</span>
+          <span style="font-weight:600">${escHtml(date)}</span>
+          <span style="color:var(--primary,#6B4226);font-weight:700">RM ${(Number(o.total)||0).toFixed(2)}</span>
         </div>
-        <div style="font-size:.8rem;color:var(--text-light,#999);margin-top:4px">${o.orderId.slice(0,8)}…</div>
+        <div style="font-size:.8rem;color:var(--text-light,#999);margin-top:4px">${escHtml(String(o.orderId).slice(0,8))}…</div>
       </a>`;
     });
   } else if (!lastId) {
@@ -1027,7 +1186,12 @@ function renderOrderHistory() {
 if (!orderId) {
   renderOrderHistory();
 } else {
-  if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
+  // No Notification.requestPermission() here, deliberately. It used to fire on
+  // load — no user gesture, nothing explained, and no subscribe() afterwards — so
+  // the single permission grant this customer will ever give was already spent by
+  // the time offerPushSubscription's "🔔 Want to know when your drink is ready?"
+  // banner appeared. Tapping "Yes, notify me" then returned in silence.
+  // The banner's own gesture-triggered prompt is now the only one.
   pollOrder();
   pollTimer = setInterval(pollOrder, 7000);
 }

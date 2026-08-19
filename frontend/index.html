@@ -22,11 +22,18 @@
 </div>
 
 <div class="cart-overlay" id="cartOverlay" aria-modal="true" role="dialog" aria-label="Shopping cart">
+  <!-- Three bands, in this order and not nested any deeper: a fixed head, the
+       ONLY scrolling region, and a pinned foot. The total and Place Order used to
+       sit at the end of one long scroll, which put them 322px / 249px / 174px
+       below the bottom edge at 844 / 932 / 1024 with five drinks in the cart —
+       the primary action of the whole page, off-screen on the tablet too. -->
   <div class="cart-panel" id="cartPanel">
-    <div style="display:flex;justify-content:space-between;align-items:center"><h2>Your Order</h2><button id="cartClose" style="background:none;border:none;font-size:1.5rem;cursor:pointer;padding:4px 8px;color:var(--text-light,#7A6355)">✕</button></div>
-    <div id="cartItems"></div>
-    <div class="order-total" id="cartTotalExpanded">Total: RM 0.00</div>
-    <button class="cart-submit" id="cartSubmit">Place Order</button>
+    <div class="cart-panel-head"><h2>Your Order</h2><button id="cartClose" aria-label="Close order" class="cart-panel-close">✕</button></div>
+    <div class="cart-panel-scroll" id="cartItems"></div>
+    <div class="cart-panel-foot">
+      <div class="order-total" id="cartTotalExpanded">Total: RM 0.00</div>
+      <button class="cart-submit" id="cartSubmit">Place Order</button>
+    </div>
   </div>
 </div>
 
@@ -37,7 +44,7 @@
 </div>
 
 <footer class="app-footer" id="appFooter">
-  <span class="app-version">v1.75.1</span>
+  <span class="app-version">v1.76.0</span>
   <button id="checkUpdateBtn" class="check-update-btn">Check for update</button>
 </footer>
 

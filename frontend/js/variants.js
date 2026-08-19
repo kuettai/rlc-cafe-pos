@@ -21,13 +21,67 @@
   'use strict';
 
   /**
+   * Escape all five HTML-significant characters, so the same helper is safe in a
+   * quoted attribute as well as in text.
+   *
+   * Module-private on purpose, and NOT a fifth page-bundle copy: this file is
+   * loaded by index.html, track.html AND pos.html, whose bundles each name their
+   * own escaper differently (`escHtml`, `escHtml`, `escapeHtmlPos`). Borrowing a
+   * sibling global would emit raw HTML on whichever page does not happen to
+   * define that name. Variant markup is built in exactly one place, so its
+   * escaping lives in exactly one place too.
+   *
+   * Every string below is admin-controlled (Admin → Menu → Option Groups) and
+   * renders into every customer's and cashier's browser, so it is escaped at
+   * every site, not just the newest one.
+   */
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  // Shown in the collapsed summary when nothing is selected yet.
+  const CHOOSE_HINT = 'Choose your options';
+
+  /** Selected option names inside a `.variant-groups` wrapper, in group order. */
+  function chosenOptionNames(wrapEl) {
+    return getSelectedVariantsFromContainer(wrapEl).map(v => v.option);
+  }
+
+  /**
+   * Rewrite the collapsed one-line summary from the live selection.
+   * Writes `textContent`, so the value must NOT be escaped first.
+   */
+  function refreshChosenSummary(wrapEl) {
+    if (!wrapEl) return;
+    const out = wrapEl.querySelector('.variant-chosen-text');
+    if (!out) return;
+    const picked = chosenOptionNames(wrapEl);
+    out.textContent = picked.length ? picked.join(' · ') : CHOOSE_HINT;
+  }
+
+  /**
    * Build the selector HTML for a menu item.
+   *
+   * Every group prints its NAME. Without it a first-timer sees three anonymous
+   * pill rows — `[Hot][Iced]` `[Soy Milk]` `[Normal][Less][None]` — and cannot
+   * tell "normal" *what*. The group name is also the row's accessible name, and
+   * every option carries `aria-pressed` (the legacy `.variants` path below always
+   * did, so the newer markup used to be the less accessible of the two).
    *
    * @param {Object} item  Menu item with .variantGroups or legacy .variants.
    * @param {Object} [opts]
    * @param {String} [opts.itemId]      Override for data-item-id (default: item.id || item.menuItemId).
    * @param {Array}  [opts.preselected] [{group, option}] entries to mark active.
    *                                    When omitted, single-select groups default to the first option.
+   * @param {Boolean} [opts.collapsible] Render the groups behind a one-line
+   *                                    "chosen options" summary with a Change
+   *                                    disclosure. Opt-in: the customer menu
+   *                                    lists 14 cards and cannot afford three
+   *                                    open pill rows on each, while the order-edit
+   *                                    and voucher pickers show one item at a time
+   *                                    and want the choices visible immediately.
    * @returns {String} HTML markup. Empty string if the item has no variants.
    */
   function pickerHtml(item, opts) {
@@ -36,28 +90,50 @@
     const preselected = opts.preselected || [];
     const explicit = preselected.length > 0;
     const isPre = (g, n) => preselected.some(p => p.group === g && p.option === n);
+    const collapsible = opts.collapsible === true;
 
     let html = '';
     if (item.variantGroups && item.variantGroups.length) {
-      html += `<div class="variant-groups" data-item-id="${itemId}">`;
+      const chosen = [];
+      let groups = '';
       item.variantGroups.forEach(g => {
-        html += `<div class="variant-group" data-group="${g.group}" data-type="${g.type}">`;
-        g.options.forEach((o, i) => {
-          const priceTag = o.price ? ` (+RM${o.price})` : '';
+        // 'single' is the one type that must end up with exactly one option
+        // chosen; anything else (today: 'optional') may legitimately end up empty,
+        // which is what the customer needs told — the group is otherwise
+        // indistinguishable from a single-select they have failed to answer.
+        const single = g.type === 'single';
+        groups += `<div class="variant-group-block">`;
+        groups += `<span class="variant-group-label">${esc(g.group)}${single ? '' : ' <em>optional</em>'}</span>`;
+        groups += `<div class="variant-group" role="group" aria-label="${esc(g.group)}${single ? '' : ' (optional)'}" data-group="${esc(g.group)}" data-type="${esc(g.type)}">`;
+        (g.options || []).forEach((o, i) => {
+          const priceTag = o.price ? ` (+RM${esc(o.price)})` : '';
           const active = explicit
             ? isPre(g.group, o.name)
-            : (g.type === 'single' && i === 0);
-          html += `<button class="vg-btn ${active ? 'active' : ''}" data-option="${o.name}" data-price="${o.price || 0}">${o.name}${priceTag}</button>`;
+            : (single && i === 0);
+          if (active) chosen.push(o.name);
+          groups += `<button type="button" class="vg-btn ${active ? 'active' : ''}" aria-pressed="${active}" data-option="${esc(o.name)}" data-price="${esc(o.price || 0)}">${esc(o.name)}${priceTag}</button>`;
         });
-        html += `</div>`;
+        groups += `</div></div>`;
       });
+
+      html += `<div class="variant-groups${collapsible ? ' is-collapsible' : ''}" data-item-id="${esc(itemId)}">`;
+      if (collapsible) {
+        const listId = `vg-list-${itemId}`;
+        html += `<div class="variant-chosen">
+          <span class="variant-chosen-text">${esc(chosen.length ? chosen.join(' · ') : CHOOSE_HINT)}</span>
+          <button type="button" class="variant-chosen-toggle" aria-expanded="false" aria-controls="${esc(listId)}">Change</button>
+        </div>`;
+        html += `<div class="variant-group-list" id="${esc(listId)}" hidden>${groups}</div>`;
+      } else {
+        html += groups;
+      }
       html += `</div>`;
     } else if (item.variants && item.variants.length) {
-      html += `<div class="variants" data-item-id="${itemId}">`;
+      html += `<div class="variants" data-item-id="${esc(itemId)}">`;
       item.variants.forEach((v, i) => {
         const active = i === 0;
-        const priceTag = v.priceModifier ? ` (+RM${v.priceModifier})` : '';
-        html += `<button class="${active ? 'active' : ''}" data-variant="${v.id}" aria-pressed="${active}">${v.name}${priceTag}</button>`;
+        const priceTag = v.priceModifier ? ` (+RM${esc(v.priceModifier)})` : '';
+        html += `<button type="button" class="${active ? 'active' : ''}" data-variant="${esc(v.id)}" aria-pressed="${active}">${esc(v.name)}${priceTag}</button>`;
       });
       html += `</div>`;
     }
@@ -147,13 +223,40 @@
     rootEl.querySelectorAll('.vg-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const group = btn.closest('.variant-group');
+        // `.active` drives the styling and every existing reader
+        // (getSelectedVariantsFromContainer, getSelectedVariant); `aria-pressed`
+        // is kept in lockstep with it so the state is announced and so the
+        // non-colour ✓ cue in the stylesheet has something to hang off.
         if (group.dataset.type === 'single') {
-          group.querySelectorAll('.vg-btn').forEach(b => b.classList.remove('active'));
+          group.querySelectorAll('.vg-btn').forEach(b => {
+            b.classList.remove('active');
+            b.setAttribute('aria-pressed', 'false');
+          });
           btn.classList.add('active');
+          btn.setAttribute('aria-pressed', 'true');
         } else {
-          btn.classList.toggle('active');
+          const on = !btn.classList.contains('active');
+          btn.classList.toggle('active', on);
+          btn.setAttribute('aria-pressed', String(on));
         }
-        fire(btn.closest('.variant-groups') || rootEl);
+        const wrap = btn.closest('.variant-groups');
+        refreshChosenSummary(wrap);
+        fire(wrap || rootEl);
+      });
+    });
+
+    // Collapsed picker: one disclosure per card. No-op when pickerHtml was called
+    // without `collapsible`, since the toggle is not in the markup at all.
+    rootEl.querySelectorAll('.variant-chosen-toggle').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const wrap = btn.closest('.variant-groups');
+        const list = wrap && wrap.querySelector('.variant-group-list');
+        if (!list) return;
+        const opening = list.hasAttribute('hidden');
+        if (opening) list.removeAttribute('hidden');
+        else list.setAttribute('hidden', '');
+        btn.setAttribute('aria-expanded', String(opening));
+        btn.textContent = opening ? 'Done' : 'Change';
       });
     });
 

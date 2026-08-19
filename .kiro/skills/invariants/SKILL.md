@@ -1,6 +1,6 @@
 ---
 name: invariants
-description: Reviewable invariants for RLC Café POS — the do-not-duplicate list (including Malaysia-time date conversion and dead code left behind by an early return), storage conventions, who may authorise a discount (cashier-selected vs customer-requested vs system-only), the pre-order ISO expiresAt exception, create/edit parity (a restriction enforced on create must be re-enforced on edit), bulk mutating routes and collection-route dispatch, API response shape, path-parameter handling, no un-awaited work after a handler returns (Lambda freezes the sandbox) and date-keyed markers for at-most-once cron side effects, no silently-skipped feature when its config is missing (config in SSM, never a wipeable Lambda env default), auth and release rules, frontend HTML escaping (a customer-controlled string is escaped at every innerHTML render site, not just the newest one — and a textContent sink must not be escaped; `escapeHtml`/`escapeAttr` in `admin.js` are canonical for the whole admin bundle, `mfEsc` is gone), frontend state and motion rules (a failure state must not render identically to an empty success state, two distinct persisted flags must not share one visual language, a `[disabled]` control must look disabled, animate transform/opacity and never a layout property), user-visible copy rules (copy asserting a domain fact is gated on the state that makes it true; the house payment fact — payment is QR-ONLY, no cash and no card, and the DuitNow QR is physical and printed on the café tables, so no surface may say "pay at the counter"; a pending feature is deleted rather than commented out, placeholder assets and READMEs included), Malaysia-time dates on the admin frontend via `mytToday()`, and test teeth (a guard is untested unless a fixture reaches it; a test that depends on the machine timezone is not a test). Each is a checkable assertion with the production bug it prevents. Use when reviewing a diff, writing or judging tests, before deploying, or when adding code that touches money, discounts, order status, expiry, pre-orders, collection times, item notes, emails, background or scheduled work, timezones, versions, routing, customer-facing payment copy, or the rendering of customer-supplied text into the DOM.
+description: Reviewable invariants for RLC Café POS — the do-not-duplicate list (including Malaysia-time date conversion and dead code left behind by an early return), storage conventions, who may authorise a discount (cashier-selected vs customer-requested vs system-only), the pre-order ISO expiresAt exception, create/edit parity (a restriction enforced on create must be re-enforced on edit), bulk mutating routes and collection-route dispatch, API response shape, path-parameter handling, no un-awaited work after a handler returns (Lambda freezes the sandbox) and date-keyed markers for at-most-once cron side effects, no silently-skipped feature when its config is missing (config in SSM, never a wipeable Lambda env default), auth and release rules, frontend HTML escaping (a customer-controlled string is escaped at every innerHTML render site, not just the newest one — and a textContent sink must not be escaped; a partial escaper that covers only some of the five characters is more dangerous than a missing one, so audit escaper bodies and not call sites; `escapeHtml`/`escapeAttr` in `admin.js` are canonical for the whole admin bundle, `mfEsc` is gone, and `variants.js` keeps a module-private escaper because it loads on three pages whose bundles name theirs differently), frontend state and motion rules (a failure state must not render identically to an empty success state, two distinct persisted flags must not share one visual language, a `[disabled]` control must look disabled, animate transform/opacity and never a layout property), user-visible copy rules (copy asserting a domain fact is gated on the state that makes it true; the house payment fact — payment is QR-ONLY, no cash and no card, and the DuitNow QR is physical and printed on the café tables, so no surface may say "pay at the counter"; a pending feature is deleted rather than commented out, placeholder assets and READMEs included), Malaysia-time dates on the admin frontend via `mytToday()`, and test teeth (a guard is untested unless a fixture reaches it; a test that depends on the machine timezone is not a test). Each is a checkable assertion with the production bug it prevents. Use when reviewing a diff, writing or judging tests, before deploying, or when adding code that touches money, discounts, order status, expiry, pre-orders, collection times, item notes, emails, background or scheduled work, timezones, versions, routing, customer-facing payment copy, or the rendering of customer-supplied text into the DOM.
 ---
 
 # Invariants
@@ -44,11 +44,23 @@ is the line to check when reviewing a new one.
 any persisted number.
 
 **One accepted exception:** the HTML escapers are per-page-bundle
-(`escapeHtmlPos`, `escHtml`, `prep.html`'s inline `esc()`, and `escapeHtml` /
-`escapeAttr` in `admin.js` for the whole `admin*.js` bundle) because there is no
+(`escapeHtmlPos`, `escHtml`, `prep.html`'s inline `esc()`, `escapeHtml` /
+`escapeAttr` in `admin.js` for the whole `admin*.js` bundle, and — 5th, added in
+v1.76.0 — a module-private `esc()` in `variants.js`) because there is no
 shared frontend util module and adding one costs a new `SHELL` entry plus a script
 tag on every page. See **Frontend** below for the rules that make the duplication
 survivable.
+
+**Why `variants.js` gets its own, and why consolidating it reintroduces a bug:**
+`variants.js` is itself a single source of truth (row 2 of the table above) and is
+loaded by **`index.html`, `track.html` AND `pos.html`**. Those three bundles do not
+agree on a name — they define `escHtml`, `escHtml` and `escapeHtmlPos`
+respectively. So there is no sibling global `variants.js` can call that exists on
+all three pages: reaching for `escHtml` emits **raw HTML on `pos.html`**, and
+reaching for `escapeHtmlPos` emits raw HTML on the two customer pages. A
+module-private escaper is the only option that is correct on every page that loads
+the file, and variant markup is built in exactly one function, so its escaping
+still lives in exactly one place. **Do not "consolidate" it into a page bundle.**
 
 - ☐ **When a handler gains an early-return branch, the code it supersedes is
   deleted in the SAME change.** Found in v1.71 by an independent audit:
@@ -394,8 +406,28 @@ or into an excluded paid option.
   `sessionStorage`**, so script injected there runs with till privileges.
 
   Escape all five of `& < > " '`, so the same helper is safe inside a quoted
-  attribute as well as in text. `escapeHtmlPos` (`pos.js`) and `escHtml`
-  (`app.js`, `track.js`) already do; the new inline `esc()` in `prep.html` does.
+  attribute as well as in text. `escapeHtmlPos` (`pos.js`), `escHtml`
+  (`app.js`, `track.js`), the inline `esc()` in `prep.html` and the module-private
+  `esc()` in `variants.js` all do.
+- ☐ **A page having a complete escaper does NOT mean the page is escaped, and a
+  local `esc(...)` call is not evidence of anything.** Corrects an earlier version
+  of this skill, which listed `escHtml` in `app.js` / `track.js` as five-character
+  complete — true of those two helpers, and it read as "the customer pages are
+  done." They were not. v1.76.0 found the customer pages carried **four additional
+  inline escapers that were incomplete**: in `app.js`, `esc` at `:226` and `:251`
+  handling only `[<>&]`, `escAttr` at `:275` handling only `"`, and `escText` at
+  `:276` handling only `[<>&]`. `variants.js` had **eleven** entirely unescaped
+  sites. The `escAttr` one guarded a **quoted attribute** — precisely where an
+  unescaped `'` or `&` is what breaks out.
+
+  Why it matters: **a partial escaper is more dangerous than a missing one.** A
+  reviewer greps for `esc(`, sees a call at the render site, and moves on; there is
+  no absence to notice. Audit the *body* of every escaper on the page, not the
+  call sites, and delete function-local escapers rather than completing them —
+  a second correct copy is the next drift. The load-bearing field here was
+  `customerProfile.name`, from `GET /api/customers/{phone}`
+  (`backend/src/routes/customers.ts:188`): **stored and cross-user**, so one
+  person's name renders inside another person's page.
 - ☐ **A `textContent` sink must NOT be escaped** — the counterpart rule, and the
   one that stops the item above turning into over-correction. `textContent`
   assigns a text node, so it is already safe; escaping first makes the cashier
@@ -405,7 +437,10 @@ or into an excluded paid option.
   Judge the sink, not the field.
 - ☐ **The escapers are per-page-bundle by necessity.** `app.js`, `track.js`,
   `pos.js` and `prep.html` each carry their own (`prep.html` inline, because its
-  script is self-contained and it loads only `js/config.js`). **The whole
+  script is self-contained and it loads only `js/config.js`), and `variants.js`
+  carries a module-private one because it loads on three pages that name theirs
+  differently — see the do-not-duplicate section above for why that one must not be
+  folded into a bundle. **The whole
   `admin*.js` bundle shares one canonical pair — `escapeHtml` / `escapeAttr` in
   `admin.js` (`:79`, `:86`), canonical since v1.74.0.** `mfEsc()` no longer
   exists: it lived in `admin-menu.js` only to work around script ordering, and the
