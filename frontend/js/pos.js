@@ -894,6 +894,12 @@ function renderBoard(){
   if(!board) return;
   renderStats();
   renderConnectionState();
+  // innerHTML below rebuilds every scrollport from scratch each 7s poll, so a
+  // cashier scrolled partway down a lane gets snapped to the top unless we
+  // save/restore scrollTop across the swap. Selector order is stable within a
+  // viewMode (kanban: pending/preparing/ready; list: the single items pane).
+  const scrollTops = Array.from(board.querySelectorAll('.pos-col-scroll, .pos-list-items'))
+    .map(el => el.scrollTop);
   const pending   = laneOrders('PENDING');
   const preparing = laneOrders('PREPARING');
   const ready     = laneOrders('READY');
@@ -932,6 +938,9 @@ function renderBoard(){
     openWalkup();
   });
   bindCards();
+  board.querySelectorAll('.pos-col-scroll, .pos-list-items').forEach((el, i) => {
+    if(scrollTops[i]) el.scrollTop = scrollTops[i];
+  });
 }
 
 /**
