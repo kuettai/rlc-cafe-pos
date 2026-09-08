@@ -40,6 +40,48 @@
   font-size:.9rem;
 }
 
+/* The passkey alternative, BELOW the PIN form and separated from it, so the
+   order on screen matches the order of dependability: the PIN always works, the
+   passkey works on this device. Both new `p` rules are scoped under
+   `.admin-login` because `.admin-login p` above would otherwise out-specify a
+   bare class and put 24px under each of them. */
+.admin-login .admin-login-alt{margin-top:22px}
+.admin-login .admin-login-or{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  margin:0 0 14px;
+  font-size:.72rem;
+  font-weight:700;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  color:var(--ink-quiet);            /* 9.17:1 on white */
+}
+.admin-login .admin-login-or::before,
+.admin-login .admin-login-or::after{
+  content:"";
+  flex:1 1 auto;
+  height:1px;
+  background:var(--rule-strong);     /* 1.87:1 — a boundary, not a text colour */
+}
+/* Full width to match the Login button above it; the fill, border and hover all
+   come from `.pos-btn-outline`, and `.pos-btn:disabled` already makes the
+   in-flight state visibly inert. */
+.admin-login .admin-login-passkey{
+  width:100%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  font-weight:700;
+}
+.admin-login .admin-login-note{
+  margin:12px 0 0;
+  font-size:.78rem;
+  line-height:1.45;
+  color:var(--ink-quiet);            /* 9.17:1 on white */
+}
+
 /* Sidebar
    ---------------------------------------------------------------------------
    The sidebar is a THREE-PART FLEX COLUMN and only the middle part scrolls.
@@ -821,8 +863,61 @@
 }
 /* Why a control is inert. Same size as a hint, but it is an explanation of a
    disabled state, so it takes the ink of a live instruction rather than the
-   quieter hint colour. */
-.admin-opening-note{color:var(--ink-quiet);font-weight:600}   /* 9.17:1 on white */
+   quieter hint colour. `.admin-inert-why` is the same treatment under a name
+   that is not about Opening Times — the Passkeys card uses it to explain a
+   missing Add button. ONE rule, two selectors, deliberately: a second copy of
+   two declarations is still a copy that drifts. */
+.admin-opening-note,
+.admin-inert-why{color:var(--ink-quiet);font-weight:600}   /* 9.17:1 on white */
+
+/* === Settings → Passkeys ===============================================
+   A small self-contained card. Everything here is reuse — `.admin-card` rows,
+   `.pos-btn`, `.admin-field-error` — except the two STATES below, which exist
+   because "you have none" and "we could not find out" must not look alike. */
+.admin-pk-row{margin-bottom:10px}
+/* `.admin-card-header`'s 8px bottom margin is dead space on a row that holds
+   nothing beneath the header, and it must wrap rather than squeeze the Remove
+   button off a phone. */
+.admin-pk-row .admin-card-header{margin-bottom:0;gap:12px;flex-wrap:wrap;align-items:flex-start}
+.admin-pk-row .admin-card-id{flex:1 1 180px;min-width:0}
+.admin-pk-row .admin-card-title{overflow-wrap:anywhere}
+
+/* Empty SUCCESS: the placeholder for the white `.admin-card` row that will
+   stand here once a passkey exists, so it takes the card's own paper and marks
+   itself out only by a dashed edge. NOT --quiet: `.admin-section` has no
+   background of its own, so a --quiet fill would be the board colour exactly —
+   the invisible tint the palette was rebuilt to get rid of. */
+.admin-pk-empty{
+  padding:16px 18px;
+  border:1px dashed var(--rule-strong);
+  border-radius:var(--radius);
+  background:var(--card);
+  color:var(--ink-quiet);            /* 9.17:1 on a card */
+  font-size:.85rem;
+  line-height:1.5;
+}
+.admin-pk-empty strong{
+  display:block;
+  margin-bottom:3px;
+  font-size:.95rem;
+  color:var(--text);                 /* 17.03:1 on a card */
+}
+
+/* FAILURE: a solid 2px edge on the urgent tint, so it cannot be mistaken for
+   the well above at a glance. The sentence inside carries the meaning — the
+   colour is the second channel, never the only one. */
+.admin-pk-fail{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  gap:8px;
+  padding:14px 16px;
+  border:2px solid var(--danger);
+  border-radius:var(--radius);
+  background:var(--urgent-tint);
+}
+.admin-pk-fail .admin-field-error{margin:0}
+.admin-pk-fail .admin-form-hint{margin:0}
 
 /* Empty state */
 .admin-empty{

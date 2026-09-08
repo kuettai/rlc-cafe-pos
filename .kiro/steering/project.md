@@ -41,7 +41,11 @@ backend/src/     index.ts (router), expiry.ts (EventBridge cron — Sundays
                  gate on ordering),
                  daily-summary (end-of-day revenue email body + send),
                  ssm-config (the only reader of /rlc-cafe/ runtime config —
-                 one paginated, 5-min-cached fetch shared by email + VAPID)
+                 one paginated, 5-min-cached fetch shared by email + VAPID),
+                 webauthn (the only place that knows the passkey relying-party
+                 identity — RP_ID/RP_NAME/ORIGIN are constants, not env vars;
+                 wraps @simplewebauthn/server v14 so routes never import it,
+                 and owns the base64url helpers + challenge put/get/delete)
   routes/        auth, cafe, menu, orders, pos, admin, checklist, receipt,
                  planogram, customers, vouchers, preorder, staffcode, push,
                  display, verses

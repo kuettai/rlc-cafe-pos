@@ -77,7 +77,7 @@
 | `/` | Customer — Menu & ordering | No |
 | `/track.html?id=xxx` | Customer — Order tracking + receipt upload | No |
 | `/pos.html` | Cashier — Order board, walk-up, menu mgmt | PIN login |
-| `/admin.html` | Admin — Menu CRUD, ingredients, recipes, checklist, planogram, reports | PIN login (ADMIN role) |
+| `/admin.html` | Admin — Menu CRUD, ingredients, recipes, checklist, planogram, reports | PIN login (ADMIN role), or a **passkey** (Face ID / Touch ID) once enrolled — additive, PIN remains the required fallback |
 | `/prep.html` | Barista — Prep queue (large text, dark theme) | PIN login (shared session) |
 
 ### 3.2 Hosting
@@ -126,6 +126,15 @@ PUT    /api/orders/{id}             → Modify/cancel own order (while Pending)
 ```
 POST   /api/auth/login              → PIN login, returns JWT
 POST   /api/auth/logout             → Invalidate token
+
+# Passkey / WebAuthn — admin page only, additive to PIN login (v1.79.0).
+# Full contract in the `api-reference` skill.
+POST   /api/auth/passkey/register-options  → ADMIN JWT; issue enrolment challenge
+POST   /api/auth/passkey/register-verify   → ADMIN JWT; store the credential
+POST   /api/auth/passkey/login-options     → PUBLIC; usernameless challenge
+POST   /api/auth/passkey/login-verify      → PUBLIC; same body as /api/auth/login
+GET    /api/admin/passkeys                 → ADMIN JWT; caller's own passkeys
+DELETE /api/admin/passkeys/{credentialId}  → ADMIN JWT; revoke own (JSON, not 204)
 
 GET    /api/pos/orders              → All active orders (Pending/Preparing/Ready)
 PUT    /api/pos/orders/{id}/approve → Move to Preparing (+ optional: newcomer flag)
@@ -256,7 +265,20 @@ Attributes:
 - role (enum: CASHIER | ADMIN)
 - isActive (boolean)
 - createdAt (ISO timestamp)
+- passkeyCredentials (list, optional) — enrolled WebAuthn credentials
+    [{credentialId, publicKey (base64url string), counter, transports,
+      deviceLabel, createdAt}], max 10
+
+Second record type on this table (v1.79.0):
+PK: PASSKEY_CRED#{credentialId}
+SK: META
+- userId (string) — reverse lookup for usernameless passkey login
 ```
+
+> ⚠️ **This table is no longer single-record-type, so every reader must filter on
+> `begins_with(PK, 'USER#')`.** An unfiltered `Scan` of it listed each
+> `PASSKEY_CRED#` record as a phantom volunteer whose Delete button carried the
+> real owner's `userId`. Full detail in the `invariants` and `db-schemas` skills.
 
 ### 5.6 Settings Table
 

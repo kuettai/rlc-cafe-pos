@@ -40,12 +40,21 @@ jest.mock('../src/lib/db', () => ({
 
 // Force mock mode + point at the fixture before importing the handler.
 process.env.PLANOGRAM_MOCK = 'true';
-process.env.PLANOGRAM_MOCK_FIXTURE_PATH = path.join(
+const ENVELOPE_FIXTURE = path.join(
   __dirname,
   'fixtures',
   'planogram',
   'mock-response.json'
 );
+// The same data as a bare top-level array rather than a { counts: [...] }
+// envelope — loadMockResult accepts either shape.
+const BARE_ARRAY_FIXTURE = path.join(
+  __dirname,
+  'fixtures',
+  'planogram',
+  'mock-response-array.json'
+);
+process.env.PLANOGRAM_MOCK_FIXTURE_PATH = ENVELOPE_FIXTURE;
 process.env.PLANOGRAM_BUCKET = 'test-planogram-bucket';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -78,6 +87,34 @@ function makeEvent(overrides: Partial<APIGatewayProxyEvent> = {}): APIGatewayPro
 const TINY_PNG_DATA_URL =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 
+// The same bytes with no data-URL wrapper, for the "bare base64" branch.
+const TINY_PNG_BASE64 = TINY_PNG_DATA_URL.split(',')[1];
+
+// Base64 that is syntactically accepted but decodes to zero bytes.
+const UNDECODABLE_BASE64 = '===';
+
+// A Bedrock InvokeModel reply, shaped the way the handler reads it:
+// `JSON.parse(new TextDecoder().decode(response.body)).content[0].text`.
+function bedrockReply(text: string) {
+  return {
+    body: new TextEncoder().encode(JSON.stringify({ content: [{ type: 'text', text }] })),
+  };
+}
+
+// The three DB calls analyze makes, in order: ingredient Scan, reference Get,
+// log Put. `referenceItem` is what the Get returns as `Item`.
+function stageAnalyzeDb(referenceItem?: Record<string, unknown>) {
+  mockDbSend
+    .mockResolvedValueOnce({ Items: [] })
+    .mockResolvedValueOnce({ Item: referenceItem })
+    .mockResolvedValueOnce({});
+}
+
+// The content[] array the handler handed to Bedrock on its first call.
+function bedrockContent(): any[] {
+  return JSON.parse(mockBedrockSend.mock.calls[0][0].body).messages[0].content;
+}
+
 beforeEach(() => {
   mockS3Send.mockReset();
   mockBedrockSend.mockReset();
@@ -87,6 +124,12 @@ beforeEach(() => {
   // Default S3 / DB / signer responses — individual tests override as needed.
   mockS3Send.mockResolvedValue({});
   mockGetSignedUrl.mockResolvedValue('https://signed.example/url');
+
+  // analyzeStock reads PLANOGRAM_MOCK, and loadMockResult reads
+  // PLANOGRAM_MOCK_FIXTURE_PATH, on every call — so mock mode against the
+  // envelope fixture is the per-test default and tests opt out explicitly.
+  process.env.PLANOGRAM_MOCK = 'true';
+  process.env.PLANOGRAM_MOCK_FIXTURE_PATH = ENVELOPE_FIXTURE;
 });
 
 // ---------------------------------------------------------------------------
@@ -200,6 +243,407 @@ describe('handlePlanogram — analyze', () => {
     expect(result.statusCode).toBe(400);
     expect(JSON.parse(result.body).error).toMatch(/images\[0\]/);
     expect(mockS3Send).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-string image entry with 400, naming its index', async () => {
+    const event = makeEvent({
+      body: JSON.stringify({ location: 'fridge', images: [TINY_PNG_DATA_URL, 12345] }),
+    });
+    const result = await handlePlanogram(event);
+    expect(result.statusCode).toBe(400);
+    expect(JSON.parse(result.body).error).toMatch(/images\[1\] must be a non-empty string/);
+    // The valid image at [0] was uploaded before the bad entry was reached, so
+    // the guard is about rejecting the request, not about atomicity.
+    expect(mockDbSend).not.toHaveBeenCalled();
+  });
+
+  it('rejects an image whose base64 decodes to zero bytes with 400', async () => {
+    const event = makeEvent({
+      body: JSON.stringify({
+        location: 'fridge',
+        images: [`data:image/png;base64,${UNDECODABLE_BASE64}`],
+      }),
+    });
+    const result = await handlePlanogram(event);
+    expect(result.statusCode).toBe(400);
+    expect(JSON.parse(result.body).error).toBe('images[0] could not be decoded');
+    expect(mockS3Send).not.toHaveBeenCalled();
+    expect(mockDbSend).not.toHaveBeenCalled();
+  });
+
+  it('rejects a bare base64 payload that decodes to zero bytes with 400', async () => {
+    const event = makeEvent({
+      body: JSON.stringify({ location: 'fridge', images: [UNDECODABLE_BASE64] }),
+    });
+    const result = await handlePlanogram(event);
+    expect(result.statusCode).toBe(400);
+    expect(JSON.parse(result.body).error).toBe('images[0] could not be decoded');
+    expect(mockS3Send).not.toHaveBeenCalled();
+  });
+
+  it('accepts a bare base64 image and defaults the content type to image/jpeg', async () => {
+    stageAnalyzeDb(undefined);
+
+    const event = makeEvent({
+      body: JSON.stringify({ location: 'storeroom', images: [TINY_PNG_BASE64] }),
+    });
+    const result = await handlePlanogram(event);
+    expect(result.statusCode).toBe(200);
+
+    expect(mockS3Send).toHaveBeenCalledTimes(1);
+    const s3Cmd = mockS3Send.mock.calls[0][0];
+    expect(s3Cmd.__cmd).toBe('S3Put');
+    expect(s3Cmd.ContentType).toBe('image/jpeg');
+    expect(s3Cmd.Key).toMatch(/^stock-count\/\d{4}-\d{2}-\d{2}\/storeroom\/\d+-0\.jpg$/);
+  });
+});
+
+describe('handlePlanogram — analyze with a stored reference photo', () => {
+  it('fetches the reference from S3 and prepends it, labelled, to the AI input', async () => {
+    process.env.PLANOGRAM_MOCK = 'false';
+    stageAnalyzeDb({ s3Key: 'reference/fridge.jpg' });
+    mockS3Send
+      .mockResolvedValueOnce({}) // PutObject — the snapshot
+      .mockResolvedValueOnce({
+        Body: { transformToByteArray: async () => new Uint8Array([1, 2, 3]) },
+      });
+    mockBedrockSend.mockResolvedValueOnce(
+      bedrockReply('Here you go: [{"name":"Oat Milk","count":2,"confidence":"high"}]')
+    );
+
+    const event = makeEvent({
+      body: JSON.stringify({ location: 'fridge', images: [TINY_PNG_DATA_URL] }),
+    });
+    const result = await handlePlanogram(event);
+    expect(result.statusCode).toBe(200);
+    expect(JSON.parse(result.body).counts).toEqual([
+      { name: 'Oat Milk', count: 2, confidence: 'high' },
+    ]);
+
+    // Second S3 call is the reference GetObject against the same bucket.
+    const refGet = mockS3Send.mock.calls[1][0];
+    expect(refGet.__cmd).toBe('S3Get');
+    expect(refGet.Bucket).toBe('test-planogram-bucket');
+    expect(refGet.Key).toBe('reference/fridge.jpg');
+
+    // Order matters: label, reference image, today's photo, then the prompt.
+    const content = bedrockContent();
+    expect(content).toHaveLength(4);
+    expect(content[0]).toEqual({
+      type: 'text',
+      text: 'REFERENCE IMAGE (ideal arrangement):',
+    });
+    expect(content[1].type).toBe('image');
+    expect(content[1].source.data).toBe(Buffer.from([1, 2, 3]).toString('base64'));
+    expect(content[2].source.media_type).toBe('image/png');
+    expect(content[3].text).toContain('fridge');
+  });
+
+  it('carries on without the reference when the S3 fetch throws', async () => {
+    process.env.PLANOGRAM_MOCK = 'false';
+    stageAnalyzeDb({ s3Key: 'reference/fridge.jpg' });
+    mockS3Send
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(new Error('NoSuchKey'));
+    mockBedrockSend.mockResolvedValueOnce(bedrockReply('[]'));
+
+    const event = makeEvent({
+      body: JSON.stringify({ location: 'fridge', images: [TINY_PNG_DATA_URL] }),
+    });
+    const result = await handlePlanogram(event);
+    expect(result.statusCode).toBe(200);
+
+    // Just the photo and the prompt — no reference label.
+    const content = bedrockContent();
+    expect(content).toHaveLength(2);
+    expect(JSON.stringify(content)).not.toContain('REFERENCE IMAGE');
+  });
+
+  it('carries on without the reference when the object body is empty', async () => {
+    process.env.PLANOGRAM_MOCK = 'false';
+    stageAnalyzeDb({ s3Key: 'reference/storeroom.jpg' });
+    mockS3Send
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ Body: { transformToByteArray: async () => undefined } });
+    mockBedrockSend.mockResolvedValueOnce(bedrockReply('[]'));
+
+    const event = makeEvent({
+      body: JSON.stringify({ location: 'storeroom', images: [TINY_PNG_DATA_URL] }),
+    });
+    const result = await handlePlanogram(event);
+    expect(result.statusCode).toBe(200);
+    expect(bedrockContent()).toHaveLength(2);
+  });
+});
+
+describe('analyzeStock via handlePlanogram — live Bedrock path', () => {
+  it('sends the model id, the images and a prompt naming the location and ingredients', async () => {
+    process.env.PLANOGRAM_MOCK = 'false';
+    mockDbSend
+      .mockResolvedValueOnce({
+        Items: [
+          {
+            ingredientId: 'ing-1',
+            name: 'Oat Milk',
+            unit: 'carton',
+            usageUnit: 'ml',
+            storageLocation: 'FRIDGE',
+          },
+          { ingredientId: 'ing-2', name: 'Sugar', unit: 'kg', storageLocation: 'STOREROOM' },
+        ],
+      })
+      .mockResolvedValueOnce({ Item: undefined })
+      .mockResolvedValueOnce({});
+    mockBedrockSend.mockResolvedValueOnce(
+      bedrockReply('[{"name":"Oat Milk","count":0.7,"confidence":"low","notes":"hazy"}]')
+    );
+
+    const event = makeEvent({
+      body: JSON.stringify({ location: 'fridge', images: [TINY_PNG_DATA_URL] }),
+    });
+    const result = await handlePlanogram(event);
+    expect(result.statusCode).toBe(200);
+    expect(JSON.parse(result.body).counts).toEqual([
+      { name: 'Oat Milk', count: 0.7, confidence: 'low', notes: 'hazy' },
+    ]);
+
+    expect(mockBedrockSend).toHaveBeenCalledTimes(1);
+    const cmd = mockBedrockSend.mock.calls[0][0];
+    expect(cmd.__cmd).toBe('Invoke');
+    expect(cmd.modelId).toBe('global.anthropic.claude-sonnet-4-6');
+    expect(cmd.contentType).toBe('application/json');
+
+    const payload = JSON.parse(cmd.body);
+    expect(payload.anthropic_version).toBe('bedrock-2023-05-31');
+    expect(payload.max_tokens).toBe(1000);
+
+    // Only the FRIDGE ingredient reaches the prompt; the storeroom one must not.
+    const prompt = payload.messages[0].content.at(-1).text;
+    expect(prompt).toContain('- Oat Milk (stored in carton, usage: ml)');
+    expect(prompt).not.toContain('Sugar');
+    expect(prompt).toContain('fridge');
+
+    // The log Put still records the parsed result.
+    expect(mockDbSend.mock.calls[2][0].__cmd).toBe('DbPut');
+    expect(mockDbSend.mock.calls[2][0].Item.result).toEqual([
+      { name: 'Oat Milk', count: 0.7, confidence: 'low', notes: 'hazy' },
+    ]);
+  });
+
+  it('falls back to n/a in the prompt for an ingredient with no usageUnit', async () => {
+    process.env.PLANOGRAM_MOCK = 'false';
+    mockDbSend
+      .mockResolvedValueOnce({
+        Items: [{ ingredientId: 'ing-9', name: 'Beans', unit: 'bag', storageLocation: 'STOREROOM' }],
+      })
+      .mockResolvedValueOnce({ Item: undefined })
+      .mockResolvedValueOnce({});
+    mockBedrockSend.mockResolvedValueOnce(bedrockReply('[]'));
+
+    const event = makeEvent({
+      body: JSON.stringify({ location: 'storeroom', images: [TINY_PNG_DATA_URL] }),
+    });
+    const result = await handlePlanogram(event);
+    expect(result.statusCode).toBe(200);
+    const prompt = JSON.parse(mockBedrockSend.mock.calls[0][0].body).messages[0].content.at(-1).text;
+    expect(prompt).toContain('- Beans (stored in bag, usage: n/a)');
+  });
+
+  it('returns [] when the model reply contains no JSON array', async () => {
+    process.env.PLANOGRAM_MOCK = 'false';
+    stageAnalyzeDb(undefined);
+    mockBedrockSend.mockResolvedValueOnce(bedrockReply('I cannot see anything in these photos.'));
+
+    const event = makeEvent({
+      body: JSON.stringify({ location: 'fridge', images: [TINY_PNG_DATA_URL] }),
+    });
+    const result = await handlePlanogram(event);
+    expect(result.statusCode).toBe(200);
+    expect(JSON.parse(result.body).counts).toEqual([]);
+  });
+
+  it('returns [] when the bracketed text is not valid JSON', async () => {
+    process.env.PLANOGRAM_MOCK = 'false';
+    stageAnalyzeDb(undefined);
+    mockBedrockSend.mockResolvedValueOnce(bedrockReply('[{name: Oat Milk, count: oops}]'));
+
+    const event = makeEvent({
+      body: JSON.stringify({ location: 'fridge', images: [TINY_PNG_DATA_URL] }),
+    });
+    const result = await handlePlanogram(event);
+    expect(result.statusCode).toBe(200);
+    expect(JSON.parse(result.body).counts).toEqual([]);
+  });
+
+  it('returns [] when the model reply has no content block', async () => {
+    process.env.PLANOGRAM_MOCK = 'false';
+    stageAnalyzeDb(undefined);
+    mockBedrockSend.mockResolvedValueOnce({
+      body: new TextEncoder().encode(JSON.stringify({ stopReason: 'max_tokens' })),
+    });
+
+    const event = makeEvent({
+      body: JSON.stringify({ location: 'fridge', images: [TINY_PNG_DATA_URL] }),
+    });
+    const result = await handlePlanogram(event);
+    expect(result.statusCode).toBe(200);
+    expect(JSON.parse(result.body).counts).toEqual([]);
+  });
+});
+
+describe('handlePlanogram — failures become a 500', () => {
+  it('reports the error message when a DynamoDB call rejects', async () => {
+    mockDbSend.mockRejectedValueOnce(
+      Object.assign(new Error('Requested resource not found'), {
+        name: 'ResourceNotFoundException',
+      })
+    );
+
+    const event = makeEvent({
+      body: JSON.stringify({ location: 'fridge', images: [TINY_PNG_DATA_URL] }),
+    });
+    const result = await handlePlanogram(event);
+    expect(result.statusCode).toBe(500);
+    expect(JSON.parse(result.body)).toEqual({ error: 'Requested resource not found' });
+  });
+
+  it('reports the error message when the S3 upload rejects', async () => {
+    mockS3Send.mockReset();
+    mockS3Send.mockRejectedValueOnce(new Error('AccessDenied'));
+
+    const event = makeEvent({
+      path: '/api/admin/planogram/reference',
+      body: JSON.stringify({ location: 'fridge', image: TINY_PNG_DATA_URL }),
+    });
+    const result = await handlePlanogram(event);
+    expect(result.statusCode).toBe(500);
+    expect(JSON.parse(result.body).error).toBe('AccessDenied');
+    expect(mockDbSend).not.toHaveBeenCalled();
+  });
+
+  it('rethrows a non-conditional log-update failure as a 500', async () => {
+    mockDbSend
+      .mockResolvedValueOnce({}) // ingredient update
+      .mockRejectedValueOnce(
+        Object.assign(new Error('throughput exceeded'), {
+          name: 'ProvisionedThroughputExceededException',
+        })
+      );
+
+    const event = makeEvent({
+      path: '/api/pos/planogram/confirm',
+      body: JSON.stringify({
+        logId: '2026-06-09#999',
+        counts: [{ ingredientId: 'ing-1', count: 1 }],
+      }),
+    });
+    const result = await handlePlanogram(event);
+    expect(result.statusCode).toBe(500);
+    expect(JSON.parse(result.body).error).toBe('throughput exceeded');
+  });
+
+  it('falls back to "Internal error" when a non-Error is thrown', async () => {
+    mockDbSend.mockRejectedValueOnce('a bare string, not an Error');
+
+    const event = makeEvent({
+      body: JSON.stringify({ location: 'fridge', images: [TINY_PNG_DATA_URL] }),
+    });
+    const result = await handlePlanogram(event);
+    expect(result.statusCode).toBe(500);
+    expect(JSON.parse(result.body)).toEqual({ error: 'Internal error' });
+  });
+
+  // CHARACTERISATION TEST — documents a bug, does not endorse it.
+  //
+  // planogram.ts:27 parses the body OUTSIDE the try/catch that begins at :29,
+  // so a malformed body escapes the handler entirely instead of becoming the
+  // 500 that every other failure here produces. src/index.ts has no outer
+  // try/catch either, so the throw reaches the Lambda runtime and API Gateway
+  // answers a bare 502 with no CORS headers — the browser sees a network error
+  // rather than a JSON error body.
+  //
+  // Expected: 400 { error: 'Invalid JSON body' } (or at minimum the 500).
+  // The same pattern is in admin.ts:37, checklist.ts:11, push.ts:33/:60 and
+  // pos.ts:1367. When it is fixed, flip this assertion.
+  it('THROWS instead of returning a response on a malformed JSON body', async () => {
+    const event = makeEvent({ body: '{not json' });
+    await expect(handlePlanogram(event)).rejects.toThrow(SyntaxError);
+    expect(mockS3Send).not.toHaveBeenCalled();
+    expect(mockDbSend).not.toHaveBeenCalled();
+  });
+});
+
+describe('handlePlanogram — unmatched routes', () => {
+  it('returns 404 for an unknown planogram path', async () => {
+    const event = makeEvent({ httpMethod: 'GET', path: '/api/pos/planogram/history', body: null });
+    const result = await handlePlanogram(event);
+    expect(result.statusCode).toBe(404);
+    expect(JSON.parse(result.body)).toEqual({ error: 'Not found' });
+  });
+
+  it('returns 404 for the right path under the wrong method', async () => {
+    const event = makeEvent({ httpMethod: 'GET', path: '/api/pos/planogram/analyze', body: null });
+    const result = await handlePlanogram(event);
+    expect(result.statusCode).toBe(404);
+  });
+});
+
+describe('handlePlanogram — analyze mock fixture shapes', () => {
+  it('treats a Scan with no Items key as an empty ingredient list', async () => {
+    mockDbSend
+      .mockResolvedValueOnce({}) // Scan — no Items key at all
+      .mockResolvedValueOnce({ Item: undefined })
+      .mockResolvedValueOnce({});
+
+    const event = makeEvent({
+      body: JSON.stringify({ location: 'fridge', images: [TINY_PNG_DATA_URL] }),
+    });
+    const result = await handlePlanogram(event);
+    expect(result.statusCode).toBe(200);
+    expect(JSON.parse(result.body).ingredients).toEqual([]);
+  });
+
+  it('accepts a fixture that is a bare array rather than a { counts } envelope', async () => {
+    process.env.PLANOGRAM_MOCK_FIXTURE_PATH = BARE_ARRAY_FIXTURE;
+    stageAnalyzeDb(undefined);
+
+    const event = makeEvent({
+      body: JSON.stringify({ location: 'fridge', images: [TINY_PNG_DATA_URL] }),
+    });
+    const result = await handlePlanogram(event);
+    expect(result.statusCode).toBe(200);
+    expect(JSON.parse(result.body).counts).toEqual([
+      { name: 'Bare Array Item', count: 2, confidence: 'high' },
+    ]);
+  });
+
+  it('falls back to the bundled fixture when PLANOGRAM_MOCK_FIXTURE_PATH is unset', async () => {
+    delete process.env.PLANOGRAM_MOCK_FIXTURE_PATH;
+    stageAnalyzeDb(undefined);
+
+    const event = makeEvent({
+      body: JSON.stringify({ location: 'fridge', images: [TINY_PNG_DATA_URL] }),
+    });
+    const result = await handlePlanogram(event);
+    expect(result.statusCode).toBe(200);
+    // The bundled default is tests/fixtures/planogram/mock-response.json.
+    expect(JSON.parse(result.body).counts).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'Oat Milk', count: 3 })])
+    );
+  });
+
+  it('returns [] when the fixture parses but is neither an array nor an envelope', async () => {
+    // Any valid JSON object with no `counts` array will do; package.json saves
+    // committing a deliberately-wrong fixture just to prove the guard holds.
+    process.env.PLANOGRAM_MOCK_FIXTURE_PATH = path.join(__dirname, '..', 'package.json');
+    stageAnalyzeDb(undefined);
+
+    const event = makeEvent({
+      body: JSON.stringify({ location: 'fridge', images: [TINY_PNG_DATA_URL] }),
+    });
+    const result = await handlePlanogram(event);
+    expect(result.statusCode).toBe(200);
+    expect(JSON.parse(result.body).counts).toEqual([]);
   });
 });
 
@@ -392,6 +836,35 @@ describe('handlePlanogram — reference upload', () => {
     });
     const result = await handlePlanogram(event);
     expect(result.statusCode).toBe(400);
+  });
+
+  it('accepts a bare base64 image and defaults the content type to image/jpeg', async () => {
+    mockDbSend.mockResolvedValue({});
+
+    const event = makeEvent({
+      path: '/api/admin/planogram/reference',
+      body: JSON.stringify({ location: 'storeroom', image: TINY_PNG_BASE64 }),
+    });
+    const result = await handlePlanogram(event);
+    expect(result.statusCode).toBe(200);
+    expect(JSON.parse(result.body).s3Key).toBe('reference/storeroom.jpg');
+    expect(mockS3Send.mock.calls[0][0].ContentType).toBe('image/jpeg');
+    expect(mockDbSend.mock.calls[0][0].Item.PK).toBe('PLANOGRAM_REF#storeroom');
+  });
+
+  it('rejects an image whose base64 decodes to zero bytes with 400', async () => {
+    const event = makeEvent({
+      path: '/api/admin/planogram/reference',
+      body: JSON.stringify({
+        location: 'fridge',
+        image: `data:image/png;base64,${UNDECODABLE_BASE64}`,
+      }),
+    });
+    const result = await handlePlanogram(event);
+    expect(result.statusCode).toBe(400);
+    expect(JSON.parse(result.body).error).toBe('image could not be decoded');
+    expect(mockS3Send).not.toHaveBeenCalled();
+    expect(mockDbSend).not.toHaveBeenCalled();
   });
 });
 

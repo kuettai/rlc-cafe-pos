@@ -4,9 +4,11 @@ import {
   docClient, ORDERS_TABLE, MENU_TABLE, SETTINGS_TABLE, INGREDIENTS_TABLE, USERS_TABLE, CUSTOMERS_TABLE,
   GetCommand, PutCommand, UpdateCommand, QueryCommand, ScanCommand, DeleteCommand
 } from '../lib/db';
-import { hashPin } from '../lib/auth';
+import { hashPin, verifyToken, TokenPayload } from '../lib/auth';
+import { logAuth } from '../lib/audit';
 import { isBlockedIdentifier } from './auth';
 import { isNewcomerOrder } from '../lib/pricing';
+import { malaysiaToday } from '../lib/date';
 // Shared with the per-link field so a template and a link can never disagree
 // about what a valid "Group:Option" exclusion key looks like.
 import { normalizeExcludedOptions } from './preorder';
@@ -31,10 +33,37 @@ function res(statusCode: number, body: unknown): APIGatewayProxyResult {
   return { statusCode, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
 }
 
+/**
+ * Which admin is calling.
+ *
+ * `index.ts` has already verified the JWT and refused anything but ADMIN before
+ * dispatching here, so this is not an access check — but it passes only the
+ * event, and the passkey routes are strictly self-service: they must operate on
+ * the CALLER'S own credentials and no one else's. Hence a second decode of the
+ * same header. Returns null only if the header is missing or unverifiable, which
+ * index.ts should already have turned away.
+ */
+function callerFromToken(event: APIGatewayProxyEvent): TokenPayload | null {
+  const header = event.headers?.Authorization || event.headers?.authorization || '';
+  const token = header.replace('Bearer ', '');
+  if (!token) return null;
+  try { return verifyToken(token); } catch { return null; }
+}
+
 export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
   const method = event.httpMethod;
   const path = event.path;
-  const body = event.body ? JSON.parse(event.body) : {};
+  // Parsed inside a guard, not above the try: an unparseable body used to reject
+  // straight out of `handleAdmin`, and `index.ts` has no top-level catch, so the
+  // Lambda invocation failed and API Gateway answered a raw 502 with no CORS
+  // headers — the admin PWA saw an opaque network error instead of a 400 it
+  // could show the volunteer.
+  let body: any;
+  try {
+    body = event.body ? JSON.parse(event.body) : {};
+  } catch {
+    return res(400, { error: 'Invalid JSON body' });
+  }
 
   try {
     // Menu
@@ -64,6 +93,12 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
 
     if (method === 'PUT' && path.endsWith('/admin/menu/bulk-toggle')) {
       const { enable, category } = body;
+      // NOT `!!enable`: the string "false" is truthy, so a form-encoded or
+      // query-string-ish caller asking to switch the whole menu OFF switched it
+      // ON, on a Sunday morning, with a 200 and a plausible count. Only the
+      // boolean `true` or the string "true" enables; everything else disables.
+      // Same shape as the `=== 'true'` flag parsing in pos.ts / vouchers.ts.
+      const enabled = enable === true || enable === 'true';
       const scan = await docClient.send(new ScanCommand({ TableName: MENU_TABLE }));
       const items = (scan.Items || []).filter(i => i.SK === 'META' && (!category || i.category === category));
       for (const item of items) {
@@ -71,7 +106,7 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
           TableName: MENU_TABLE, Key: { PK: item.PK, SK: 'META' },
           UpdateExpression: 'SET #e = :e',
           ExpressionAttributeNames: { '#e': 'isEnabledToday' },
-          ExpressionAttributeValues: { ':e': !!enable }
+          ExpressionAttributeValues: { ':e': enabled }
         }));
       }
       return res(200, { updated: items.length });
@@ -230,7 +265,23 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
 
     // Users
     if (method === 'GET' && path.endsWith('/admin/users')) {
-      const r = await docClient.send(new ScanCommand({ TableName: USERS_TABLE }));
+      // The `begins_with(PK, 'USER#')` filter is LOAD-BEARING, not defensive.
+      // USERS_TABLE is no longer single-purpose: it also holds
+      // `PASSKEY_CRED#{credentialId}` reverse-lookup records, written by
+      // /api/auth/passkey/register-verify. Unfiltered, every enrolled passkey
+      // surfaced here as a phantom volunteer — blank name, blank role — and that
+      // row's Delete button carried the REAL owner's `userId`, so deleting the
+      // phantom deleted a live volunteer. Data loss, not cosmetics.
+      //
+      // Exact because every genuine account is keyed `PK=USER#{userId}`: written
+      // that way by POST /admin/users below, and read that way by the login path
+      // (`GetCommand` on `USER#${userId}` in routes/auth.ts). Do not remove; any
+      // future non-user record on this table is covered by the same filter.
+      const r = await docClient.send(new ScanCommand({
+        TableName: USERS_TABLE,
+        FilterExpression: 'begins_with(PK, :userPk)',
+        ExpressionAttributeValues: { ':userPk': 'USER#' },
+      }));
       const users = (r.Items || []).map(u => ({ userId: u.userId, name: u.name, role: u.role, isActive: u.isActive, lastLoginAt: u.lastLoginAt }));
       return res(200, { users });
     }
@@ -260,6 +311,12 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
     if (method === 'PUT' && /\/admin\/users\/[^/]+$/.test(path)) {
       const id = extractId(path, 'users');
       const updates = { ...body };
+      // `pinHash` is derived, never supplied. The body is otherwise spread
+      // straight into the UpdateExpression, so a caller could previously write
+      // any string into the stored hash: '' leaves an account no bcrypt compare
+      // can match, and a self-generated hash is a PIN the caller knows. It is
+      // only ever set from a plaintext `pin` via `hashPin()` below.
+      delete updates.pinHash;
       if (isBlockedIdentifier(updates.name)) {
         return res(400, { error: 'That name is reserved and cannot be used' });
       }
@@ -308,6 +365,102 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
         ExpressionAttributeValues: { ':c': false, ':p': [] },
       }));
       return res(200, { reset: true });
+    }
+
+    // ─── Passkeys (WebAuthn) ────────────────────────────────────────────
+    // Self-service only: an admin manages their OWN passkeys. Enrolment lives on
+    // the public-prefix /api/auth/passkey/* routes (they need a JWT but not the
+    // ADMIN role); these two are the management list and revoke. Placed here so
+    // no earlier `path.endsWith(...)` branch can shadow them — checked: nothing
+    // else in this dispatcher matches '/admin/passkeys' or '/admin/passkeys/*'.
+
+    // GET /api/admin/passkeys
+    if (method === 'GET' && path.endsWith('/admin/passkeys')) {
+      const caller = callerFromToken(event);
+      if (!caller) return res(401, { error: 'Unauthorized' });
+      const got = await docClient.send(new GetCommand({
+        TableName: USERS_TABLE, Key: { PK: `USER#${caller.userId}`, SK: 'META' },
+      }));
+      const list: any[] = Array.isArray(got.Item?.passkeyCredentials) ? got.Item!.passkeyCredentials : [];
+      // Only the credential ID (a public identifier by WebAuthn's own design,
+      // and what the DELETE below needs), the label and the date. Never the
+      // public key and never the signature counter.
+      const passkeys = list
+        .filter(c => c && typeof c.credentialId === 'string')
+        .map(c => ({ id: c.credentialId, deviceLabel: c.deviceLabel || 'Passkey', createdAt: c.createdAt || null }));
+      return res(200, { passkeys });
+    }
+
+    // DELETE /api/admin/passkeys/:credentialId
+    if (method === 'DELETE' && /\/admin\/passkeys\/[^/]+$/.test(path)) {
+      const caller = callerFromToken(event);
+      if (!caller) return res(401, { error: 'Unauthorized' });
+      const credentialId = extractId(path, 'passkeys');
+      if (!credentialId) return res(400, { error: 'credentialId required' });
+
+      const got = await docClient.send(new GetCommand({
+        TableName: USERS_TABLE, Key: { PK: `USER#${caller.userId}`, SK: 'META' },
+      }));
+      const list: any[] = Array.isArray(got.Item?.passkeyCredentials) ? got.Item!.passkeyCredentials : [];
+      const index = list.findIndex(c => c?.credentialId === credentialId);
+      // 404 rather than "delete whatever matches": without the ownership check
+      // one admin could revoke another's passkey by guessing an ID, and the
+      // credential IDs are handed out to the browser.
+      if (index === -1) return res(404, { error: 'Not found' });
+      const removed = list[index];
+
+      try {
+        await docClient.send(new UpdateCommand({
+          TableName: USERS_TABLE, Key: { PK: `USER#${caller.userId}`, SK: 'META' },
+          // Remove the one element, guarded on that element still being the
+          // credential we read — an enrolment racing this delete would
+          // otherwise shift the index and revoke the wrong passkey.
+          UpdateExpression: `REMOVE passkeyCredentials[${index}]`,
+          ConditionExpression: `passkeyCredentials[${index}].credentialId = :cid`,
+          ExpressionAttributeValues: { ':cid': credentialId },
+        }));
+      } catch (err: any) {
+        if (err?.name === 'ConditionalCheckFailedException') return res(409, { error: 'Conflict' });
+        throw err;
+      }
+
+      // Second, and only after the caller's own list entry is gone. Deliberately
+      // in this order so the failure window stays FAIL-CLOSED: if this delete
+      // fails, the reverse record is an orphan pointing at a user who no longer
+      // lists the credential, and login stops at `credential-not-on-user` — the
+      // passkey is already dead. The other order would leave a live list entry
+      // whose reverse record had vanished, which is the same outcome but reached
+      // by a route that reads like a bug.
+      //
+      // Guarded on ownership because this key is NOT namespaced by user: an
+      // unconditional delete here is a cross-user write, so a reverse record
+      // belonging to another admin could be removed by a caller who somehow
+      // reached this line.
+      try {
+        await docClient.send(new DeleteCommand({
+          TableName: USERS_TABLE, Key: { PK: `PASSKEY_CRED#${credentialId}`, SK: 'META' },
+          ConditionExpression: 'userId = :caller',
+          ExpressionAttributeValues: { ':caller': caller.userId },
+        }));
+      } catch (err: any) {
+        if (err?.name !== 'ConditionalCheckFailedException') throw err;
+        // Someone else owns the reverse record. The caller's list entry is
+        // already removed, so their passkey no longer works — report success and
+        // leave the other account's record alone, but log it: this should be
+        // unreachable, and if it fires the two tables have diverged.
+        logAuth('PASSKEY_DELETE_REVERSE_NOT_OWNED', {
+          id: caller.userId, method: 'passkey', credentialId,
+          ip: event.requestContext?.identity?.sourceIp,
+        });
+      }
+
+      logAuth('PASSKEY_DELETED', {
+        id: caller.userId, method: 'passkey', credentialId,
+        deviceLabel: removed?.deviceLabel,
+        ip: event.requestContext?.identity?.sourceIp,
+        ua: event.headers?.['User-Agent'] || event.headers?.['user-agent'],
+      });
+      return res(200, { deleted: credentialId });
     }
 
     // Settings
@@ -418,7 +571,7 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
     if (method === 'GET' && path.endsWith('/admin/reports/discounts')) {
       // Scope to the requested date's completed sales only, so the Discount & Offset
       // Summary reconciles with Today's Summary above it in the UI.
-      const today = event.queryStringParameters?.date || new Date().toISOString().split('T')[0];
+      const today = event.queryStringParameters?.date || malaysiaToday();
       const result = await docClient.send(new ScanCommand({
         TableName: ORDERS_TABLE,
         FilterExpression: 'begins_with(createdAt, :today) AND #s IN (:s1, :s2)',
@@ -446,13 +599,24 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
     }
 
     if (method === 'GET' && path.endsWith('/admin/reports/sessions')) {
-      const today = event.queryStringParameters?.date || new Date().toISOString().split('T')[0];
+      const today = event.queryStringParameters?.date || malaysiaToday();
       const result = await docClient.send(new ScanCommand({
         TableName: ORDERS_TABLE,
         FilterExpression: 'begins_with(createdAt, :today)',
         ExpressionAttributeValues: { ':today': today },
       }));
-      const orders = result.Items || [];
+      // Revenue-bearing subset only — the same rule `summarizeDailyRevenue` in
+      // lib/daily-summary.ts applies: completed sales (ARCHIVED + READY), minus
+      // post-completion cancels, which are refunds of a real sale. This used to
+      // take EVERY status, so a CANCELLED order that was never collected was
+      // billed as session revenue and the sessions card no longer reconciled
+      // with the daily card for the same day. That is the exact bug which
+      // inflated the 2026-08-09 end-of-day email by RM 52.40 before it was
+      // fixed in daily-summary.ts. Item counts come from the same subset there,
+      // so they do here too.
+      const orders = (result.Items || []).filter(o =>
+        (o.status === 'ARCHIVED' || o.status === 'READY') && o.postCompletionCancel !== true
+      );
 
       // Feature 4: Determine split time from handover checklist completion
       // Query the handover checklist log for the given date
@@ -550,7 +714,14 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
       const totalOrders = orders.length;
       const totalRevenue = orders.reduce((s, o) => s + (o.totalAmount || 0), 0);
       const totalOffsets = orders.reduce((s, o) => s + (o.discountOffset || 0), 0);
-      const netCollection = totalRevenue - totalOffsets;
+      // `totalAmount` is stored NET (conventions), so the discount is ALREADY
+      // out of `totalRevenue`. Subtracting `totalOffsets` again double-counted
+      // it and understated the month by the whole discount. `totalOffsets` is
+      // reported alongside as context, not deducted. Matches `netExpected` in
+      // lib/daily-summary.ts, which deducts refunds only — and this card has no
+      // refund line at all, because a post-completion cancel is written as
+      // CANCELLED and the status filter above has already dropped it.
+      const netCollection = totalRevenue;
       const newcomersServed = orders.filter(o => isNewcomerOrder(o)).length;
       const dateSet = new Set(orders.map(o => (o.createdAt as string).split('T')[0]));
       const serviceDays = dateSet.size;
@@ -586,7 +757,7 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
 
 
     if (method === 'GET' && path.endsWith('/admin/reports/daily')) {
-      const today = event.queryStringParameters?.date || new Date().toISOString().split('T')[0];
+      const today = event.queryStringParameters?.date || malaysiaToday();
       // Union of (orders created today, any status) + (all currently active
       // orders regardless of date) + (all PENDING PRE-ORDERS regardless of
       // date). The second bucket catches ministry pre-orders that were created
@@ -609,12 +780,25 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
         if (!byId.has(key)) byId.set(key, o);
       }
       for (const status of ['PREPARING', 'READY']) {
+        // PREPARING deliberately reaches back before today (that is the whole
+        // point of this bucket) and contributes RM 0, since only ARCHIVED and
+        // READY are revenue-bearing. READY therefore MUST be bound to the
+        // reported date with the same `begins_with(createdAt, :today)` condition
+        // as the scan above: an unbounded READY query pulled in stale orders
+        // from a previous service that were never archived, and booked last
+        // week's takings into today's revenue — where the end-of-day email,
+        // which only ever reads one date, could not see them.
+        const dateBound = status === 'READY';
         const activeResult = await docClient.send(new QueryCommand({
           TableName: ORDERS_TABLE,
           IndexName: 'status-createdAt-index',
-          KeyConditionExpression: '#s = :s',
+          KeyConditionExpression: dateBound
+            ? '#s = :s AND begins_with(createdAt, :today)'
+            : '#s = :s',
           ExpressionAttributeNames: { '#s': 'status' },
-          ExpressionAttributeValues: { ':s': status },
+          ExpressionAttributeValues: dateBound
+            ? { ':s': status, ':today': today }
+            : { ':s': status },
         }));
         for (const o of activeResult.Items || []) {
           const key = String(o.orderId || o.PK);
@@ -641,15 +825,28 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
       // service for a ministry volunteer) but they contribute RM 0 to
       // revenue since `totalAmount` is already stored as net (0 for
       // MINISTRY_PREORDER). PENDING is pre-approval (not a committed sale);
-      // CANCELLED/EXPIRED never collected — both excluded from this bucket.
+      // CANCELLED/EXPIRED never collected — both excluded from this bucket. A
+      // post-completion cancel IS a refund of a real sale, so it is excluded here
+      // and deducted as `totalRefunds` below instead.
       const paidCompleted = orders.filter(o =>
-        o.status === 'ARCHIVED' || o.status === 'READY'
+        (o.status === 'ARCHIVED' || o.status === 'READY') && o.postCompletionCancel !== true
       );
       const totalOrders  = paidCompleted.length;
       const totalRevenue = paidCompleted.reduce((sum, o) => sum + Number(o.totalAmount || 0), 0);
       const totalOffsets = paidCompleted.reduce((sum, o) => sum + Number(o.discountOffset || 0), 0);
-      const netExpected  = totalRevenue - totalOffsets;
-      return res(200, { date: today, totalOrders, totalRevenue, totalOffsets, netExpected, orders });
+      // A post-completion cancel is a refund of a sale that WAS collected, so it
+      // comes off the net; a PENDING-stage rejection never collected anything and
+      // is already outside `paidCompleted`.
+      const totalRefunds = orders
+        .filter(o => o.postCompletionCancel === true)
+        .reduce((sum, o) => sum + Number(o.totalAmount || 0), 0);
+      // `totalAmount` is NET (conventions), so the discount is already out of
+      // `totalRevenue`; deducting `totalOffsets` as well double-counted it and
+      // understated the figure the café reconciles cash against by the whole
+      // day's discount. Same definition as `netExpected` in
+      // lib/daily-summary.ts, so the dashboard and the end-of-day email agree.
+      const netExpected  = totalRevenue - totalRefunds;
+      return res(200, { date: today, totalOrders, totalRevenue, totalOffsets, totalRefunds, netExpected, orders });
     }
 
     if (method === 'GET' && path.endsWith('/admin/reports/weekly')) {
@@ -729,7 +926,7 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
 
     // Featured Drink Audit
     if (method === 'GET' && path.endsWith('/admin/featured-drink/audit')) {
-      const dateParam = event.queryStringParameters?.date || new Date().toISOString().split('T')[0];
+      const dateParam = event.queryStringParameters?.date || malaysiaToday();
       const result = await docClient.send(new QueryCommand({
         TableName: SETTINGS_TABLE,
         KeyConditionExpression: 'PK = :pk',

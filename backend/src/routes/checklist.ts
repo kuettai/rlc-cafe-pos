@@ -8,7 +8,16 @@ function res(statusCode: number, body: unknown): APIGatewayProxyResult {
 export async function handleChecklist(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
   const method = event.httpMethod;
   const path = event.path;
-  const body = event.body ? JSON.parse(event.body) : {};
+  // Parsed inside a guard, not above the try: an unparseable body used to
+  // reject straight out of handleChecklist, and index.ts has no top-level
+  // catch, so the Lambda invocation failed and API Gateway answered a raw
+  // 502 with no CORS headers instead of a 400.
+  let body: any;
+  try {
+    body = event.body ? JSON.parse(event.body) : {};
+  } catch {
+    return res(400, { error: 'Invalid JSON body' });
+  }
 
   try {
     // GET /api/pos/checklist — get checklist config + today's completion status

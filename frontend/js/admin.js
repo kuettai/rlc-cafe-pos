@@ -302,8 +302,324 @@ window.addEventListener('beforeunload', e => {
   if(unsavedCount() > 0){ e.preventDefault(); e.returnValue = ''; }
 });
 
+// ─── Passkeys (WebAuthn) ─────────────────────────────────────────────
+//
+// A SECOND way into Admin, never a replacement: the PIN form is the path that
+// always works, and every failure here ends with the operator able to type a
+// PIN immediately. `login-verify` returns the identical body `/api/auth/login`
+// returns, so both paths hand the same object to `applyLoginSuccess()`.
+//
+// base64url lives here rather than being shared because the only other copy in
+// the frontend is `urlBase64ToUint8Array` in `track.js`, which does not load on
+// admin.html. `config.js` loads first on all eight pages and is the correct home
+// for a genuinely shared helper — moving these two there is a follow-up, not
+// something this change is allowed to touch.
+
+/** base64url text → ArrayBuffer, for the fields WebAuthn wants as buffers. */
+function b64urlToBuffer(value){
+  const s = String(value == null ? '' : value).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(s + '='.repeat((4 - s.length % 4) % 4));
+  const bytes = new Uint8Array(raw.length);
+  for(let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+  return bytes.buffer;
+}
+
+/** ArrayBuffer → base64url text, for the fields the API wants as strings. */
+function bufferToB64url(buf){
+  if(!buf) return '';
+  const bytes = new Uint8Array(buf);
+  let s = '';
+  for(let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/** The server's login options with `challenge` and every credential id decoded. */
+function passkeyRequestOptions(options){
+  const o = Object.assign({}, options || {});
+  o.challenge = b64urlToBuffer(o.challenge);
+  if(Array.isArray(o.allowCredentials)){
+    o.allowCredentials = o.allowCredentials.map(c => Object.assign({}, c, { id: b64urlToBuffer(c && c.id) }));
+  }
+  return o;
+}
+
+/** Same for registration, which also carries `user.id` and `excludeCredentials`. */
+function passkeyCreationOptions(options){
+  const o = Object.assign({}, options || {});
+  o.challenge = b64urlToBuffer(o.challenge);
+  if(o.user) o.user = Object.assign({}, o.user, { id: b64urlToBuffer(o.user.id) });
+  if(Array.isArray(o.excludeCredentials)){
+    o.excludeCredentials = o.excludeCredentials.map(c => Object.assign({}, c, { id: b64urlToBuffer(c && c.id) }));
+  }
+  return o;
+}
+
+/**
+ * A PublicKeyCredential as JSON the API can read.
+ *
+ * ONE function for both ceremonies. The assertion carries
+ * `authenticatorData` / `signature` / `userHandle` and the attestation carries
+ * `attestationObject`, so each field is copied only when the browser produced
+ * it — two near-identical encoders would be the copy that drifts.
+ */
+function passkeyCredentialJson(cred){
+  const r = (cred && cred.response) || {};
+  const out = {
+    id: cred && cred.id,
+    rawId: bufferToB64url(cred && cred.rawId),
+    type: cred && cred.type,
+    response: {},
+  };
+  if(cred && typeof cred.getClientExtensionResults === 'function'){
+    try{ out.clientExtensionResults = cred.getClientExtensionResults(); }
+    catch(e){ out.clientExtensionResults = {}; }
+  }
+  if(r.clientDataJSON) out.response.clientDataJSON = bufferToB64url(r.clientDataJSON);
+  if(r.authenticatorData) out.response.authenticatorData = bufferToB64url(r.authenticatorData);
+  if(r.signature) out.response.signature = bufferToB64url(r.signature);
+  if(r.userHandle) out.response.userHandle = bufferToB64url(r.userHandle);
+  if(r.attestationObject) out.response.attestationObject = bufferToB64url(r.attestationObject);
+  if(typeof r.getTransports === 'function'){
+    try{ out.transports = r.getTransports(); } catch(e){ /* not supported */ }
+  }
+  return out;
+}
+
+/**
+ * Did the person simply back out of the Face ID / Touch ID sheet?
+ *
+ * That is a NORMAL outcome, not a fault: the browser reports it as
+ * `NotAllowedError` (dismissed or timed out) or `AbortError`. It must never
+ * read like a broken login, and it must never disturb the PIN form.
+ */
+function passkeyAborted(err){
+  const name = err && err.name;
+  return name === 'NotAllowedError' || name === 'AbortError';
+}
+
+/**
+ * Put a button into its in-flight state and hand back the undo.
+ *
+ * The `disabled` attribute is what makes it LOOK inert — `.pos-btn:disabled`
+ * in style.css flattens the fill and takes the readable disabled ink — so the
+ * ceremony cannot be started twice by an impatient second tap. `innerHTML` is
+ * safe to stash and restore here because it is markup this file wrote; no
+ * operator-typed text ever reaches it.
+ */
+function passkeyBusy(btn, busyLabel){
+  if(!btn) return () => {};
+  const markup = btn.innerHTML;
+  const wasDisabled = btn.disabled;
+  btn.disabled = true;
+  btn.textContent = busyLabel;
+  let restored = false;
+  return () => {
+    if(restored) return;
+    restored = true;
+    btn.innerHTML = markup;
+    btn.disabled = wasDisabled;
+  };
+}
+
+/** After a passkey attempt that did not sign in, the PIN box is the way in. */
+function focusPinForm(){
+  const user = $('#loginUser'), pin = $('#loginPin');
+  if(!user || !pin) return;
+  (user.value.trim() ? pin : user).focus();
+}
+
+/**
+ * What a passkey attempt that did not sign in says, and where it leaves you.
+ *
+ * `NotAllowedError` is AMBIGUOUS: the browser reports it both when the sheet was
+ * dismissed and when the ceremony never legitimately started (activation lost,
+ * timed out, no matching credential on this device). So the copy does not claim
+ * the operator cancelled anything — it says what is observably true, that no
+ * passkey was used, and points at the two things that work: the PIN, or another
+ * tap.
+ */
+function failPasskeyLogin(restore, err){
+  restore();
+  if(err && err.passkeyRejected){
+    showError('That passkey was not accepted. Try again, or sign in with your PIN.');
+  } else if(passkeyAborted(err)){
+    showError('No passkey was used. Sign in with your PIN, or tap the passkey button again.');
+  } else {
+    showError('Passkey sign-in failed. Use your PIN, then check Settings → Passkeys.');
+  }
+  focusPinForm();
+}
+
+// ─── The prefetched login challenge ─────────────────────────────────
+//
+// Safari drops the transient user activation of a click across an `await`, and
+// `navigator.credentials.get()` without activation rejects with
+// `NotAllowedError` — the SAME error a dismissed sheet gives, so on iPhone the
+// button would appear to do nothing and the copy would blame the operator.
+//
+// So `/login-options` is fetched AHEAD of the click and stashed here, and the
+// click handler calls the ceremony with nothing awaited in between. The awaited
+// path is kept as the fallback for a prefetch that has not landed yet: a slow
+// network then degrades to today's behaviour instead of a dead button.
+
+/** Resolved and usable right now: `{ requestId, options, at }`, or null. */
+let _passkeyOffer = null;
+/** In-flight `/login-options`, so a second nudge does not start a second fetch. */
+let _passkeyOfferInFlight = null;
+/** Server-side challenges last 300s; refresh well inside that. */
+const PASSKEY_OFFER_FRESH_MS = 120000;
+
+/**
+ * Fetch a login challenge. Never rejects, and never discards a usable offer for
+ * a failed refresh — a dropped nudge must not turn a working button into the
+ * slow path.
+ *
+ * @returns {Promise<Object|null>} the offer, or null when it could not be had.
+ */
+function prefetchPasskeyOffer(){
+  if(_passkeyOfferInFlight) return _passkeyOfferInFlight;
+  // Public endpoint, so a bare fetch with no Authorization header — the same
+  // shape the PIN submit uses. `api()` is for the authed calls.
+  _passkeyOfferInFlight = fetch(`${API_BASE}/api/auth/passkey/login-options`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+  }).then(res => {
+    if(!res.ok) throw new Error('login-options');
+    return res.json();
+  }).then(body => {
+    const offer = body && body.options
+      ? { requestId: body.requestId, options: body.options, at: Date.now() }
+      : null;
+    if(offer) _passkeyOffer = offer;
+    return offer;
+  }).catch(() => null).then(offer => {
+    _passkeyOfferInFlight = null;
+    return offer;
+  });
+  return _passkeyOfferInFlight;
+}
+
+/** Top up the stash if it is empty or going stale. Cheap to call repeatedly. */
+function refreshPasskeyOffer(){
+  if(_passkeyOfferInFlight) return;
+  if(_passkeyOffer && (Date.now() - _passkeyOffer.at) < PASSKEY_OFFER_FRESH_MS) return;
+  prefetchPasskeyOffer();
+}
+
+/**
+ * The passkey half of the login screen. Never reloads and never clears the PIN
+ * form — whatever happens, the operator is left one keystroke from the PIN.
+ *
+ * NOT async, and deliberately so: the `credentials.get()` below is reached with
+ * no `await` between it and the click that ran this.
+ */
+function passkeyLogin(btn){
+  const offer = _passkeyOffer;
+  if(!offer) return passkeyLoginAwaited(btn);       // prefetch not back yet
+  _passkeyOffer = null;                             // a challenge is single-use
+
+  // An offer past PASSKEY_OFFER_FRESH_MS is used anyway: the server allows 300s,
+  // and spending a possibly-stale challenge beats losing the activation to a
+  // refresh. A challenge the server has expired comes back as a 401 from verify,
+  // which asks for another tap with a fresh one.
+  const restore = passkeyBusy(btn, 'Waiting for your device…');
+  let ceremony;
+  try{
+    ceremony = navigator.credentials.get({ publicKey: passkeyRequestOptions(offer.options) });
+  } catch(err){
+    failPasskeyLogin(restore, err);
+    refreshPasskeyOffer();
+    return;
+  }
+  finishPasskeyLogin(btn, restore, offer.requestId, ceremony);
+}
+
+/**
+ * Fallback for a click that arrived before the prefetch did. Identical to the
+ * original flow, activation risk included — on Safari this is the case that can
+ * still report `NotAllowedError`, which is why the copy stays honest about not
+ * knowing why no passkey was used.
+ */
+async function passkeyLoginAwaited(btn){
+  const restore = passkeyBusy(btn, 'Waiting for your device…');
+  const offer = await prefetchPasskeyOffer();
+  if(!offer){ failPasskeyLogin(restore, new Error('login-options')); return; }
+  _passkeyOffer = null;
+  let ceremony;
+  try{
+    ceremony = navigator.credentials.get({ publicKey: passkeyRequestOptions(offer.options) });
+  } catch(err){
+    failPasskeyLogin(restore, err);
+    refreshPasskeyOffer();
+    return;
+  }
+  await finishPasskeyLogin(btn, restore, offer.requestId, ceremony);
+}
+
+/** Everything after the ceremony has been handed off. Awaiting is safe here. */
+async function finishPasskeyLogin(btn, restore, requestId, ceremony){
+  try{
+    const assertion = await ceremony;
+    if(!assertion) throw new Error('no-credential');
+    const verified = await fetch(`${API_BASE}/api/auth/passkey/login-verify`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requestId, credential: passkeyCredentialJson(assertion) }),
+    });
+    // A 401 is the expected answer to a stale challenge as well as to a passkey
+    // the server does not know, and both are fixed by trying again.
+    if(verified.status === 401) throw Object.assign(new Error('login-verify'), { passkeyRejected: true });
+    if(!verified.ok) throw new Error('login-verify');
+    restore();
+    // The SAME post-login block the PIN form runs, including the ADMIN check.
+    if(!applyLoginSuccess(await verified.json())) focusPinForm();
+  } catch(err){
+    failPasskeyLogin(restore, err);
+  }
+  // Line up a fresh challenge for the next tap — unless the login screen is
+  // gone, which is what success looks like.
+  if(document.getElementById('btnPasskeyLogin')) refreshPasskeyOffer();
+}
+
 // --- Login ---
+
+/**
+ * Everything that happens once a login is accepted — the ONE copy of it.
+ *
+ * Called by both the PIN form and the passkey button, because
+ * `/api/auth/passkey/login-verify` answers with the identical body
+ * `/api/auth/login` does. Two copies would let the two paths drift on the part
+ * that matters most: the `role === 'ADMIN'` refusal.
+ *
+ * `forceUpdatePin`, `onboardingComplete` and `onboardingProgress` are in that
+ * body and this shell has never acted on any of them — the POS owns the forced
+ * PIN change. Unchanged deliberately: the two paths behave identically because
+ * they run this, not because the passkey path re-implements it.
+ *
+ * @returns {Boolean} true when the session was accepted and the app rendered.
+ */
+function applyLoginSuccess(data){
+  if(!data || data.role !== 'ADMIN'){ showError('Admin access required'); return false; }
+  token = data.token;
+  currentUser = data.name || 'Admin';
+  localStorage.setItem('pos_token', token);
+  localStorage.setItem('pos_user', currentUser);
+  renderApp();
+  return true;
+}
+
 function renderLogin(){
+  // Feature-detected, not styled-out: a browser with no WebAuthn must not be
+  // shown a button that cannot open a ceremony. The PIN form is untouched and
+  // comes first, because it is the path that always works.
+  const passkeyBlock = window.PublicKeyCredential ? `
+    <div class="admin-login-alt">
+      <p class="admin-login-or"><span>or</span></p>
+      <button type="button" class="pos-btn pos-btn-outline admin-login-passkey" id="btnPasskeyLogin">
+        <span aria-hidden="true">🔑</span> Sign in with Face ID / Touch ID
+      </button>
+      <p class="admin-login-note">Works on a device where you have added a passkey under
+        Settings → Passkeys.</p>
+    </div>` : '';
+
   app.innerHTML = `<div class="admin-login">
     <h2>Admin Login</h2>
     <p>Access restricted to administrators</p>
@@ -311,21 +627,26 @@ function renderLogin(){
       <input id="loginUser" placeholder="Your name (e.g. Admin)" required autocomplete="username" class="pos-input">
       <input id="loginPin" type="password" inputmode="numeric" maxlength="6" placeholder="PIN" required class="pos-input">
       <button type="submit" class="pos-btn pos-btn-primary" style="width:100%">Login</button>
-    </form></div>`;
+    </form>${passkeyBlock}</div>`;
   $('#loginForm').onsubmit = async e => {
     e.preventDefault();
     try{
       const res = await fetch(`${API_BASE}/api/auth/login`,{ method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({userId:$('#loginUser').value, pin:$('#loginPin').value}) });
       if(!res.ok) throw new Error();
-      const data = await res.json();
-      if(data.role !== 'ADMIN'){ showError('Admin access required'); return; }
-      token = data.token;
-      currentUser = data.name || 'Admin';
-      localStorage.setItem('pos_token', token);
-      localStorage.setItem('pos_user', currentUser);
-      renderApp();
+      applyLoginSuccess(await res.json());
     } catch(e){ showError('Invalid credentials'); }
   };
+  const passkeyBtn = $('#btnPasskeyLogin');
+  if(passkeyBtn){
+    passkeyBtn.onclick = () => passkeyLogin(passkeyBtn);
+    // The challenge is fetched now, and topped up on the first sign of intent, so
+    // that the click itself has one in hand and can open the sheet with nothing
+    // awaited in between. `pointerdown` fires before `click`; `focus` covers the
+    // keyboard. Both are no-ops when the stash is already fresh.
+    passkeyBtn.onpointerdown = refreshPasskeyOffer;
+    passkeyBtn.onfocus = refreshPasskeyOffer;
+    refreshPasskeyOffer();
+  }
 }
 
 function logout(){ token=null; localStorage.removeItem('pos_token'); localStorage.removeItem('pos_user'); renderLogin(); }
@@ -1045,7 +1366,8 @@ function renderSettingsSection(container, settings, templates){
       </div>
     </div>
   </div>
-  <div class="admin-section" id="preorderTemplatesSection" style="margin-top:24px"></div>`;
+  <div class="admin-section" id="preorderTemplatesSection" style="margin-top:24px"></div>
+  <div class="admin-section" id="passkeysSection" style="margin-top:24px"></div>`;
 
   // Opening Times shares the Save Settings button rather than adding a third
   // one. Seeded from the stored value; when there isn't one the editor says so
@@ -1136,6 +1458,13 @@ function renderSettingsSection(container, settings, templates){
     renderPreorderTemplatesSection(container.querySelector('#preorderTemplatesSection'), templates);
   }
 
+  // Passkeys owns its own fetch, its own buttons and its own failure state, on
+  // the Staff Link pattern — nothing here is wired to Save Settings, because
+  // adding or removing a passkey takes effect the moment it is confirmed and
+  // there is no pending state for the leave guard to protect. Deliberately not
+  // awaited: a slow or broken passkey list must not delay the rest of the tab.
+  renderPasskeysSection(container.querySelector('#passkeysSection'));
+
   // ─── Unsaved-work watch ─────────────────────────────────────────────
   // Both save buttons on this tab stay exactly as they were; this only makes
   // leaving the tab with pending edits ask first. Registered AFTER the
@@ -1176,6 +1505,254 @@ function renderSettingsSection(container, settings, templates){
   watchUnsaved({ tab:'settings', label:'Settings', read: readSettingsState });
   container.addEventListener('input', renderUnsavedIndicators);
   container.addEventListener('change', renderUnsavedIndicators);
+}
+
+// ─── Passkeys card (Admin → Settings) ───────────────────────────────
+//
+// Self-contained on the Staff Link pattern: its own load, its own error state
+// with a retry, its own Add/Remove buttons. It is NOT wired to Save Settings —
+// both actions are immediate, so there is no pending edit and nothing for the
+// unsaved-work guard to hold.
+
+/**
+ * `createdAt` as a Malaysia-time day ("Tue 1 Sep"), or '' when unusable.
+ *
+ * Through `mytToday()` / `mytDayLabel()` — the admin bundle's one MYT
+ * conversion — rather than `toLocaleString()`, which renders in whatever zone
+ * the machine happens to be in and would date a passkey added at 07:30 MYT to
+ * the previous day on any laptop west of here. The year is appended only when it
+ * is not the current one, so the common case stays short.
+ */
+function passkeyWhen(value){
+  if(!value) return '';
+  const d = new Date(value);
+  if(!Number.isFinite(d.getTime())) return '';
+  const iso = mytToday(d);
+  const label = mytDayLabel(iso);
+  return iso.slice(0, 4) === mytToday().slice(0, 4) ? label : `${label} ${iso.slice(0, 4)}`;
+}
+
+function renderPasskeysSection(host){
+  if(!host) return;
+  const supported = !!window.PublicKeyCredential;
+  host.innerHTML = `
+    <div class="admin-section-header"><h2>🔑 Passkeys</h2></div>
+    <p class="admin-form-hint">Face ID, Touch ID or a security key as a second way into Admin on a
+      device you trust. Your PIN keeps working either way — a passkey never replaces it, and removing
+      one here never affects it.</p>
+    <div id="pkList"></div>
+    <div class="admin-form-actions" id="pkActions"></div>`;
+
+  const actions = host.querySelector('#pkActions');
+  if(supported){
+    actions.innerHTML = '<button class="pos-btn pos-btn-primary" id="pkAdd">+ Add passkey</button>';
+    const add = actions.querySelector('#pkAdd');
+    add.onclick = () => passkeyRegister(host);
+    // Challenge in hand before the tap, so the ceremony opens with no `await`
+    // between it and the click. See prefetchPasskeyRegOffer.
+    add.onpointerdown = refreshPasskeyRegOffer;
+    add.onfocus = refreshPasskeyRegOffer;
+    refreshPasskeyRegOffer();
+  } else {
+    // A button that cannot open a ceremony is a dead control, so the reason
+    // takes its place — in the same slot, so the card keeps its rhythm. The list
+    // above still renders: a browser that cannot CREATE a passkey can still show
+    // and remove the ones already registered.
+    actions.innerHTML = `<p class="admin-form-hint admin-inert-why">This browser has no passkey support,
+      so one cannot be added here. Open Admin on a phone or laptop with Face ID, Touch ID or Windows
+      Hello and add it there.</p>`;
+  }
+  return loadPasskeyList(host);
+}
+
+async function loadPasskeyList(host){
+  const list = host && host.querySelector('#pkList');
+  if(!list) return;
+  list.innerHTML = '<div class="loading">Loading passkeys…</div>';
+
+  let data;
+  try{
+    data = await api('GET', '/api/admin/passkeys');
+  } catch(e){
+    // A FAILURE MUST NOT LOOK LIKE AN EMPTY SUCCESS. "No passkeys registered
+    // yet" on a dropped connection reads as "my passkey has been deleted" and
+    // invites a duplicate registration, so this state says what happened, says
+    // that nothing changed, and carries the retry.
+    list.innerHTML = `<div class="admin-pk-fail" role="status">
+      <p class="admin-field-error">⚠️ Couldn't load your passkeys.
+        ${escapeHtml(serverMessage(e, 'The list is unavailable right now.'))}</p>
+      <p class="admin-form-hint">Nothing has been changed — any passkey you already have still works,
+        and so does your PIN.</p>
+      <button class="pos-btn pos-btn-sm" id="pkRetry">Retry</button>
+    </div>`;
+    const retry = list.querySelector('#pkRetry');
+    if(retry) retry.onclick = () => loadPasskeyList(host);
+    return;
+  }
+
+  // Tolerate a shape this build does not expect rather than throwing — an old
+  // cached shell may be talking to a newer API.
+  const rows = data && Array.isArray(data.passkeys) ? data.passkeys : [];
+  if(!rows.length){
+    list.innerHTML = `<div class="admin-pk-empty">
+      <strong>No passkeys registered yet</strong>
+      Add one and the login screen offers Face ID / Touch ID beside the PIN box on this device.</div>`;
+    return;
+  }
+
+  // `deviceLabel` is operator-typed text going into innerHTML: escaped at the
+  // text sink with escapeHtml, and inside the quoted attributes with escapeAttr.
+  // The `data-pk-label` round-trip is deliberate — the DOM decodes it on read,
+  // so confirm() receives the raw label, which is a TEXT sink and must not be
+  // escaped.
+  list.innerHTML = rows.map(pk => {
+    const id = String((pk && pk.id) || '');
+    const label = String((pk && pk.deviceLabel) || 'Passkey');
+    const when = passkeyWhen(pk && pk.createdAt);
+    return `<div class="admin-card admin-pk-row">
+      <div class="admin-card-header">
+        <div class="admin-card-id">
+          <div class="admin-card-title">${escapeHtml(label)}</div>
+          <div class="admin-card-subtitle">${when ? `Added ${escapeHtml(when)}` : 'Added — date not recorded'}</div>
+        </div>
+        <div class="admin-card-actions">
+          ${id
+            ? `<button class="pos-btn pos-btn-sm admin-danger-quiet" data-pk-remove="${escapeAttr(id)}"
+                 data-pk-label="${escapeAttr(label)}"
+                 aria-label="Remove passkey ${escapeAttr(label)}">Remove</button>`
+            : '<span class="admin-form-hint admin-inert-why">No id on this record — remove it from the device that made it.</span>'}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  list.querySelectorAll('[data-pk-remove]').forEach(btn => {
+    btn.onclick = async () => {
+      const label = btn.dataset.pkLabel || 'this passkey';
+      if(!confirm(`Remove ${label}?\n\nThat device can no longer sign in with Face ID or Touch ID. `
+        + `Your PIN is unaffected.`)) return;
+      const restore = passkeyBusy(btn, 'Removing…');
+      try{
+        await api('DELETE', `/api/admin/passkeys/${encodeURIComponent(btn.dataset.pkRemove)}`);
+        showSuccess('Passkey removed');
+      } catch(e){
+        showError(serverMessage(e, 'Failed to remove the passkey'));
+      }
+      restore();
+      // Re-read either way: after a failed delete the rows on screen are of
+      // unknown accuracy, and a stale row is exactly what makes an operator
+      // believe a passkey is gone when it is not.
+      await loadPasskeyList(host);
+    };
+  });
+}
+
+// ─── The prefetched registration challenge ──────────────────────────
+//
+// Same activation problem as login, one step worse: `window.prompt` definitely
+// consumes the activation, and `/register-options` is an awaited authed call on
+// top of it. So the options are fetched ahead of the tap, and the name is asked
+// for AFTER the ceremony — `register-verify` takes `deviceLabel` in its body, so
+// nothing needs it earlier, and `credentials.create()` becomes the last thing the
+// click reaches.
+
+let _passkeyRegOffer = null;
+let _passkeyRegInFlight = null;
+
+/** Fetch a registration challenge. Never rejects. */
+function prefetchPasskeyRegOffer(){
+  if(_passkeyRegInFlight) return _passkeyRegInFlight;
+  _passkeyRegInFlight = api('POST', '/api/auth/passkey/register-options', {})
+    .then(body => {
+      const offer = body && body.options
+        ? { requestId: body.requestId, options: body.options, at: Date.now() }
+        : null;
+      if(offer) _passkeyRegOffer = offer;
+      return offer;
+    })
+    .catch(() => null)
+    .then(offer => { _passkeyRegInFlight = null; return offer; });
+  return _passkeyRegInFlight;
+}
+
+function refreshPasskeyRegOffer(){
+  if(_passkeyRegInFlight) return;
+  if(_passkeyRegOffer && (Date.now() - _passkeyRegOffer.at) < PASSKEY_OFFER_FRESH_MS) return;
+  prefetchPasskeyRegOffer();
+}
+
+/** NOT async: `credentials.create()` is reached with no `await` before it. */
+function passkeyRegister(host){
+  const btn = host && host.querySelector('#pkAdd');
+  const offer = _passkeyRegOffer;
+  if(!offer) return passkeyRegisterAwaited(host, btn);
+  _passkeyRegOffer = null;                          // single-use
+
+  const restore = passkeyBusy(btn, 'Waiting for your device…');
+  let ceremony;
+  try{
+    ceremony = navigator.credentials.create({ publicKey: passkeyCreationOptions(offer.options) });
+  } catch(err){
+    finishPasskeyRegister(host, restore, offer.requestId, Promise.reject(err));
+    return;
+  }
+  finishPasskeyRegister(host, restore, offer.requestId, ceremony);
+}
+
+/** Fallback for a tap that beat the prefetch. Carries the activation risk. */
+async function passkeyRegisterAwaited(host, btn){
+  const restore = passkeyBusy(btn, 'Waiting for your device…');
+  const offer = await prefetchPasskeyRegOffer();
+  if(!offer){
+    restore();
+    showError("Couldn't start passkey setup. Check your connection and try again.");
+    return;
+  }
+  _passkeyRegOffer = null;
+  let ceremony;
+  try{
+    ceremony = navigator.credentials.create({ publicKey: passkeyCreationOptions(offer.options) });
+  } catch(err){
+    await finishPasskeyRegister(host, restore, offer.requestId, Promise.reject(err));
+    return;
+  }
+  await finishPasskeyRegister(host, restore, offer.requestId, ceremony);
+}
+
+async function finishPasskeyRegister(host, restore, requestId, ceremony){
+  let changed = true;
+  try{
+    const credential = await ceremony;
+    if(!credential) throw new Error('no-credential');
+
+    // The name is asked for here, between a successful ceremony and the verify
+    // that records it. Cancelling this prompt does NOT abandon the passkey: the
+    // authenticator has already created it, and leaving it unregistered would
+    // strand a credential on the device that `excludeCredentials` then blocks
+    // forever. So a dismissed prompt takes the default name.
+    const typed = window.prompt('Name this device, so you can tell it apart in the list:', 'Passkey');
+    const deviceLabel = (typed === null ? '' : typed.trim()).slice(0, 60) || 'Passkey';
+
+    await api('POST', '/api/auth/passkey/register-verify', {
+      requestId, credential: passkeyCredentialJson(credential), deviceLabel,
+    });
+    showSuccess(`Passkey added: ${deviceLabel}`);
+  } catch(err){
+    if(passkeyAborted(err)){
+      // Nothing was added, and `NotAllowedError` cannot tell a dismissed sheet
+      // from a ceremony that never got to open, so this says only that much.
+      changed = false;
+      showError('No passkey was added. Tap "+ Add passkey" to try again.');
+    } else if(err && err.name === 'InvalidStateError'){
+      showError('This device already has a passkey for the café admin.');
+    } else {
+      showError(serverMessage(err, "Couldn't add a passkey on this device."));
+    }
+  }
+  restore();
+  // A fresh challenge for the next attempt, whichever way this went.
+  if(host && host.querySelector('#pkAdd')) refreshPasskeyRegOffer();
+  if(changed) await loadPasskeyList(host);
 }
 
 // ─── Pre-Order Templates section (Admin → Settings) ─────────────────

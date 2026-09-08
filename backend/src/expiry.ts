@@ -29,13 +29,34 @@ export async function handler(_event: ScheduledEvent): Promise<void> {
     // below, keyed on the ISO service-end time.
     if (order.isPreOrder === true) continue;
 
-    await docClient.send(new UpdateCommand({
-      TableName: ORDERS_TABLE,
-      Key: { PK: order.PK, SK: 'META' },
-      UpdateExpression: 'SET #s = :expired, updatedAt = :now REMOVE expiresAt',
-      ExpressionAttributeNames: { '#s': 'status' },
-      ExpressionAttributeValues: { ':expired': 'EXPIRED', ':now': new Date().toISOString() },
-    }));
+    // Guarded on PENDING, and the guard is load-bearing — not defensive noise.
+    // The candidates above come from the `status-createdAt-index` GSI, which is
+    // eventually consistent: a cashier can approve an order (PENDING →
+    // PREPARING, food already deducted) microseconds before this sweep reads a
+    // stale PENDING projection of it. Unguarded, the sweep would force an
+    // already-paid, already-approved order to EXPIRED and then decrement
+    // `foodReserved` a SECOND time for the same order. `continue` on a failed
+    // guard so the audit line and the food release are skipped too, and so one
+    // raced order does not abort the rest of the batch.
+    try {
+      await docClient.send(new UpdateCommand({
+        TableName: ORDERS_TABLE,
+        Key: { PK: order.PK, SK: 'META' },
+        UpdateExpression: 'SET #s = :expired, updatedAt = :now REMOVE expiresAt',
+        ExpressionAttributeNames: { '#s': 'status' },
+        ExpressionAttributeValues: { ':expired': 'EXPIRED', ':now': new Date().toISOString(), ':prev': 'PENDING' },
+        ConditionExpression: '#s = :prev',
+      }));
+    } catch (e: any) {
+      if (e.name !== 'ConditionalCheckFailedException') throw e;
+      // Status changed under us (stale GSI read of an approved order) — skip it
+      // entirely. Logged, not silent: this is the only place the race is visible.
+      console.warn(
+        '[expiry] order %s was no longer PENDING when the 1-hour sweep tried to expire it — skipped',
+        order.orderId,
+      );
+      continue;
+    }
 
     logOrder('TTL_EXPIRE', order.orderId, {
       customer: order.customerName,

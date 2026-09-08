@@ -14,6 +14,18 @@ function endpointHash(endpoint: string): string {
 export async function handlePush(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
   const method = event.httpMethod;
   const path = event.path;
+  // Parsed inside a guard, not left to throw: an unparseable body used to
+  // escape unhandled (no try/catch anywhere in this handler), and index.ts
+  // has no top-level catch either, so the Lambda invocation failed and API
+  // Gateway answered a raw 502 with no CORS headers instead of a 400.
+  let body: any = {};
+  if (event.body) {
+    try {
+      body = JSON.parse(event.body);
+    } catch {
+      return res(400, { error: 'Invalid JSON body' });
+    }
+  }
 
   // GET /api/push/vapid-public-key
   if (method === 'GET' && path === '/api/push/vapid-public-key') {
@@ -30,7 +42,6 @@ export async function handlePush(event: APIGatewayProxyEvent): Promise<APIGatewa
 
   // POST /api/push/subscribe
   if (method === 'POST' && path === '/api/push/subscribe') {
-    const body = event.body ? JSON.parse(event.body) : {};
     const { orderId, subscription, customerName } = body;
     if (!orderId || !subscription?.endpoint) {
       return res(400, { error: 'orderId and subscription required' });
@@ -57,7 +68,6 @@ export async function handlePush(event: APIGatewayProxyEvent): Promise<APIGatewa
 
   // DELETE /api/push/subscribe
   if (method === 'DELETE' && path === '/api/push/subscribe') {
-    const body = event.body ? JSON.parse(event.body) : {};
     const { orderId, endpoint } = body;
     if (!orderId || !endpoint) return res(400, { error: 'orderId and endpoint required' });
 

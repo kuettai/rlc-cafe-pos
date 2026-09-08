@@ -1,6 +1,6 @@
 ---
 name: db-schemas
-description: DynamoDB table schemas for RLC Café POS — orders, menu, ingredients, users, settings, customers, vouchers. Includes partition/sort keys, GSIs, TTL attributes, and the single-table record types stored in the settings table (main config including the `openingHours` schedule, pre-order codes, staff codes, checklists, slides). Use when reading or writing DynamoDB records, adding attributes, designing queries, or asking where the café's opening hours / service days are stored.
+description: DynamoDB table schemas for RLC Café POS — orders, menu, ingredients, users, settings, customers, vouchers. Includes partition/sort keys, GSIs, TTL attributes, and the single-table record types stored in the settings and users tables (main config including the `openingHours` schedule, pre-order codes, staff codes, checklists, slides, WebAuthn passkey credentials and challenges). Use when reading or writing DynamoDB records, adding attributes, designing queries, or asking where the café's opening hours / service days or a user's passkeys are stored.
 ---
 
 # DynamoDB Table Schemas
@@ -75,23 +75,82 @@ description: DynamoDB table schemas for RLC Café POS — orders, menu, ingredie
 ## Users Table (rlc-cafe-users)
 - PK: `USER#{userId}` (string), SK: `META` (string)
 - Also has records: PK=`USER#{userId}`, SK=`NAMELOWER` (stores nameLower for login-by-name)
+- Also has records: PK=`PASSKEY_CRED#{credentialId}`, SK=`META` — see below
+
+> ⚠️ **This table is no longer single-record-type.** `PASSKEY_CRED#` (v1.79.0) is
+> the **first non-`USER#` partition key** on it. **Every reader of
+> `USERS_TABLE` must filter on `begins_with(PK, 'USER#')`.** This is not
+> theoretical: `GET /api/admin/users` ran an unfiltered `ScanCommand` and mapped
+> every item, so each reverse-lookup record rendered as a phantom volunteer row
+> whose Delete button carried the real owner's `userId` — deleting the phantom
+> deleted a real account. See `invariants` → unfiltered Scan.
 
 | Attribute | Type | Description |
 |-----------|------|-------------|
 | userId | string (UUID) | Unique user ID |
 | name | string | Display name |
 | nameLower | string | Lowercase name for login-by-name lookup |
-| pinHash | string | bcrypt hash of PIN |
+| pinHash | string | bcrypt hash of PIN. **PIN login is unchanged and remains the required fallback** — a passkey never replaces it |
 | role | string | CASHIER / ADMIN |
 | isActive | boolean | Can login |
-| forceUpdatePin | boolean | Must change PIN on next login |
+| forceUpdatePin | boolean | Must change PIN on next login. Blocks passkey **enrolment** (both `register-options` and `register-verify`), so a forced PIN change cannot be sidestepped by enrolling a credential that skips the PIN |
 | lastLoginAt | string | ISO timestamp of last successful login |
 | onboardingCompleted | boolean | Has completed onboarding |
 | onboardingProgress | map | Onboarding step progress |
+| passkeyCredentials | list | Enrolled WebAuthn credentials — see below. Absent until the user enrols one; nothing needs backfilling |
+
+**`passkeyCredentials`** (on `PK=USER#{userId}, SK=META`), max
+`MAX_PASSKEYS_PER_USER = 10`:
+
+```
+passkeyCredentials: [{
+  credentialId: string,   // base64url, as returned by the authenticator
+  publicKey:    string,   // base64url COSE key — a STRING, deliberately not Binary
+  counter:      number,   // signature counter; MUST be persisted after each login
+  transports:   string[],
+  deviceLabel:  string,
+  createdAt:    string    // ISO timestamp
+}]
+```
+
+`publicKey` is stored as **base64url text, not a DynamoDB Binary (B)
+attribute**, on purpose: the DocumentClient would marshal a `Uint8Array` as
+Binary, which round-trips back as a Buffer-ish value whose exact type depends on
+the SDK version. Text keeps the record plain JSON that any script, fixture or
+console view can read; `fromBase64Url()` in `lib/webauthn.ts` turns it back into
+bytes on the verify path.
+
+Updates to a single entry use `passkeyCredentials[i]` with a
+`ConditionExpression` pinning `credentialId` at that index — a concurrent DELETE
+shifts every later index, so an unconditioned index write would silently update
+or revoke the wrong passkey. `GET /api/admin/passkeys` never returns `publicKey`
+or `counter`.
+
+### Users Table Record Type 2: Passkey Reverse Lookup
+- PK=`PASSKEY_CRED#{credentialId}`, SK=`META`
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| userId | string | The owner of that credential |
+
+Exists solely to make login **usernameless**: `login-options` sends no
+`allowCredentials`, so the server learns who is signing in only from the
+credential ID in the assertion, and needs an O(1) way to get from that ID to a
+user. Written by `POST /api/auth/passkey/register-verify`.
+
+`DELETE /api/admin/passkeys/{credentialId}` removes the user's list entry
+**first** and this record **second** — that order is deliberate and
+**fail-closed**: if the second delete fails, the orphan points at a user who no
+longer lists the credential, login stops at `credential-not-on-user`, and the
+passkey is already dead. The reverse order leaves a live list entry whose pointer
+has vanished. This key is **not namespaced by user**, so the delete carries
+`ConditionExpression: 'userId = :caller'` — an unconditional delete here would be
+a cross-user write.
 
 ## Settings Table (rlc-cafe-settings)
 - PK: string, SK: string
-- TTL: `expiresAt` (epoch seconds) — used for PUSH_SUB records
+- TTL: `expiresAt` (epoch seconds) — used for `PUSH_SUB#` and
+  `WEBAUTHN_CHALLENGE#` records
 
 This table stores multiple record types using a single-table design pattern:
 
@@ -186,6 +245,36 @@ Reference photos for fridge/storeroom planogram layout.
 - TTL: 24 hours
 
 Push notification subscriptions tied to specific orders.
+
+### Record Type 5b: WebAuthn Challenges
+- PK=`WEBAUTHN_CHALLENGE#{requestId}`, SK=`META`
+- TTL: 5 minutes (`CHALLENGE_TTL_SECONDS = 300`)
+
+Owned entirely by `backend/src/lib/webauthn.ts`
+(`putChallenge`/`getChallenge`/`deleteChallenge`/`isChallengeExpired`).
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| challenge | string | The server-generated challenge the assertion must echo |
+| userId | string \| null | The admin the challenge was issued to. **`null` for a usernameless login challenge** — `register-verify` rejects a challenge whose `userId` is not the caller (403), which is what stops a challenge issued to one admin from enrolling a passkey on another's account |
+| expiresAt | number | **Epoch SECONDS**, `now + 300` |
+
+**`expiresAt` here is a numeric TTL, and that is correct.** It is deliberately the
+identical idiom `PUSH_SUB#` already uses on this same table (the 24h TTL in
+`backend/src/routes/push.ts`, `POST /api/push/subscribe`). This is **not** a violation of the
+"numeric `expiresAt` only on PENDING orders" invariant — that rule is about the
+**ORDERS** table, where a stray numeric TTL makes DynamoDB silently delete a live
+or archived order. Here the record is *meant* to be ephemeral and TTL is the
+point.
+
+**Readers still compare `expiresAt` in code rather than trusting the sweep.**
+DynamoDB's TTL deletion is best-effort and can lag by hours, so absence is not a
+reliable expiry signal — `isChallengeExpired()` is what actually enforces the 5
+minutes.
+
+Challenges are **single-use**: callers delete on *every* outcome, including a
+failed verification, so a captured response cannot be replayed against a
+challenge still sitting in the table.
 
 ### Record Type 6: Bible Verses
 - PK=`BIBLE_VERSE#{verseId}`, SK=`META`

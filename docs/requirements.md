@@ -17,7 +17,7 @@ orders are accepted.
 |------|--------|------|
 | Customer | Public ordering page | None (name saved in cookie) |
 | Cashier | POS order board, enable/disable items, walk-up orders, inventory adjustment during service | Individual PIN → JWT (4hr expiry) |
-| Admin | Full system access (menu, inventory, reports, settings, people) | Stronger PIN/passphrase → JWT |
+| Admin | Full system access (menu, inventory, reports, settings, people) | Stronger PIN/passphrase → JWT. Optionally a **passkey** (Face ID / Touch ID) enrolled per device from Admin → Settings, v1.79.0 — additive, and PIN login remains the required fallback |
 
 ## 3. Customer Features
 
@@ -196,7 +196,9 @@ before that they were created PREPARING and were never editable):
 - **Performance:** Page load < 2s, polling every 5-10s
 - **Availability:** Must be reliable during Sunday service windows
 - **Cost:** Minimal/near-zero monthly cost
-- **Security:** PIN-based auth with JWT tokens, no secrets in frontend
+- **Security:** PIN-based auth with JWT tokens, no secrets in frontend. Admins may
+  additionally enrol a passkey (WebAuthn) per device; the credential's private key
+  never leaves the device and the server stores only a public key
 - **Data retention:** Order history and inventory logs retained for reporting
 
 ## 10. Out of Scope (Future Enhancements)

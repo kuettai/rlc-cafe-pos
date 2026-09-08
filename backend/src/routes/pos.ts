@@ -5,7 +5,7 @@ import { logOrder, summarizeItems } from '../lib/audit';
 import { sendOrderPush } from '../lib/push';
 // Malaysia-time (UTC+8) date helper. Reused rather than reimplemented — the
 // bulk pre-order release compares service-end dates in the café's timezone.
-import { malaysiaToday } from '../lib/date';
+import { malaysiaToday, malaysiaDayStartUtc } from '../lib/date';
 import {
   priceLine,
   summarizeOrderDiscount,
@@ -66,7 +66,10 @@ async function consumeFoodOnCollection(items: any[]) {
   if (!Array.isArray(items)) return;
   for (const item of items) {
     if (!item || item.category !== 'FOOD' || !item.menuItemId) continue;
-    const qty = Number(item.quantity || item.qty || 1);
+    // `??`, not `||`: an explicit quantity of 0 is a real value and must fall
+    // through to the `qty <= 0` skip below, not be rewritten as the legacy
+    // "no quantity means one" default — that burned one unit of real stock.
+    const qty = Number(item.quantity ?? item.qty ?? 1);
     if (!isFinite(qty) || qty <= 0) continue;
     try {
       await docClient.send(new UpdateCommand({
@@ -94,7 +97,10 @@ async function unconsumeFoodOnUndo(items: any[]) {
   if (!Array.isArray(items)) return;
   for (const item of items) {
     if (!item || item.category !== 'FOOD' || !item.menuItemId) continue;
-    const qty = Number(item.quantity || item.qty || 1);
+    // Must use the SAME `??` coercion as consumeFoodOnCollection — the two
+    // expressions are pinned as exact inverses, so a different zero-handling
+    // here would leave a counter permanently off by one.
+    const qty = Number(item.quantity ?? item.qty ?? 1);
     if (!isFinite(qty) || qty <= 0) continue;
     try {
       await docClient.send(new UpdateCommand({
@@ -110,7 +116,15 @@ async function unconsumeFoodOnUndo(items: any[]) {
 }
 
 async function getShiftSummary(): Promise<APIGatewayProxyResult> {
-  const today = new Date().toISOString().slice(0, 10);
+  // "Today" is a Malaysian wall-clock decision, never a UTC one. Before 08:00
+  // MYT `new Date().toISOString().slice(0,10)` still reads YESTERDAY, so the
+  // bucket-1 bound admitted Saturday's ARCHIVED takings into Sunday's summary.
+  //
+  // The bound is compared against a stored `createdAt`, which is a full UTC ISO
+  // string — so it must be the UTC INSTANT the Malaysian day began, not the bare
+  // YYYY-MM-DD. A bare date is the mirror-image bug: it drops every order placed
+  // before 08:00 MYT. See the doc comment on `malaysiaDayStartUtc`.
+  const today = malaysiaDayStartUtc(malaysiaToday());
   // "Today's stats" spans three buckets:
   //   1. Orders created today across any status (normal customer + walk-up flow).
   //   2. Every currently-active order (PREPARING/READY) regardless of date —
@@ -374,6 +388,14 @@ async function approveOrder(event: APIGatewayProxyEvent, actor: string = ''): Pr
 
   const order = r.Item;
 
+  // Prefer the JWT identity over anything in the body — `approvedBy` is the
+  // accountability record for a money decision, and `releaseAllPreOrders`
+  // already resolves it this way. These two used to diverge: releasing four
+  // pre-orders one at a time stamped whatever name the client typed, releasing
+  // all four stamped the signed-in cashier, and a body with no `approvedBy`
+  // wrote `undefined` (which the real document client refuses to marshal).
+  const approvedBy = actor || body.approvedBy || '';
+
   // ─── Ministry pre-orders take the shared release path ────────────────
   // Everything below (cashier class, staff-link revert, the unconditional
   // `REMOVE expiresAt`) is for orders that involve money. A pre-order involves
@@ -384,7 +406,7 @@ async function approveOrder(event: APIGatewayProxyEvent, actor: string = ''): Pr
   // refuses a request carrying both a staff and a pre-order code, so a pre-order
   // never has `staffCode`.
   if (order.isPreOrder === true) {
-    const out = await releasePreOrderToPreparing(order, body.approvedBy);
+    const out = await releasePreOrderToPreparing(order, approvedBy);
     if (!out.released) {
       return res(409, { error: 'Order was just cancelled or modified by the customer' });
     }
@@ -437,7 +459,7 @@ async function approveOrder(event: APIGatewayProxyEvent, actor: string = ''): Pr
       UpdateExpression: updateExpr,
       ExpressionAttributeNames: { '#s': 'status', '#items': 'items' },
       ExpressionAttributeValues: {
-        ':s': 'PREPARING', ':a': body.approvedBy, ':dt': discountType, ':do': discountOffset,
+        ':s': 'PREPARING', ':a': approvedBy, ':dt': discountType, ':do': discountOffset,
         ':t': totalAmount, ':items': repricedItems, ':ga': summary.grossAmount,
         ':cc': summary.customerClass, ':u': new Date().toISOString(), ':pending': 'PENDING',
       },
@@ -455,7 +477,7 @@ async function approveOrder(event: APIGatewayProxyEvent, actor: string = ''): Pr
 
   logOrder('APPROVE', id, {
     customer: order.customerName,
-    by: body.approvedBy,
+    by: approvedBy,
     discount: discountType,
     offset: discountOffset,
     total: totalAmount,
@@ -582,7 +604,7 @@ async function deductIngredients(items: any[]) {
   for (const item of items) {
     const menuItemId = item.menuItemId;
     const variantStr = item.variant || 'default';
-    const qty = item.quantity || item.qty || 1;
+    const qty = item.quantity ?? item.qty ?? 1;
 
     // Always start with default/base recipe
     const defaultKey = `RECIPE#${menuItemId}#default`;
@@ -693,14 +715,26 @@ async function undoToPending(event: APIGatewayProxyEvent, actor: string = ''): P
   const id = event.pathParameters?.id;
   if (!id) return res(400, { error: 'Missing order id' });
 
-  await docClient.send(new UpdateCommand({
-    TableName: ORDERS_TABLE,
-    Key: { PK: `ORDER#${id}`, SK: 'META' },
-    UpdateExpression: 'SET #s = :s, updatedAt = :u',
-    ExpressionAttributeNames: { '#s': 'status' },
-    ExpressionAttributeValues: { ':s': 'PENDING', ':u': new Date().toISOString(), ':prev': 'PREPARING' },
-    ConditionExpression: '#s = :prev',
-  }));
+  // The guard is only half the invariant: a failed conditional check must become
+  // a 409, not an unhandled rejection. `index.ts` has no top-level try/catch, so
+  // a throw here escaped the Lambda as a 502 with NO CORS headers — which the POS
+  // reads as a network failure rather than "that order already moved on". One tap
+  // reaches it: Undo on an order the customer just cancelled, or a double-tap.
+  try {
+    await docClient.send(new UpdateCommand({
+      TableName: ORDERS_TABLE,
+      Key: { PK: `ORDER#${id}`, SK: 'META' },
+      UpdateExpression: 'SET #s = :s, updatedAt = :u',
+      ExpressionAttributeNames: { '#s': 'status' },
+      ExpressionAttributeValues: { ':s': 'PENDING', ':u': new Date().toISOString(), ':prev': 'PREPARING' },
+      ConditionExpression: '#s = :prev',
+    }));
+  } catch (e: any) {
+    if (e.name === 'ConditionalCheckFailedException') {
+      return res(409, { error: 'Order is no longer in PREPARING state' });
+    }
+    throw e;
+  }
 
   logOrder('UNDO_PENDING', id, { by: actor });
 
@@ -792,20 +826,45 @@ async function rejectOrder(event: APIGatewayProxyEvent, actor: string = ''): Pro
   if (!r.Item) return res(404, { error: 'Order not found' });
   if (r.Item.status !== 'PENDING') return res(400, { error: 'Only PENDING orders can be rejected' });
 
-  await releaseFood(r.Item.items);
+  // Never send `undefined` to DynamoDB: `lib/db.ts` builds the document client
+  // with no `marshallOptions`, so `removeUndefinedValues` is false and the real
+  // client THROWS on an undefined member — a 502 on a body that simply omitted
+  // the (optional) reason. Empty string is the safe default; unlike
+  // cancel-completed a reject reason is not mandatory.
+  const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
 
-  await docClient.send(new UpdateCommand({
-    TableName: ORDERS_TABLE,
-    Key: { PK: `ORDER#${id}`, SK: 'META' },
-    UpdateExpression: 'SET #s = :s, rejectionReason = :r, updatedAt = :u REMOVE expiresAt',
-    ExpressionAttributeNames: { '#s': 'status' },
-    ExpressionAttributeValues: { ':s': 'CANCELLED', ':r': body.reason, ':u': new Date().toISOString() },
-  }));
+  // Guarded, like every other status flip in this file. Without `#s = :prev`
+  // this was a read-then-write race: a customer cancelling (or the 1-hour cron
+  // expiring the order) between the Get and the Update was overwritten, and a
+  // double-tapped reject ran `releaseFood` TWICE, drifting `foodReserved` down
+  // by the line quantity each time.
+  try {
+    await docClient.send(new UpdateCommand({
+      TableName: ORDERS_TABLE,
+      Key: { PK: `ORDER#${id}`, SK: 'META' },
+      UpdateExpression: 'SET #s = :s, rejectionReason = :r, updatedAt = :u REMOVE expiresAt',
+      ExpressionAttributeNames: { '#s': 'status' },
+      ExpressionAttributeValues: {
+        ':s': 'CANCELLED', ':r': reason, ':u': new Date().toISOString(), ':prev': 'PENDING',
+      },
+      ConditionExpression: '#s = :prev',
+    }));
+  } catch (e: any) {
+    if (e.name === 'ConditionalCheckFailedException') {
+      return res(409, { error: 'Order is no longer in PENDING state' });
+    }
+    throw e;
+  }
+
+  // AFTER the flip commits, never before — the same ordering the customer cancel
+  // path in `routes/orders.ts` pins. Released first, a failing flip would leave
+  // the counter decremented on an order that is still PENDING.
+  await releaseFood(Array.isArray(r.Item.items) ? r.Item.items : []);
 
   logOrder('REJECT', id, {
     customer: r.Item.customerName,
     by: actor,
-    reason: body.reason,
+    reason,
   });
 
   return res(200, { orderId: id, status: 'CANCELLED' });
@@ -974,6 +1033,34 @@ async function openCafe(): Promise<APIGatewayProxyResult> {
   return res(200, { cafeStatus: 'OPEN' });
 }
 
+/**
+ * Every order in a status, following `LastEvaluatedKey` to exhaustion.
+ *
+ * A single Query returns at most 1MB. Silent truncation in a MUTATING sweep is
+ * the worst kind: the cashier is told "expiredOrders: 1", reasonably believes the
+ * queue is clear, and page 2 stays PENDING with its numeric TTL still armed —
+ * or, worse, stays PREPARING, where `getShiftSummary` bucket 2 is unbounded by
+ * date and it inflates every future day's figures. Same `ExclusiveStartKey`
+ * pattern as `releaseAllPreOrders` above; do not "simplify" it away.
+ */
+async function queryAllOrdersByStatus(status: string): Promise<any[]> {
+  const out: any[] = [];
+  let lastKey: Record<string, any> | undefined = undefined;
+  do {
+    const page: any = await docClient.send(new QueryCommand({
+      TableName: ORDERS_TABLE,
+      IndexName: 'status-createdAt-index',
+      KeyConditionExpression: '#s = :s',
+      ExpressionAttributeNames: { '#s': 'status' },
+      ExpressionAttributeValues: { ':s': status },
+      ExclusiveStartKey: lastKey,
+    }));
+    out.push(...(page.Items || []));
+    lastKey = page.LastEvaluatedKey;
+  } while (lastKey);
+  return out;
+}
+
 async function closeCafe(): Promise<APIGatewayProxyResult> {
   await docClient.send(new UpdateCommand({
     TableName: SETTINGS_TABLE,
@@ -985,8 +1072,10 @@ async function closeCafe(): Promise<APIGatewayProxyResult> {
     ExpressionAttributeValues: { ':s': 'CLOSED', ':n': null, ':c': false },
   }));
 
-  // Audit the featured-drink reset if one was active
-  const today = new Date().toISOString().split('T')[0];
+  // Audit the featured-drink reset if one was active. The partition key is a
+  // Malaysian calendar date — `new Date().toISOString()` would file a close done
+  // before 08:00 MYT under yesterday, where the admin audit view never looks.
+  const today = malaysiaToday();
   await docClient.send(new PutCommand({
     TableName: SETTINGS_TABLE,
     Item: { PK: `FEATURED_AUDIT#${today}`, SK: new Date().toISOString(), action: 'UNFEATURE', menuItemId: null, menuItemName: 'ALL', user: 'SYSTEM/CLOSE', timestamp: new Date().toISOString() },
@@ -1007,14 +1096,7 @@ async function closeCafe(): Promise<APIGatewayProxyResult> {
   // pre-order. Pre-orders have their own expiry: `expirePreOrders()` in
   // expiry.ts, keyed on the ISO service-end time.
   let expired = 0;
-  const pendingResult = await docClient.send(new QueryCommand({
-    TableName: ORDERS_TABLE,
-    IndexName: 'status-createdAt-index',
-    KeyConditionExpression: '#s = :s',
-    ExpressionAttributeNames: { '#s': 'status' },
-    ExpressionAttributeValues: { ':s': 'PENDING' },
-  }));
-  for (const order of pendingResult.Items || []) {
+  for (const order of await queryAllOrdersByStatus('PENDING')) {
     if (order.isPreOrder === true) continue;
     try {
       await docClient.send(new UpdateCommand({
@@ -1041,14 +1123,7 @@ async function closeCafe(): Promise<APIGatewayProxyResult> {
   // Race-guarded so any cashier action mid-close is preserved.
   let archivedOrders = 0;
   for (const status of ['PREPARING', 'READY']) {
-    const r = await docClient.send(new QueryCommand({
-      TableName: ORDERS_TABLE,
-      IndexName: 'status-createdAt-index',
-      KeyConditionExpression: '#s = :s',
-      ExpressionAttributeNames: { '#s': 'status' },
-      ExpressionAttributeValues: { ':s': status },
-    }));
-    for (const order of r.Items || []) {
+    for (const order of await queryAllOrdersByStatus(status)) {
       try {
         await docClient.send(new UpdateCommand({
           TableName: ORDERS_TABLE,
@@ -1071,13 +1146,24 @@ async function closeCafe(): Promise<APIGatewayProxyResult> {
     }
   }
 
-  // Reset all food quantities for the day
-  const menuItems = await docClient.send(new ScanCommand({
-    TableName: MENU_TABLE,
-    FilterExpression: 'category = :food',
-    ExpressionAttributeValues: { ':food': 'FOOD' },
-  }));
-  for (const item of menuItems.Items || []) {
+  // Reset all food quantities for the day. Paginated for the same reason the
+  // order sweeps are: a truncated Scan leaves yesterday's foodReserved standing
+  // on page 2, which is exactly the drift `scripts/reset-food-reserved.mjs`
+  // exists to mop up. A FilterExpression is applied AFTER the 1MB read limit, so
+  // a page can even come back empty with a LastEvaluatedKey still set.
+  const menuRows: any[] = [];
+  let menuKey: Record<string, any> | undefined = undefined;
+  do {
+    const page: any = await docClient.send(new ScanCommand({
+      TableName: MENU_TABLE,
+      FilterExpression: 'category = :food',
+      ExpressionAttributeValues: { ':food': 'FOOD' },
+      ExclusiveStartKey: menuKey,
+    }));
+    menuRows.push(...(page.Items || []));
+    menuKey = page.LastEvaluatedKey;
+  } while (menuKey);
+  for (const item of menuRows) {
     await docClient.send(new UpdateCommand({
       TableName: MENU_TABLE,
       Key: { PK: item.PK, SK: item.SK },
@@ -1251,11 +1337,22 @@ async function listIngredientsForCount(): Promise<APIGatewayProxyResult> {
     lastCountedAt: i.lastCountedAt || null,
     lastCountedBy: i.lastCountedBy || null,
   }));
-  // Sort: by location then by name for deterministic UI ordering
+  // Sort: by location, then by name within a location.
+  //
+  // Unlocated rows go LAST, and that is handled EXPLICITLY rather than with a
+  // sentinel string. The old code used `(a.storageLocation || '~')`, chosen
+  // because `'~'` sorts after letters by UTF-16 code point — but the comparison
+  // was `localeCompare`, and ICU collation orders punctuation BEFORE letters
+  // (`'~'.localeCompare('FRIDGE') === -1`), so the cashier's stock-count list
+  // opened with the ingredients that have no location. Do not reintroduce a
+  // sentinel: `localeCompare` is still wanted for the NAME comparison (accented
+  // ingredient names), so the two rules cannot share one collation.
   ingredients.sort((a: any, b: any) => {
-    const la = (a.storageLocation || '~').toString();
-    const lb = (b.storageLocation || '~').toString();
-    if (la !== lb) return la.localeCompare(lb);
+    const la = a.storageLocation ? String(a.storageLocation) : null;
+    const lb = b.storageLocation ? String(b.storageLocation) : null;
+    if (la === null && lb !== null) return 1;
+    if (lb === null && la !== null) return -1;
+    if (la !== null && lb !== null && la !== lb) return la.localeCompare(lb);
     return (a.name || '').localeCompare(b.name || '');
   });
   return res(200, { ingredients });
@@ -1325,14 +1422,42 @@ async function adjustStock(event: APIGatewayProxyEvent): Promise<APIGatewayProxy
   if (!id) return res(400, { error: 'Missing ingredient id' });
 
   const body = JSON.parse(event.body || '{}');
-  await docClient.send(new UpdateCommand({
-    TableName: INGREDIENTS_TABLE,
-    Key: { PK: `INGREDIENT#${id}`, SK: 'META' },
-    UpdateExpression: 'SET currentStock = :s',
-    ExpressionAttributeValues: { ':s': body.currentStock },
-  }));
 
-  return res(200, { ingredientId: id, currentStock: body.currentStock });
+  // Validate like the two sibling stock routes already do — `setFoodQuantity`
+  // rejects `qty < 0` and `bulkUpdateStock` rejects a non-finite or negative
+  // count per row. This route validated NOTHING, so -50 cartons, the string
+  // 'plenty' and an absent field (which the real document client refuses to
+  // marshal, surfacing as a 502) all landed in a field every reader treats as a
+  // number.
+  // Only a number or a non-blank numeric string coerces. A bare `Number(raw)`
+  // would quietly accept `true` as 1, `null` and `''` as 0, and `[]` as 0.
+  const raw = body.currentStock;
+  const stock = typeof raw === 'number' ? raw
+    : (typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : Number.NaN);
+  if (!Number.isFinite(stock) || stock < 0) {
+    return res(400, { error: 'currentStock must be a number >= 0' });
+  }
+
+  // Existence guard. A bare Update is an UPSERT, so a typo'd id used to create a
+  // phantom INGREDIENT# row that then showed up in the stock-count list forever.
+  // Expressed as a condition rather than a preceding Get: one round trip, and no
+  // read-then-write race with a concurrent delete.
+  try {
+    await docClient.send(new UpdateCommand({
+      TableName: INGREDIENTS_TABLE,
+      Key: { PK: `INGREDIENT#${id}`, SK: 'META' },
+      UpdateExpression: 'SET currentStock = :s',
+      ExpressionAttributeValues: { ':s': stock },
+      ConditionExpression: 'attribute_exists(PK)',
+    }));
+  } catch (e: any) {
+    if (e.name === 'ConditionalCheckFailedException') {
+      return res(404, { error: 'Ingredient not found' });
+    }
+    throw e;
+  }
+
+  return res(200, { ingredientId: id, currentStock: stock });
 }
 
 function extractSegment(path: string, pattern: RegExp, index: number): string | null {
@@ -1378,7 +1503,10 @@ async function setFeaturedDrink(event: APIGatewayProxyEvent, actor: string): Pro
     ExpressionAttributeValues: { ':id': menuItemId },
   }));
 
-  const today = new Date().toISOString().split('T')[0];
+  // Malaysian calendar date, matching the UNFEATURE row `closeCafe` writes. A UTC
+  // day here would file a pre-08:00-MYT change under yesterday's partition, and
+  // one service's FEATURE/UNFEATURE pair would end up split across two.
+  const today = malaysiaToday();
   await docClient.send(new PutCommand({
     TableName: SETTINGS_TABLE,
     Item: { PK: `FEATURED_AUDIT#${today}`, SK: new Date().toISOString(), action: 'FEATURE', menuItemId, menuItemName: menuItem.name, user: actor, timestamp: new Date().toISOString() },
@@ -1395,7 +1523,8 @@ async function unsetFeaturedDrink(actor: string): Promise<APIGatewayProxyResult>
     ExpressionAttributeValues: { ':n': null },
   }));
 
-  const today = new Date().toISOString().split('T')[0];
+  // Malaysian calendar date — same partition rule as the FEATURE row above.
+  const today = malaysiaToday();
   await docClient.send(new PutCommand({
     TableName: SETTINGS_TABLE,
     Item: { PK: `FEATURED_AUDIT#${today}`, SK: new Date().toISOString(), action: 'UNFEATURE', menuItemId: null, menuItemName: '', user: actor, timestamp: new Date().toISOString() },

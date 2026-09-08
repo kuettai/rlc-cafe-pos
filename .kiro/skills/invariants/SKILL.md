@@ -1,6 +1,6 @@
 ---
 name: invariants
-description: Reviewable invariants for RLC Café POS — the do-not-duplicate list (including Malaysia-time date conversion, the café's opening hours / service days in `lib/opening-hours.ts` — descriptive, never a gate — the withdrawn "no shared frontend util module" claim now that `config.js` is known to be one, and dead code left behind by an early return), storage conventions, who may authorise a discount (cashier-selected vs customer-requested vs system-only), the pre-order ISO expiresAt exception, create/edit parity (a restriction enforced on create must be re-enforced on edit), bulk mutating routes and collection-route dispatch, API response shape, path-parameter handling, no un-awaited work after a handler returns (Lambda freezes the sandbox) and date-keyed markers for at-most-once cron side effects, no silently-skipped feature when its config is missing (config in SSM, never a wipeable Lambda env default), no validated-and-stored config field that nothing reads (untestable by construction — a stored `closesAt` no phase read made the closed screen quote a 2.5-hour wait), auth and release rules, frontend HTML escaping (a customer-controlled string is escaped at every innerHTML render site, not just the newest one — and a textContent sink must not be escaped; a partial escaper that covers only some of the five characters is more dangerous than a missing one, so audit escaper bodies and not call sites; `escapeHtml`/`escapeAttr` in `admin.js` are canonical for the whole admin bundle, `mfEsc` is gone, and `variants.js` keeps a module-private escaper because it loads on three pages whose bundles name theirs differently), frontend state and motion rules (a failure state must not render identically to an empty success state, two distinct persisted flags must not share one visual language, a `[disabled]` control must look disabled, animate transform/opacity and never a layout property — no layout-property transitions remain as of v1.77.0), colour and contrast rules (every CSS custom property must be **defined** and never supplied by a `var(--tok,#hex)` fallback, since 261 such fallbacks had drifted into a second palette and three tokens existed only as fallbacks; `--brand` burnt orange is banned from the POS board except the header wordmark because it collides with `--warning` and `--danger` for deutan vision; a status needs a non-colour channel — a word, and for "receipt sent" a 2px outline plus band, because the old pre-order violet and preparing blue measured ΔE 0.4 deutan; the receipt indigo is deliberately un-harmonised; measured floors for control borders and placeholders and why `opacity` on text is a contrast change; mock deviations are recorded with their measurement), user-visible copy rules (copy asserting a domain fact is gated on the state that makes it true; the house payment fact — payment is QR-ONLY, no cash and no card, and the DuitNow QR is physical and printed on the café tables, so no surface may say "pay at the counter"; a pending feature is deleted rather than commented out, placeholder assets and READMEs included), Malaysia-time dates on the admin frontend via `mytToday()`, and test teeth (a guard is untested unless a fixture reaches it; a test that depends on the machine timezone is not a test; a green suite on a warm ts-jest cache is not evidence the suite even compiles — a whole file can be dropped, cold-cache only). Each is a checkable assertion with the production bug it prevents. Use when reviewing a diff, writing or judging tests, before deploying, or when adding code that touches money, discounts, order status, expiry, pre-orders, collection times, item notes, emails, background or scheduled work, timezones, opening hours or service days, a stored settings/config field, versions, routing, customer-facing payment copy, the rendering of customer-supplied text into the DOM, or any colour, CSS custom property, palette, theme, contrast, status badge or animated property in `frontend/css/`.
+description: Reviewable invariants for RLC Café POS — the do-not-duplicate list (including Malaysia-time date conversion, the café's opening hours / service days in `lib/opening-hours.ts` — descriptive, never a gate — the withdrawn "no shared frontend util module" claim now that `config.js` is known to be one, and dead code left behind by an early return), storage conventions, single-table query rules (every `ScanCommand` carries a `begins_with(PK, …)` filter — an unfiltered Scan becomes a data-loss bug the moment a second record type joins the table, which is how `PASSKEY_CRED#` records turned into phantom volunteer rows whose Delete button carried the real owner's `userId`; adding a record type means grepping every reader of that table; and a test that asserts the absence of a safety measure pins the defect in place), who may authorise a discount (cashier-selected vs customer-requested vs system-only), the pre-order ISO expiresAt exception, create/edit parity (a restriction enforced on create must be re-enforced on edit), bulk mutating routes and collection-route dispatch, API response shape, path-parameter handling, no un-awaited work after a handler returns (Lambda freezes the sandbox) and date-keyed markers for at-most-once cron side effects, no silently-skipped feature when its config is missing (config in SSM, never a wipeable Lambda env default), no validated-and-stored config field that nothing reads (untestable by construction — a stored `closesAt` no phase read made the closed screen quote a 2.5-hour wait), auth and release rules, frontend HTML escaping (a customer-controlled string is escaped at every innerHTML render site, not just the newest one — and a textContent sink must not be escaped; a partial escaper that covers only some of the five characters is more dangerous than a missing one, so audit escaper bodies and not call sites; `escapeHtml`/`escapeAttr` in `admin.js` are canonical for the whole admin bundle, `mfEsc` is gone, and `variants.js` keeps a module-private escaper because it loads on three pages whose bundles name theirs differently), frontend state and motion rules (a failure state must not render identically to an empty success state, two distinct persisted flags must not share one visual language, a `[disabled]` control must look disabled, animate transform/opacity and never a layout property — no layout-property transitions remain as of v1.77.0), colour and contrast rules (every CSS custom property must be **defined** and never supplied by a `var(--tok,#hex)` fallback, since 261 such fallbacks had drifted into a second palette and three tokens existed only as fallbacks; `--brand` burnt orange is banned from the POS board except the header wordmark because it collides with `--warning` and `--danger` for deutan vision; a status needs a non-colour channel — a word, and for "receipt sent" a 2px outline plus band, because the old pre-order violet and preparing blue measured ΔE 0.4 deutan; the receipt indigo is deliberately un-harmonised; measured floors for control borders and placeholders and why `opacity` on text is a contrast change; mock deviations are recorded with their measurement), user-visible copy rules (copy asserting a domain fact is gated on the state that makes it true; the house payment fact — payment is QR-ONLY, no cash and no card, and the DuitNow QR is physical and printed on the café tables, so no surface may say "pay at the counter"; a pending feature is deleted rather than commented out, placeholder assets and READMEs included), Malaysia-time dates on the admin frontend via `mytToday()`, and test teeth (a guard is untested unless a fixture reaches it; a test that depends on the machine timezone is not a test; a green suite on a warm ts-jest cache is not evidence the suite even compiles — a whole file can be dropped, cold-cache only). Each is a checkable assertion with the production bug it prevents. Use when reviewing a diff, writing or judging tests, before deploying, or when adding code that touches money, discounts, order status, expiry, pre-orders, collection times, item notes, emails, background or scheduled work, timezones, opening hours or service days, a stored settings/config field, versions, routing, customer-facing payment copy, the rendering of customer-supplied text into the DOM, or any colour, CSS custom property, palette, theme, contrast, status badge or animated property in `frontend/css/`.
 ---
 
 # Invariants
@@ -21,6 +21,7 @@ production bug in this repo. Violations are defects, not style opinions.
 | Opening hours / service days | `backend/src/lib/opening-hours.ts` (stored on `PK=SETTINGS, SK=CONFIG`) | **five** disagreeing notions of when the café opens — three hardcoded strings in the frontend, an 8:00–14:00 bucketing in the sessions report, and a dashboard heading that contradicts the numbers under it. Two of the five are still live: follow-ups (a) and (b) in `docs/update-20260819.md` |
 | Runtime config (`/rlc-cafe/` SSM) | `backend/src/lib/ssm-config.ts` | two separate readers of the same prefix, each with its own unpaginated fetch: web push died in production, the end-of-day email was three parameters from the same fate |
 | Colour values | the `:root` block in `frontend/css/style.css` (admin-only tokens in `frontend/css/admin.css`) | **261** `var(--tok,#hex)` fallbacks had become a second, drifted palette — `--cream-dark` alone carried six different values — and three tokens existed *only* as fallbacks. See **Colour and contrast** |
+| Passkey relying-party identity + `@simplewebauthn/server` calls | `backend/src/lib/webauthn.ts` | pre-emptive (v1.79.0): `RP_ID`/`RP_NAME`/`ORIGIN` are constants there, not env vars a deploy could blank, and no route imports the library directly — its option names changed shape twice across majors (`authenticator:` → `credential:`, `registrationInfo.credentialID` → `registrationInfo.credential.id`), so a second call site is a second thing to migrate. A wrong `rpID` or `origin` fails every assertion with no useful client-side error |
 
 `lib/date.ts` (`malaysiaToday` / `malaysiaClock` / `malaysiaDayStartUtc`) is the
 one place the UTC+8 conversion lives. It was extracted from `routes/staffcode.ts`
@@ -100,6 +101,16 @@ the rules that make the duplication survivable.
 > follow-up (g) in `docs/update-20260819.md` rather than edited in that pass. **A
 > rule never survives in two copies, comments included**, so those two are defects,
 > not documentation.
+>
+> **A second, live instance as of v1.79.0: the base64url helper pair.** The passkey
+> feature added `b64urlToBuffer` / `bufferToB64url` locally in
+> `frontend/js/admin.js:319`/`:328`, and `urlBase64ToUint8Array` already existed at
+> `frontend/js/track.js:99`. The two files never load on the same page, so nothing
+> is broken today — but per the correction above, `config.js` costs **zero** new
+> `SHELL` entries and **zero** script tags, so consolidating there is free.
+> Recorded as a follow-up in `docs/update-20260907.md`; the comment above the
+> `admin.js` pair already says exactly this, so **that comment is the copy to
+> delete** when the move happens.
 >
 > **But prefer the pattern that needed no frontend helper at all.** The v1.77.0
 > customer closed screen makes a Malaysia wall-clock decision and added **no**
@@ -402,6 +413,52 @@ or into an excluded paid option.
   it re-arms the exact bug above.
 - ☐ Error responses stay minimal — no internal detail, no stack traces.
 - ☐ CORS headers merged from the router, not re-declared per route.
+
+## Single-table queries
+
+- ☐ **AN UNFILTERED `Scan` BECOMES A DATA-LOSS BUG THE MOMENT A SECOND RECORD
+  TYPE IS ADDED TO THE TABLE.** Every `ScanCommand` carries a
+  `begins_with(PK, …)` filter naming the record type it wants — including on a
+  table that holds exactly one type today. "Single-purpose table" is a property
+  of this week's schema, not of the code.
+
+  Why it matters, found in v1.79.0: `GET /api/admin/users` ran an unfiltered
+  `ScanCommand` on `USERS_TABLE` and mapped **every** item into the volunteer
+  list. The passkey feature put `PASSKEY_CRED#{credentialId}` reverse-lookup
+  records on that same table — the first non-`USER#` partition key it had ever
+  held — so each enrolled passkey rendered as a **phantom volunteer row with a
+  blank name and blank role, whose Delete button carried the REAL owner's
+  `userId`**. Deleting the phantom deleted a live volunteer account. The
+  reverse-lookup record carries a `userId` attribute (it is the whole point of
+  the record), which is exactly why the phantom row looked deletable rather than
+  malformed. Data loss, not cosmetics, and it needed no attacker: an admin
+  tidying an odd-looking row.
+
+  Note the shape of the failure. The Scan was written when `USER#` was genuinely
+  the only record type, so it was correct at the time and became a defect
+  **without being touched**, in a diff that did not mention it. That is the
+  reason the rule is unconditional rather than "filter once there are two types".
+
+- ☐ **ADDING A NEW RECORD TYPE TO AN EXISTING TABLE REQUIRES GREPPING EVERY
+  READER OF THAT TABLE IN THE SAME CHANGE.** The new record type is the easy
+  half; the hazard is entirely in code you did not open. Grep the table constant
+  (`USERS_TABLE`, `SETTINGS_TABLE`, …) and check every `Scan`, every `Query` with
+  no key condition on the prefix, and every `.map()` over `Items` — a reader that
+  assumed one shape will now silently render, aggregate or delete the other.
+  Document the new type in the `db-schemas` skill under that table at the same
+  time, with the "must filter" warning attached.
+
+- ☐ **A TEST CAN PIN A DEFECT IN PLACE, AND THAT IS WORSE THAN NO TEST.** The
+  suite here **actively defended** the bug: `backend/tests/admin-users-settings.test.ts`
+  asserted that the users Scan's `FilterExpression` was `undefined`, so adding
+  the filter turned the suite red and the correct fix looked like a regression.
+  A test that asserts the *absence* of a safety measure — an undefined filter, a
+  missing condition, a field that is not written — is asserting today's schema is
+  permanent. When a characterisation test records "harmless today", it must say
+  **what would make it harmful**, and the assertion should be on the behaviour
+  (the rows returned), not on the query's incidental shape. That test now pins
+  the filter positively and carries the reason
+  (`admin-users-settings.test.ts:232`).
 
 ## Auth
 

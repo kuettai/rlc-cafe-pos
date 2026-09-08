@@ -3,7 +3,7 @@
 Sprint-by-sprint completion log, moved out of `.kiro/steering.md` so it does not
 consume context on every turn. See `docs/update-YYYYMMDD.md` for session detail.
 
-## Current Status (as of 2026-08-19)
+## Current Status (as of 2026-09-07)
 ### Completed (Foundation)
 - ✅ All backend routes (auth, cafe, menu, orders, pos, admin)
 - ✅ Customer ordering PWA (menu, cart, order submission)
@@ -324,6 +324,82 @@ Session detail: `docs/update-20260819.md`.
   `(utcHour + 8) % 24` conversions, and the dashboard's Session Comparison cards
   label that data `Session 1 (10:15-11:30)` / `Session 2 (12:45-13:30)` — so today
   the heading and the numbers under it disagree. Follow-ups (a) and (b)
+
+### Completed (2026-09-07 Sprint — v1.79.0)
+Passkey (WebAuthn) login for the admin page. **Additive only — PIN login is
+unchanged and remains the required fallback.** Spans `backend/src`,
+`backend/tests`, `frontend` and docs/skills, so **the backend must deploy first**:
+the login screen calls `/api/auth/passkey/*`. **No CDK/infra change** — no new
+table, no new env var, no new SSM parameter. Session detail:
+`docs/update-20260907.md`.
+
+- ✅ **`backend/src/lib/webauthn.ts` — the one place that knows the relying-party
+  identity.** `RP_ID`/`RP_NAME`/`ORIGIN` are **constants, not env vars** (the same
+  reasoning that moved the VAPID keys out of the Lambda environment: a deploy from
+  an unexported shell cannot blank them). Wraps `@simplewebauthn/server`
+  (**new dependency, v14.0.1**) so no route imports it directly — its option names
+  changed shape twice across majors. Also owns the base64url helpers and the
+  challenge put/get/delete/expiry pair
+- ✅ **Usernameless login.** Enrolment asks for a discoverable credential
+  (`residentKey:'required'`), so `login-options` sends `allowCredentials: []` and
+  the server identifies the user from the credential ID via a
+  `PASSKEY_CRED#{credentialId}` reverse-lookup record
+- ✅ **Four new routes in `handleAuth`** (`register-options`, `register-verify`,
+  `login-options`, `login-verify`) — **no `index.ts` change needed**, because
+  `path.startsWith('/api/auth')` already dispatches there. Enrolment requires an
+  ADMIN JWT **and** not `forceUpdatePin`, so a forced PIN change cannot be
+  sidestepped by enrolling a credential that skips the PIN. `login-verify` returns
+  a body **byte-identical** to `POST /api/auth/login`, and **every** failure is an
+  indistinguishable `401 Invalid credentials` — no user enumeration
+- ✅ **Two `/api/admin/passkeys` branches** (list / delete), self-service via
+  `callerFromToken()` — a caller sees and revokes only their own, and the list
+  never returns `publicKey` or `counter`. `DELETE` returns a **JSON body, not 204**,
+  because `admin.js`'s `api()` helper calls `res.json()` unconditionally.
+  `MAX_PASSKEYS_PER_USER = 10`
+- 🐛 **A pre-existing latent bug fixed, and it was the real find:**
+  `GET /api/admin/users` ran an **unfiltered `ScanCommand`** on `USERS_TABLE`. That
+  was harmless only while `USER#` was the sole record type there; the new
+  `PASSKEY_CRED#` records made each enrolled passkey render as a **phantom
+  volunteer row with a blank name and role, whose Delete button carried the REAL
+  owner's `userId`** — deleting the phantom deleted a live account. Now carries
+  `FilterExpression: 'begins_with(PK, :userPk)'`. Recorded in the `invariants`
+  skill as a general rule: **an unfiltered `Scan` becomes a data-loss bug the
+  moment a second record type joins the table**, and adding a record type means
+  grepping every reader of that table
+- ⚠️ **The suite had actively defended that defect** — a test asserted the Scan's
+  `FilterExpression` was `undefined`, i.e. pinned "harmless today" as a
+  requirement, so the correct fix looked like a regression. Also recorded as an
+  invariant: a test asserting the *absence* of a safety measure is asserting that
+  today's schema is permanent
+- ✅ **Frontend: `frontend/js/admin.js` + `frontend/css/admin.css` only.** No new
+  file, so **no `SHELL` change** (`pos.js`, `pos.html`, `config.js`, `sw.js` and
+  `admin.html` are all untouched). A feature-detected "Sign in with Face ID /
+  Touch ID" button on the login screen, a self-contained Passkeys card in Settings
+  (independent of `btnSaveSettings`), and a shared `applyLoginSuccess()` now used
+  by both the PIN and passkey paths
+- ✅ **Challenges are prefetched so `navigator.credentials.get()/create()` are
+  called inside the click's own dispatch** — Safari/iOS drops user activation
+  across an `await`, which would otherwise make the button silently do nothing on
+  the exact devices the feature is for
+- ✅ **`backend/tests/passkey.test.ts` — 91 tests, fully mocked and offline** (both
+  `lib/db` and `@simplewebauthn/server` mocked; no credentials, no production
+  writes, no `ZZTEST_` marker needed). Verified by two rounds of mutation testing —
+  21 mutations then 26 more, **zero survivors**. Cold and warm runs agree:
+  **44 suites / 2111 passed / 18 skipped**
+- ⚠️ **Top open question, deliberately left as-is:**
+  `userVerification:'preferred'` + `requireUserVerification:false` reduces an ADMIN
+  login to a bare possession factor — a stolen *unlocked* phone signs in with no
+  biometric and no device PIN, against a role that can edit pricing and delete
+  users. `'required'` is arguably correct for an admin surface, and changing it
+  later costs a re-enrolment for everyone already registered. **This is the user's
+  policy decision, not the agent's**
+- ⚠️ **Never exercised for real.** `RP_ID`/`ORIGIN` are the single production host,
+  so the documented local dev flow can never test this path, and the real Face ID /
+  Touch ID ceremony needs Secure Enclave hardware — all browser verification used a
+  **stubbed `navigator.credentials`**. One manual iPhone pass is owed after deploy.
+  Also unverified: `InvalidStateError` (device already registered). And
+  `login-options` is unauthenticated and writes a challenge record per call with
+  **no rate limiting** — nothing in this app has any, so it belongs at API Gateway
 
 ### TODO — Remaining
 - ✅ Email notifications — low stock alert (Sunday last run + Wednesday midweek) and end-of-day summary to admin (expiry cron, gated + exactly-once as of v1.72.0)

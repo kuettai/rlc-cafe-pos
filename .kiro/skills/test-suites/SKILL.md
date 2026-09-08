@@ -1,6 +1,6 @@
 ---
 name: test-suites
-description: How to run the RLC Café POS test suites safely — which are offline and which write to the live production café (and the 3 ungated read-only live GETs in `integration.test.ts` that run on every `npm test`), why every test file must be a MODULE (`export {};`) or ts-jest silently drops a whole suite on a cold cache while warm runs stay green, why it must be `npm test` (`TZ=UTC jest`) and never a bare `npx jest`, the ZZTEST_ prefix every test-created record must carry, the reserved test phone range, the Sunday-afternoon end-of-day-email hazard, why a Playwright `page.route()` block does NOT stop writes (service workers bypass it — this already took a menu item off the live customer menu) the `serviceWorkers:'block'` + positive-control harness rule and the two classes of read-only browser probe (fixture probe: 0 production-host requests; live probe: 0 non-GET, aborted and counted), why a banned-word or leaked-value scan must walk visible text nodes rather than `document.body.textContent`, and the cleanup procedure afterwards. Use before running any test, adding a suite that writes data, driving any frontend page in a real browser against the live API, or cleaning up after a live run.
+description: How to run the RLC Café POS test suites safely — which are offline and which write to the live production café (and the 3 ungated read-only live GETs in `integration.test.ts` that run on every `npm test`), why every test file must be a MODULE (`export {};`) or ts-jest silently drops a whole suite on a cold cache while warm runs stay green, why it must be `npm test` (`TZ=UTC jest`) and never a bare `npx jest`, the ZZTEST_ prefix every test-created record must carry, the reserved test phone range, the Sunday-afternoon end-of-day-email hazard, why a Playwright `page.route()` block does NOT stop writes (service workers bypass it — this already took a menu item off the live customer menu) the `serviceWorkers:'block'` + positive-control harness rule and the two classes of read-only browser probe (fixture probe: 0 production-host requests; live probe: 0 non-GET, aborted and counted), why a banned-word or leaked-value scan must walk visible text nodes rather than `document.body.textContent`, why the passkey suite is offline-only and the real Face ID / Touch ID ceremony cannot be tested anywhere (plus the harmless `@simplewebauthn/server` ExperimentalWarning noise in `npm test` output), and the cleanup procedure afterwards. Use before running any test, adding a suite that writes data, driving any frontend page in a real browser against the live API, or cleaning up after a live run.
 ---
 
 # Test Suites
@@ -228,16 +228,35 @@ it.
 | `preorder-collection-time.test.ts` | editable pre-order collection times — `resolveCollectionTime` against the link's `collectionOptions` (and the `DEFAULT_COLLECTION_OPTIONS` fallback, including the hard-deleted-link fail-closed case), `parsePreorderCollectionTime`, `createOrder` now validating the field it used to accept as free text, `modifyOrder` rebuilding the prefix with the code taken from the **stored record** rather than the body, the `notes = :n` clause being emitted for a time-only change, a validated time **creating** a prefix that did not exist, `getOrder`'s two pre-order-only response fields, and that `expiresAt` is still untouched. 70 tests |
 | `opening-hours.test.ts` | `lib/opening-hours.ts` in isolation — `validateOpeningHours` rule by rule, `readOpeningHours`'s silent absent-fallback vs loud invalid-fallback, the deep freeze, and `describeOpeningState` across all five phases with an **injected clock**, including the UTC/MYT boundary (00:30 Sunday MYT is Saturday in UTC) and the half-open `[opensAt, closesAt)` session edges |
 | `opening-hours-routes.test.ts` | the two routes that carry it — `GET /api/cafe/status` returning `openingHours` + `openingState`, and `PUT /api/admin/settings` rejecting a malformed `openingHours` with a `400` **before** any write while persisting the normalised value |
+| `passkey.test.ts` | admin passkey (WebAuthn) login — all four `/api/auth/passkey/*` routes and both `/api/admin/passkeys` branches: the ADMIN + `forceUpdatePin` enrolment gates, the `WEBAUTHN_CHALLENGE#` single-use/expiry/wrong-user paths, the `PASSKEY_CRED#` reverse lookup, the signature-counter persistence, the `MAX_PASSKEYS_PER_USER` cap, that `login-verify`'s body matches `POST /api/auth/login` exactly, that **every** login failure is an indistinguishable `401 Invalid credentials`, that `GET /api/admin/passkeys` never leaks `publicKey`/`counter`, and that the users Scan keeps its `begins_with(PK, 'USER#')` filter. 91 tests |
 | `test-markers.test.ts` | the test-data marker contract (below) |
 
 These mock DynamoDB. They touch nothing real.
 
-`item-notes.test.ts` and `preorder-collection-time.test.ts` are fully mocked and
-offline: both `jest.mock('../src/lib/db', …)`, which is the **only** DynamoDB
-client in the backend, plus `../src/routes/customers`. They make no network call,
-need **no credentials**, write **nothing** to production, and therefore need **no
-`ZZTEST_` marker** — the prefix rule below applies only to suites that create real
-records. Verified rather than assumed.
+> **`@simplewebauthn/server` makes `npm test` output chattier — it is noise.**
+> Importing it emits Node `ExperimentalWarning` lines (ML-DSA post-quantum
+> signature algorithms via WebCrypto) before the first suite result. Nothing is
+> wrong, no test is affected, and there is nothing to chase. Recorded here so the
+> next person reading a `npm test` log does not go looking. Do not "fix" it by
+> silencing warnings globally — that would hide the ones that matter.
+
+`item-notes.test.ts`, `preorder-collection-time.test.ts` and `passkey.test.ts` are
+fully mocked and offline: each `jest.mock('../src/lib/db', …)`, which is the
+**only** DynamoDB client in the backend (`passkey.test.ts` additionally mocks
+`@simplewebauthn/server`, so no cryptography and no authenticator is involved).
+They make no network call, need **no credentials**, write **nothing** to
+production, and therefore need **no `ZZTEST_` marker** — the prefix rule below
+applies only to suites that create real records. Verified rather than assumed.
+
+**Passkeys cannot be exercised end to end by any suite here.** `RP_ID`/`ORIGIN`
+in `backend/src/lib/webauthn.ts` are the single production host, so the local dev
+flow (`npx http-server frontend -p 3001`) can never satisfy them, and the real
+Face ID / Touch ID ceremony needs Secure Enclave hardware — headless Chromium
+rejects `navigator.credentials.get` on `127.0.0.1` with `SecurityError`. All
+browser verification of this feature used a **stubbed `navigator.credentials`**.
+So `passkey.test.ts` being green means the server logic is right, not that a
+phone can log in; one manual pass on a real iPhone is owed (see
+`docs/update-20260907.md`).
 
 ## Category 2 — writes to PRODUCTION, ask first
 

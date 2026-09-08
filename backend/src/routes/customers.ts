@@ -23,12 +23,21 @@ async function registerCustomer(event: APIGatewayProxyEvent): Promise<APIGateway
   }));
 
   if (existing.Item) {
+    // Only overwrite birthday when this submission actually carries one — a
+    // re-registration whose form didn't include it (e.g. a shorter repeat
+    // form) must not wipe a previously-stored birthday, which drives the
+    // celebration discount.
+    const setExpr = birthday
+      ? 'SET #n = :name, birthday = :birthday, updatedAt = :now'
+      : 'SET #n = :name, updatedAt = :now';
+    const values: Record<string, unknown> = { ':name': name, ':now': new Date().toISOString() };
+    if (birthday) values[':birthday'] = birthday;
     await docClient.send(new UpdateCommand({
       TableName: CUSTOMERS_TABLE,
       Key: { PK: `CUSTOMER#${cleanPhone}`, SK: 'META' },
-      UpdateExpression: 'SET #n = :name, birthday = :birthday, updatedAt = :now',
+      UpdateExpression: setExpr,
       ExpressionAttributeNames: { '#n': 'name' },
-      ExpressionAttributeValues: { ':name': name, ':birthday': birthday || null, ':now': new Date().toISOString() },
+      ExpressionAttributeValues: values,
     }));
     // Link order if provided (returning customer registering after placing order)
     if (orderId) await linkOrderAfterRegistration(cleanPhone, orderId);

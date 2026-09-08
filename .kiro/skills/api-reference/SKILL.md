@@ -1,6 +1,6 @@
 ---
 name: api-reference
-description: Complete HTTP endpoint reference for the RLC Café POS API — public, display, POS (CASHIER/ADMIN) and ADMIN routes, with paths and auth requirements, including the full `GET /api/cafe/status` payload (café status, celebration mode, featured drink, opening hours and the derived opening state) and which `PUT /api/admin/settings` keys are validated. Use when adding, calling, or debugging an API route, or when asking what a route returns.
+description: Complete HTTP endpoint reference for the RLC Café POS API — public, display, POS (CASHIER/ADMIN) and ADMIN routes, with paths and auth requirements, including the passkey/WebAuthn login and enrolment routes (`/api/auth/passkey/*`, `/api/admin/passkeys`), the full `GET /api/cafe/status` payload (café status, celebration mode, featured drink, opening hours and the derived opening state) and which `PUT /api/admin/settings` keys are validated. Use when adding, calling, or debugging an API route, or when asking what a route returns.
 ---
 
 # API Reference
@@ -29,6 +29,46 @@ Base URL: `https://hcydppml1a.execute-api.ap-southeast-5.amazonaws.com/prod`
 | DELETE | /api/push/subscribe | Unsubscribe (orderId, endpoint) |
 | GET | /api/push/vapid-public-key | Get VAPID public key. Method, path and (absent) auth unchanged, but as of v1.73.0 it **actually works** — it had returned `500 {error:'VAPID not configured'}` in production for weeks because the keys were empty Lambda env vars. It now resolves via `ensureVapidConfigured()` from SSM `/rlc-cafe/VAPID_*` and answers **only once web-push has accepted the whole triple** (subject + public + private); a partial config is still a `500`. Never serve the public key alone — a browser would subscribe successfully and be undeliverable forever, burning the customer's one notification permission |
 | GET | /api/verses/random | Get a random active bible verse |
+
+## Passkey / WebAuthn Endpoints (`/api/auth/passkey/*`)
+
+Admin-page passkey login (v1.79.0). All four are dispatched by `handleAuth` in
+`backend/src/routes/auth.ts` — `index.ts` needed no change because
+`path.startsWith('/api/auth')` already routes there. Every relying-party
+constant and every library call lives in `backend/src/lib/webauthn.ts`
+(`@simplewebauthn/server` v14); routes never import the library directly.
+
+**PIN login is unchanged and remains the required fallback** — passkey is purely
+additive. `MAX_PASSKEYS_PER_USER = 10`.
+
+| Method | Path | Auth | Success | Failures |
+|--------|------|------|---------|----------|
+| POST | /api/auth/passkey/register-options | JWT + role **ADMIN** + not `forceUpdatePin` | `200 {requestId, options}` | `401 Unauthorized`, `403 Forbidden`, `403 PIN change required before enrolling a passkey` |
+| POST | /api/auth/passkey/register-verify | JWT + ADMIN + not `forceUpdatePin` | `201 {registered:true, credentialId, deviceLabel}` | `400` (bad JSON / missing fields / `Challenge not found or expired` / `Registration failed`), `401` (unauthorized, or the account is absent/inactive), `403` (non-ADMIN, challenge issued to a different user, `forceUpdatePin`), `409` (`Passkey already enrolled` / `Passkey limit reached` / `Credential already registered` / `Conflict`) |
+| POST | /api/auth/passkey/login-options | **public** | `200 {requestId, options}` — `allowCredentials` is always `[]` | — |
+| POST | /api/auth/passkey/login-verify | **public** | `200 {token, userId, name, role, forceUpdatePin, onboardingComplete, onboardingProgress}` — **byte-identical** to `POST /api/auth/login`, so the frontend shares one `applyLoginSuccess()` | **Every** failure is `401 {error:'Invalid credentials'}`, with no exceptions — no user enumeration, no distinguishing "no such credential" from "bad signature" from "inactive account" |
+
+Load-bearing details:
+
+- **`allowCredentials: []` is deliberate.** Registration asks for a discoverable
+  credential (`residentKey: 'required'`), which is what makes login
+  usernameless: the browser offers whatever passkey it holds for the rpID and
+  the server learns the identity from the credential ID in the response. Drop
+  the resident-key requirement and `login-options` has nothing to offer.
+- **Challenges are single-use and deleted on every outcome**, including failed
+  verification, so a captured response cannot be replayed against a challenge
+  still sitting in the table. See `db-schemas` → `WEBAUTHN_CHALLENGE#`.
+- **`login-verify` returning the exact login payload is a contract**, not a
+  coincidence. Anything added to `POST /api/auth/login`'s response must be added
+  here too or the passkey path silently loses it.
+- **`login-options` is unauthenticated and each call writes a challenge record.**
+  There is no rate limiting anywhere in this app; if it is added it belongs at
+  API Gateway. See `docs/update-20260907.md`.
+- **Passkeys cannot be exercised outside the production origin.** `RP_ID` /
+  `ORIGIN` are the single live host, so the local dev flow
+  (`npx http-server frontend -p 3001`) can never test this path. A
+  misconfiguration's only symptom is the `verify-threw` log line, which carries
+  `err.message`, `rpID` and `origin` for exactly that reason.
 
 ## Display Endpoints (Requires JWT, any role)
 
@@ -112,11 +152,23 @@ Base URL: `https://hcydppml1a.execute-api.ap-southeast-5.amazonaws.com/prod`
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | /api/admin/users | List all users |
+| GET | /api/admin/users | List all users. The `ScanCommand` **must** keep its `FilterExpression: 'begins_with(PK, :userPk)'` (`USER#`). It was unfiltered until v1.79.0, which was harmless only while `USER#` was the sole record type on the table; the `PASSKEY_CRED#` reverse-lookup records then rendered as phantom volunteer rows whose Delete button carried the real owner's `userId`. See `invariants` → unfiltered Scan |
 | POST | /api/admin/users | Add user |
 | PUT | /api/admin/users/{id} | Edit user |
 | DELETE | /api/admin/users/{id} | Delete user |
 | PUT | /api/admin/users/{id}/reset-onboarding | Reset user onboarding |
+
+### Passkeys
+
+Self-service only: an admin manages their **own** passkeys. Enrolment lives on
+the `/api/auth/passkey/*` routes above (they need a JWT but not the `/api/admin`
+prefix). `callerFromToken()` in `routes/admin.ts` reads the identity from the
+JWT — never from a path or body parameter.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /api/admin/passkeys | `200 {passkeys:[{id, deviceLabel, createdAt}]}` — the **caller's own only**. Never returns `publicKey` or `counter`. `401` unauthorized |
+| DELETE | /api/admin/passkeys/{credentialId} | `200 {deleted}`. `400 credentialId required`; `404 Not found` when the credential is not the caller's own (so one admin cannot revoke another's by guessing an ID, and cannot probe for existence); `409 Conflict`. **Returns a JSON body, not `204`** — `admin.js`'s `api()` helper calls `res.json()` unconditionally, so a 204 breaks the caller. Do not "tidy" this to a 204 |
 
 ### Settings
 

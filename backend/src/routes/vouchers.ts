@@ -136,6 +136,36 @@ function priceWithVariants(menu: any, selectedVariants: { option?: string; price
   return unit;
 }
 
+/**
+ * Reserve stock for the FOOD lines of a redeemed order, exactly as
+ * `createWalkUp` (pos.ts) does for a paid walk-up. Without this the
+ * `markReady` transition decrements `foodReserved` for food that was never
+ * reserved, driving the counter negative and leaving the item looking more
+ * available than it is.
+ *
+ * Best-effort, and deliberately after the redeem transaction has committed: a
+ * lost race must not leave a phantom reservation behind, and a missing counter
+ * attribute on a legacy menu record must not fail a redemption the customer
+ * has already been given.
+ */
+async function reserveFoodForRedemption(items: { menuItemId: string; quantity: number; category?: string }[]): Promise<void> {
+  for (const item of items) {
+    if (item.category !== 'FOOD' || !item.menuItemId) continue;
+    const qty = Number(item.quantity || 1);
+    if (!isFinite(qty) || qty <= 0) continue;
+    try {
+      await docClient.send(new UpdateCommand({
+        TableName: MENU_TABLE,
+        Key: { PK: `MENU#${item.menuItemId}`, SK: 'META' },
+        UpdateExpression: 'SET foodReserved = foodReserved + :q',
+        ExpressionAttributeValues: { ':q': qty },
+      }));
+    } catch (e: any) {
+      console.error('reserveFoodForRedemption failed for', item.menuItemId, e?.name || e);
+    }
+  }
+}
+
 function variantLabel(selectedVariants: { option?: string }[] | undefined): string | null {
   if (!selectedVariants?.length) return null;
   return selectedVariants.map(sv => sv.option).filter(Boolean).join(', ') || null;
@@ -512,11 +542,17 @@ async function redeemVoucher(event: APIGatewayProxyEvent, actor: string): Promis
   const orderItems: any[] = [];
   let totalPrice = 0;
   const labelParts: string[] = [];
+  // One reader of `selectedVariants`, one guard. The raw field is never read
+  // again below: a truthy non-array (e.g. the string 'Hot') would sail past a
+  // bare `|| []` and throw `selectedVariants.map is not a function` after every
+  // validation gate had already passed.
+  const variantLabels: (string | null)[] = [];
 
   for (const { req, menu } of resolved) {
     const variants = Array.isArray(req.selectedVariants) ? req.selectedVariants : [];
     const itemPrice = priceWithVariants(menu, variants);
     const vlabel = variantLabel(variants);
+    variantLabels.push(vlabel);
     totalPrice += itemPrice;
     orderItems.push({
       menuItemId: menu.menuItemId,
@@ -534,12 +570,10 @@ async function redeemVoucher(event: APIGatewayProxyEvent, actor: string): Promis
   const snapshotName = labelParts.join(' + ');
   // Snapshot the variant label for single-item only — combo names already
   // embed their variants. Keeps the data shape stable for old consumers.
-  const snapshotVariant = resolved.length === 1 ? variantLabel(resolved[0].req.selectedVariants || []) : null;
+  const snapshotVariant = resolved.length === 1 ? variantLabels[0] : null;
   const primaryMenuItemId = resolved[0].menu.menuItemId; // first item — not particularly meaningful for combos
   const orderId = uuid();
   const nowIsoStr = nowIso();
-  // Match the existing orders convention: TTL ~60min from creation.
-  const expiresAt = now + 60 * 60;
 
   const orderItem: Record<string, unknown> = {
     PK: `ORDER#${orderId}`, SK: 'META',
@@ -560,7 +594,11 @@ async function redeemVoucher(event: APIGatewayProxyEvent, actor: string): Promis
     flaggedItems: [],
     createdAt: nowIsoStr,
     updatedAt: nowIsoStr,
-    expiresAt,
+    // No `expiresAt`: a redemption is born PREPARING, and only PENDING orders
+    // may carry a numeric TTL. A 60-minute TTL here let DynamoDB silently
+    // delete a live redemption whose voucher was already REDEEMED — the
+    // customer's order vanished with no recovery path. Same reasoning as
+    // `createWalkUp` in pos.ts, which also skips it.
     notes: '',
   };
 
@@ -609,6 +647,7 @@ async function redeemVoucher(event: APIGatewayProxyEvent, actor: string): Promis
     throw e;
   }
 
+  await reserveFoodForRedemption(orderItems);
   await bumpRedeemedCount(voucher.campaignId);
 
   logOrder('VOUCHER_REDEEM', orderId, {
