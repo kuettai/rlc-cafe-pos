@@ -307,6 +307,13 @@ above), so a numeric value there would have DynamoDB delete the slide silently.
 `scripts/bump-slide-expiry.mjs` revives aged-out slides by moving `expiryDate`
 only, and says so in its header for this reason.
 
+The `YYYY-MM-DD` shape is not merely a convention any more: both write paths —
+create and the slide-edit `PUT` — run one `slideDateRejection()` validator, so a
+free-text date can no longer reach the record (it previously could; the check
+lived only in the browser). `title`, `startDate`, `expiryDate` and `sortOrder`
+are therefore all **mutable after creation**, while `imageUrl` is not — the edit
+route writes a fixed four-field allowlist. See `api-reference` → Display Slides.
+
 ### Record Type 8: Stock Snapshots
 - PK=`STOCK_SNAPSHOT#{date}`, SK=`{timestamp}`
 

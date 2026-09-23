@@ -436,6 +436,37 @@ only `npm run deploy:frontend` is involved. Session detail:
   `display.css` keeps its own hand-written dark navy values and is still not on the
   `style.css` token palette. A dark variant remains an unreviewed design decision
 
+### Completed (2026-09-23 Sprint — v1.81.0)
+Display-slide **editing**, plus server-side date validation on slide creation. A
+separate feature from v1.80.0 the same day: that one was the TV board's layout,
+this one is the admin screen that manages its slides. **Backend + frontend**, so
+`npm run deploy:backend` ships first. Session detail: `docs/update-20260923.md`.
+
+- ✅ **Admins can edit an existing slide.** New `PUT /api/admin/display/slides/{id}`
+  (ADMIN-only) and an Edit button per slide in `admin-display.js` opening a
+  prefilled form for title / start date / expiry date / sort order. Previously the
+  only way to correct a typo or shift a date was delete + re-upload the image.
+  `imageUrl` stays deliberately immutable — the `UpdateExpression` is a fixed
+  four-field allowlist, never iterated from the request body, which is also what
+  keeps `PK`, `SK`, `slideId` and `createdAt` out of reach. A `ConditionExpression:
+  attribute_exists(PK)` turns a PUT to a deleted slide into a `404` instead of
+  upserting a new partial record with no image
+- ✅ **Slide dates are now validated server-side on create too.** Both write paths
+  call one shared `slideDateRejection()` (`backend/src/routes/admin.ts:53`).
+  **This changes the behaviour of the already-shipped `POST`**: a missing date, a
+  non-`YYYY-MM-DD` date and an inverted range now all return `400` where they used
+  to be stored. Hardening both paths was chosen deliberately over edit-only —
+  the rule had lived *only* in the browser form, so the create endpoint was a
+  bypass, and `routes/display.ts` compares these dates **lexicographically**, so a
+  free-text date was never rejected downstream, just silently mis-compared, and the
+  slide simply never appeared on the TV with nothing logged. Recorded as an
+  invariant, as is the test that had pinned the defect (it asserted `201` for an
+  inverted range)
+- ⚠️ **Known gaps, left as follow-ups:** no audit-log entry on any display-slide
+  route; `title` and `sortOrder` are untyped on both create and edit; the date
+  regex accepts calendar-invalid values like `2026-13-45` (harmless — they still
+  sort correctly against a real date)
+
 ### TODO — Remaining
 - ✅ Email notifications — low stock alert (Sunday last run + Wednesday midweek) and end-of-day summary to admin (expiry cron, gated + exactly-once as of v1.72.0)
 - ✅ Customer order modify UI (change items while order is still PENDING) — Tier 1 (race-safe + cashier indicators), Tier 2 (add items + notes), Tier 3 (variant editing via shared variants.js)

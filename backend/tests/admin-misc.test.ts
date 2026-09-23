@@ -8,7 +8,7 @@
  *   - `GET/POST/PUT/DELETE /api/admin/verses`   (ADMIN-side Bible-verse CRUD —
  *     distinct from `tests/verses.test.ts`, which covers the PUBLIC
  *     `GET /api/verses/random` in `src/routes/verses.ts`)
- *   - `GET/POST/DELETE /api/admin/display/slides` + `GET /api/admin/display/upload-url`
+ *   - `GET/POST/PUT/DELETE /api/admin/display/slides` + `GET /api/admin/display/upload-url`
  *   - `GET /api/admin/stock-history` and `GET /api/admin/stock-history/snapshots`
  *   - `GET /api/admin/activity-log`   (a stub)
  *   - `GET /api/admin/featured-drink/audit`
@@ -22,7 +22,7 @@
  *    teeth are the SHAPE of the command each branch sends — snapshots does a
  *    prefix `Scan` and needs no `date`, the generic does a `PK = :pk` `Query` and
  *    400s without one. Those two are impossible to confuse, so an assertion on
- *    one cannot pass for the other. (The three `verses`/`slides` per-id branches
+ *    one cannot pass for the other. (The four `verses`/`slides` per-id branches
  *    ARE unanchored regexes, so the collection vs per-id split is pinned too.)
  *
  * 2. **`FRONTEND_BUCKET` is read INSIDE the handler here**
@@ -195,6 +195,13 @@ interface World {
   queryItemsAbsent?: boolean;
   /** Make every write reject with this message. */
   failWrite?: string;
+  /**
+   * The `name` of the rejection `failWrite` throws. The SDK signals a refused
+   * `ConditionExpression` by **name** (`ConditionalCheckFailedException`), never
+   * by message, and the slide-edit PUT branches on exactly that — so the 404 and
+   * the 500 halves of its catch have to be stageable apart.
+   */
+  failWriteName?: string;
 }
 
 /**
@@ -221,7 +228,9 @@ function stage(world: World = {}) {
       return world.queryItemsAbsent ? {} : { Items: world.queryRows || [] };
     }
     if (['Put', 'Update', 'Delete'].includes(cmd.__cmd) && world.failWrite) {
-      throw new Error(world.failWrite);
+      const err = new Error(world.failWrite);
+      if (world.failWriteName) err.name = world.failWriteName;
+      throw err;
     }
     return {};
   });
@@ -1031,24 +1040,44 @@ describe('POST /api/admin/display/slides', () => {
     expect(mockDbSend).not.toHaveBeenCalled();
   });
 
-  it('does NOT validate the date FORMAT, nor that expiry follows start', async () => {
-    // Characterisation of a real gap. `routes/display.ts` decides visibility with
-    // a LEXICOGRAPHIC string compare (`startDate <= today && today <= expiryDate`)
-    // against a `YYYY-MM-DD`, so a free-text date here is not rejected, it is
-    // silently mis-compared: '16/08/2026' sorts after '2026-08-16' and the slide
-    // never appears. An inverted range is accepted too, producing a slide that can
-    // never be shown on any date.
-    const [status] = await call(postSlide({
+  it('rejects a date that is not YYYY-MM-DD, and writes nothing', async () => {
+    // Why the format matters: `routes/display.ts` decides visibility with a
+    // LEXICOGRAPHIC string compare (`startDate <= today && today <= expiryDate`)
+    // against a `YYYY-MM-DD`. A free-text date is therefore not caught
+    // downstream, it is silently mis-compared — '16/08/2026' sorts after
+    // '2026-08-16' and the slide simply never appears on the TV, with nothing
+    // logged. Enforced on create AND on edit by the one `slideDateRejection()`
+    // helper: hardening only the PUT would be pointless, since a crafted POST
+    // would set the bad value up front.
+    const [status, body] = await call(postSlide({
       imageUrl: '/x.png', startDate: '16/08/2026', expiryDate: 'next Sunday',
     }));
-    expect(status).toBe(201);
-    expect(sent('Put')[0].Item.startDate).toBe('16/08/2026');
 
-    stage();
-    const [inverted] = await call(postSlide({
+    expect(status).toBe(400);
+    expect(body).toEqual({ error: 'startDate and expiryDate must be YYYY-MM-DD' });
+    expect(mockDbSend).not.toHaveBeenCalled();
+  });
+
+  it('rejects an inverted range where expiry precedes start, and writes nothing', async () => {
+    // Same lexicographic window as above: `start <= today <= expiry` can never
+    // hold when expiry sorts before start, so this is a slide that could not be
+    // shown on any date.
+    const [status, body] = await call(postSlide({
       imageUrl: '/x.png', startDate: '2026-12-31', expiryDate: '2026-01-01',
     }));
-    expect(inverted).toBe(201);
+
+    expect(status).toBe(400);
+    expect(body).toEqual({ error: 'expiryDate must be on or after startDate' });
+    expect(mockDbSend).not.toHaveBeenCalled();
+  });
+
+  it('accepts a single-day window where expiry equals start', async () => {
+    const [status] = await call(postSlide({
+      imageUrl: '/x.png', startDate: '2026-08-16', expiryDate: '2026-08-16',
+    }));
+
+    expect(status).toBe(201);
+    expect(sent('Put')[0].Item.expiryDate).toBe('2026-08-16');
   });
 
   it('returns 500 when the Put fails', async () => {
@@ -1056,6 +1085,303 @@ describe('POST /api/admin/display/slides', () => {
     const [status, body] = await call(postSlide(VALID));
     expect(status).toBe(500);
     expect(body).toEqual({ error: 'throttled' });
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PUT /api/admin/display/slides/{id}
+//
+// Four things make this branch worth its own block, and each is a test below:
+//
+//  1. The UpdateExpression is a FIXED four-field allowlist, never built by
+//     iterating the body. `imageUrl` is deliberately immutable (replacing an
+//     image stays delete + re-upload, so no client can repoint a slide at
+//     another S3 object), and the same fixed shape is what keeps `PK`, `SK`,
+//     `slideId` and `createdAt` out of reach.
+//  2. A DynamoDB Update is an UPSERT by default, so the branch carries
+//     `attribute_exists(PK)` and turns the refusal into a 404. Without it a PUT
+//     to a deleted slideId writes a NEW partial record with no `imageUrl`, which
+//     the display page renders as a broken image on the foyer TV.
+//  3. Dates go through the one shared `slideDateRejection()` validator
+//     (create/edit parity). This is also the ONLY path on which that helper's own
+//     "required" message is reachable — POST's `imageUrl, startDate, expiryDate
+//     required` check fires first.
+//  4. `expiresAt` must never appear. See the comment on that test.
+// ══════════════════════════════════════════════════════════════════════════════
+
+describe('PUT /api/admin/display/slides/{id}', () => {
+  function putSlide(id: string, body: unknown) {
+    return makeEvent({ httpMethod: 'PUT', path: `${SLIDES_PATH}/${id}`, body });
+  }
+
+  /** A complete, valid edit of SLIDE_A — new title, new window, new position. */
+  const VALID_EDIT = {
+    title: 'Renamed promo',
+    startDate: '2026-09-01',
+    expiryDate: '2026-09-30',
+    sortOrder: 4,
+  };
+
+  const ALLOWED_NAMES = {
+    '#t': 'title', '#sd': 'startDate', '#ed': 'expiryDate', '#so': 'sortOrder',
+  };
+
+  it('updates the four allowlisted fields on the slide the PATH names', async () => {
+    const [status, body] = await call(putSlide('slide-a', VALID_EDIT));
+
+    expect(status).toBe(200);
+    expect(body).toEqual({ updated: 'slide-a' });
+
+    // Everything asserted from here on is what the HANDLER built, not a fixture
+    // this test constructed (`invariants` → Test teeth).
+    const updates = sent('Update', 'test-settings');
+    expect(updates).toHaveLength(1);
+    expect(updates[0].Key).toEqual({ PK: 'DISPLAY_SLIDE#slide-a', SK: 'META' });
+    expect(updates[0].UpdateExpression).toBe('SET #t = :t, #sd = :sd, #ed = :ed, #so = :so');
+    expect(updates[0].ExpressionAttributeNames).toEqual(ALLOWED_NAMES);
+    expect(updates[0].ExpressionAttributeValues).toEqual({
+      ':t': 'Renamed promo', ':sd': '2026-09-01', ':ed': '2026-09-30', ':so': 4,
+    });
+    // The guard against the default upsert — see note 2 in the block comment.
+    expect(updates[0].ConditionExpression).toBe('attribute_exists(PK)');
+    // An edit is one write and nothing else: no Put recreating the record, no
+    // Delete, and no read-modify-write round trip.
+    expect(sent('Put')).toHaveLength(0);
+    expect(sent('Delete')).toHaveLength(0);
+    expect(sent('Get')).toHaveLength(0);
+  });
+
+  it('extracts the id after the "slides" segment, not from the tail blindly', async () => {
+    const [, body] = await call(putSlide('slide-with-dashes-123', VALID_EDIT));
+    expect(body).toEqual({ updated: 'slide-with-dashes-123' });
+    expect(sent('Update')[0].Key.PK).toBe('DISPLAY_SLIDE#slide-with-dashes-123');
+  });
+
+  it('writes NONE of imageUrl, PK, SK, slideId or createdAt, however the body asks', async () => {
+    // The test that stops the next person "helpfully" iterating the body. A
+    // mutable `imageUrl` would let any admin-authenticated client repoint a
+    // slide at a different S3 object; a writable PK/SK would let it overwrite
+    // an unrelated settings record entirely.
+    const [status] = await call(putSlide('slide-a', {
+      ...VALID_EDIT,
+      imageUrl: '/display-slides/somebody-elses.png',
+      PK: 'SETTINGS',
+      SK: 'CONFIG',
+      slideId: 'slide-b',
+      createdAt: '2000-01-01T00:00:00.000Z',
+    }));
+
+    expect(status).toBe(200);
+    const u = sent('Update')[0];
+    for (const field of ['imageUrl', 'PK', 'SK', 'slideId', 'createdAt']) {
+      // Neither spelling can reach the record: not as an aliased name…
+      expect(Object.values(u.ExpressionAttributeNames)).not.toContain(field);
+      // …nor inline in the expression itself.
+      expect(u.UpdateExpression).not.toContain(field);
+    }
+    // And no VALUE from those keys was smuggled in under an allowlisted alias.
+    expect(Object.values(u.ExpressionAttributeValues)).not.toContain('/display-slides/somebody-elses.png');
+    expect(Object.values(u.ExpressionAttributeValues)).not.toContain('2000-01-01T00:00:00.000Z');
+    // The target record is still the one the path named, not the `PK` the body
+    // asked for and not `slide-b`.
+    expect(u.Key).toEqual({ PK: 'DISPLAY_SLIDE#slide-a', SK: 'META' });
+    // Exactly four names and four values, whatever else was sent.
+    expect(u.ExpressionAttributeNames).toEqual(ALLOWED_NAMES);
+    expect(Object.keys(u.ExpressionAttributeValues).sort()).toEqual([':ed', ':sd', ':so', ':t']);
+  });
+
+  it.each([
+    ['a body that never mentions it', {}],
+    ['a body carrying a NUMERIC expiresAt', { expiresAt: 1790000000 }],
+    ['a body carrying a string expiresAt', { expiresAt: '2026-10-01T00:00:00.000Z' }],
+  ])('never writes expiresAt — %s', async (_n, patch) => {
+    // The settings table's DynamoDB TTL is armed on `expiresAt` — that is what
+    // reaps `PUSH_SUB#` and `WEBAUTHN_CHALLENGE#` records on this same table. A
+    // slide's own schedule field is the *string* `expiryDate`, one letter away.
+    // So a NUMERIC `expiresAt` landing on a `DISPLAY_SLIDE#` record would have
+    // DynamoDB silently delete the slide, with no error and nothing logged —
+    // `db-schemas` → Record Type 7 states this as "never write `expiresAt` on a
+    // slide record", and it is why `scripts/bump-slide-expiry.mjs` moves
+    // `expiryDate` only. The fixed allowlist is what guarantees it here, so this
+    // test fails the moment the allowlist becomes a loop over the body.
+    const [status] = await call(putSlide('slide-a', { ...VALID_EDIT, ...patch }));
+
+    expect(status).toBe(200);
+    const u = sent('Update')[0];
+    expect(u.UpdateExpression).not.toContain('expiresAt');
+    expect(Object.values(u.ExpressionAttributeNames)).not.toContain('expiresAt');
+    // Nor smuggled in as a Key attribute or a bare top-level field.
+    expect(Object.keys(u.Key)).toEqual(['PK', 'SK']);
+    expect('expiresAt' in u).toBe(false);
+    // `expiryDate` — the string field that IS meant to be written — is still there,
+    // so this is not passing merely because nothing was written at all.
+    expect(Object.values(u.ExpressionAttributeNames)).toContain('expiryDate');
+    expect(u.ExpressionAttributeValues[':ed']).toBe('2026-09-30');
+  });
+
+  it('coerces a missing title to "" and a missing sortOrder to 0, exactly as create does', async () => {
+    // Parity with the POST path: an edit must not be able to produce a record
+    // shape create would have refused.
+    await call(putSlide('slide-a', { startDate: '2026-09-01', expiryDate: '2026-09-30' }));
+
+    const v = sent('Update')[0].ExpressionAttributeValues;
+    expect(v[':t']).toBe('');
+    expect(v[':so']).toBe(0);
+  });
+
+  it('keeps an explicit sortOrder of 0 and a negative sortOrder', async () => {
+    await call(putSlide('slide-a', { ...VALID_EDIT, sortOrder: 0 }));
+    expect(sent('Update')[0].ExpressionAttributeValues[':so']).toBe(0);
+
+    stage();
+    await call(putSlide('slide-a', { ...VALID_EDIT, sortOrder: -5 }));
+    expect(sent('Update')[0].ExpressionAttributeValues[':so']).toBe(-5);
+  });
+
+  it('lets a title be CLEARED back to empty', async () => {
+    await call(putSlide('slide-a', { ...VALID_EDIT, title: '' }));
+    expect(sent('Update')[0].ExpressionAttributeValues[':t']).toBe('');
+  });
+
+  it('accepts a single-day window where expiry equals start', async () => {
+    const [status] = await call(putSlide('slide-a', {
+      startDate: '2026-08-16', expiryDate: '2026-08-16',
+    }));
+
+    expect(status).toBe(200);
+    expect(sent('Update')[0].ExpressionAttributeValues[':ed']).toBe('2026-08-16');
+  });
+
+  // ─── The ConditionExpression, both directions ───────────────────────────────
+
+  it('404s when the record does not exist, instead of upserting a partial slide', async () => {
+    stage({
+      failWrite: 'The conditional request failed',
+      failWriteName: 'ConditionalCheckFailedException',
+    });
+
+    const [status, body] = await call(putSlide('deleted-slide', VALID_EDIT));
+
+    expect(status).toBe(404);
+    expect(body).toEqual({ error: 'Slide not found' });
+    // The 404 is DynamoDB refusing the guarded write, not the handler declining
+    // to attempt one — so the guard itself is what produced it.
+    const updates = sent('Update');
+    expect(updates).toHaveLength(1);
+    expect(updates[0].ConditionExpression).toBe('attribute_exists(PK)');
+  });
+
+  it('still 500s on a NON-conditional failure — the local catch swallows nothing else', async () => {
+    // The catch around the Update exists only to translate one exception name.
+    // A catch that turned every write failure into "Slide not found" would tell
+    // an admin their slide had been deleted while the table was merely throttled.
+    stage({ failWrite: 'throttled' });
+
+    const [status, body] = await call(putSlide('slide-a', VALID_EDIT));
+
+    expect(status).toBe(500);
+    expect(body).toEqual({ error: 'throttled' });
+    expect(body.error).not.toBe('Slide not found');
+  });
+
+  // ─── Validation: every rejection writes NOTHING ─────────────────────────────
+
+  it.each([
+    ['both dates absent', {}, 'startDate and expiryDate required'],
+    ['startDate absent', { expiryDate: '2026-09-30' }, 'startDate and expiryDate required'],
+    ['expiryDate absent', { startDate: '2026-09-01' }, 'startDate and expiryDate required'],
+    ['an empty startDate', { startDate: '', expiryDate: '2026-09-30' }, 'startDate and expiryDate required'],
+    ['an empty expiryDate', { startDate: '2026-09-01', expiryDate: '' }, 'startDate and expiryDate required'],
+    ['a null expiryDate', { startDate: '2026-09-01', expiryDate: null }, 'startDate and expiryDate required'],
+    ['a NUMERIC startDate', { startDate: 20260901, expiryDate: '2026-09-30' }, 'startDate and expiryDate required'],
+    ['an ARRAY expiryDate', { startDate: '2026-09-01', expiryDate: ['2026-09-30'] }, 'startDate and expiryDate required'],
+    ['a DD/MM/YYYY startDate', { startDate: '01/09/2026', expiryDate: '2026-09-30' }, 'startDate and expiryDate must be YYYY-MM-DD'],
+    ['free text on both', { startDate: 'next Sunday', expiryDate: 'Christmas' }, 'startDate and expiryDate must be YYYY-MM-DD'],
+    ['an unpadded YYYY-M-D', { startDate: '2026-9-1', expiryDate: '2026-09-30' }, 'startDate and expiryDate must be YYYY-MM-DD'],
+    ['a full ISO timestamp', { startDate: '2026-09-01T00:00:00.000Z', expiryDate: '2026-09-30' }, 'startDate and expiryDate must be YYYY-MM-DD'],
+    ['an inverted range', { startDate: '2026-12-31', expiryDate: '2026-01-01' }, 'expiryDate must be on or after startDate'],
+    ['an inverted range one day apart', { startDate: '2026-09-02', expiryDate: '2026-09-01' }, 'expiryDate must be on or after startDate'],
+  ])('rejects %s with 400 and writes NOTHING', async (_n, patch, message) => {
+    // The real defect on this route would be a rejection that still issued the
+    // Update: a 400 handed back to the admin with the bad schedule already
+    // persisted. So every case asserts the absence of the write, not just the
+    // status. An unusable window is silent, not loud — `routes/display.ts`
+    // compares these values LEXICOGRAPHICALLY, so a mis-shaped date is not
+    // caught downstream, it just means the slide never appears on the TV.
+    const [status, body] = await call(putSlide('slide-a', { title: 'x', sortOrder: 1, ...patch }));
+
+    expect(status).toBe(400);
+    expect(body).toEqual({ error: message });
+    expect(mockDbSend).not.toHaveBeenCalled();
+  });
+
+  it('is the ONLY path on which the helper\'s own "required" message is reachable', async () => {
+    // Both branches call `slideDateRejection()`, but POST's pre-existing
+    // three-field check fires first, so its wording is what a create ever sees.
+    // Pinned because the two messages are easy to "unify" — and the PUT has no
+    // `imageUrl` to require, so adopting POST's wording here would name a field
+    // the client is not allowed to send.
+    const [putStatus, putBody] = await call(putSlide('slide-a', {}));
+    expect(putStatus).toBe(400);
+    expect(putBody).toEqual({ error: 'startDate and expiryDate required' });
+
+    stage();
+    const [postStatus, postBody] = await call(makeEvent({
+      httpMethod: 'POST', path: SLIDES_PATH, body: {},
+    }));
+    expect(postStatus).toBe(400);
+    expect(postBody).toEqual({ error: 'imageUrl, startDate, expiryDate required' });
+  });
+
+  // ─── Dispatch shape ────────────────────────────────────────────────────────
+  // The branch is `method === 'PUT'` AND an unanchored `/slides/[^/]+$` regex, so
+  // the collection path and the per-id path must stay distinguishable in both
+  // directions. The trailing-slash case lives in the shared 404 block at the
+  // bottom of this file, which now carries a PUT row alongside the GET one.
+
+  it('PUT to the bare collection path is a 404 and touches nothing', async () => {
+    // `[^/]+$` needs at least one non-slash character, so there is no id to
+    // extract here — and an `extractId` returning '' would otherwise write to
+    // `DISPLAY_SLIDE#`, a record that is not any slide.
+    const [status, body] = await call(makeEvent({
+      httpMethod: 'PUT', path: SLIDES_PATH, body: VALID_EDIT,
+    }));
+
+    expect(status).toBe(404);
+    expect(body.error).toBe('Not found');
+    expect(mockDbSend).not.toHaveBeenCalled();
+  });
+
+  it('PUT to a deeper nested path under an id is a 404 and touches nothing', async () => {
+    const [status] = await call(makeEvent({
+      httpMethod: 'PUT', path: `${SLIDES_PATH}/slide-a/title`, body: VALID_EDIT,
+    }));
+
+    expect(status).toBe(404);
+    expect(mockDbSend).not.toHaveBeenCalled();
+  });
+
+  it.each(['PATCH', 'POST'])('%s on the per-id path is a 404 — the branch is PUT-only', async (httpMethod) => {
+    stage();
+    const [status] = await call(makeEvent({
+      httpMethod, path: `${SLIDES_PATH}/slide-a`, body: VALID_EDIT,
+    }));
+
+    expect(status).toBe(404);
+    expect(mockDbSend).not.toHaveBeenCalled();
+  });
+
+  it('does not shadow the DELETE on the same path', async () => {
+    // Both branches share the identical regex and differ only on the method, and
+    // PUT is registered first — so this pins that the DELETE is still reached.
+    const [status, body] = await call(makeEvent({
+      httpMethod: 'DELETE', path: `${SLIDES_PATH}/slide-a`,
+    }));
+
+    expect(status).toBe(200);
+    expect(body).toEqual({ deleted: 'slide-a' });
+    expect(sent('Delete')).toHaveLength(1);
+    expect(sent('Update')).toHaveLength(0);
   });
 });
 
@@ -1758,6 +2084,17 @@ describe('handleAdmin — the 404 and 500 tails, for the misc paths', () => {
     ['a plural verses typo', { path: '/api/admin/verse' }],
     ['upload-url with a trailing slash', { path: '/api/admin/display/upload-url/' }],
     ['slides with a trailing slash', { path: `${SLIDES_PATH}/` }],
+    // Same path, mutating method. The per-id PUT and DELETE branches share one
+    // unanchored `/slides/[^/]+$` regex, which needs a non-slash character, so a
+    // trailing slash must fall through here rather than extract an empty id and
+    // write to `DISPLAY_SLIDE#`. The GET row above cannot show that: GET matches
+    // by `endsWith` instead.
+    ['slides with a trailing slash, PUT', {
+      httpMethod: 'PUT',
+      path: `${SLIDES_PATH}/`,
+      body: { title: 'x', startDate: '2026-09-01', expiryDate: '2026-09-30' },
+    }],
+    ['slides with a trailing slash, DELETE', { httpMethod: 'DELETE', path: `${SLIDES_PATH}/` }],
     ['templates with a trailing slash', { path: `${TEMPLATES_PATH}/` }],
   ])('404s on %s and touches nothing', async (_n, overrides) => {
     const [status, body] = await call(makeEvent(overrides));

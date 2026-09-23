@@ -452,6 +452,41 @@ describe('Router — dispatch table', () => {
     expectCors(res);
   });
 
+  it('PUT /api/admin/display/slides/{id} → handleAdmin slide-edit branch', async () => {
+    const res = await handler(authed('ADMIN', {
+      httpMethod: 'PUT',
+      path: '/api/admin/display/slides/abc',
+      body: JSON.stringify({ title: 'Promo', startDate: '2026-09-01', expiryDate: '2026-09-30' }),
+    }));
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ updated: 'abc' });
+    // Only that branch issues an Update against this Key, so a dispatch miss
+    // (the router's own 404 with no DB call) is distinguishable from it.
+    const update = cmds().find(c => c.__cmd === 'Update' && c.TableName === 'test-settings');
+    expect(update?.Key).toEqual({ PK: 'DISPLAY_SLIDE#abc', SK: 'META' });
+    expectCors(res);
+  });
+
+  it('403s a CASHIER on PUT /api/admin/display/slides/{id}, before reaching the handler', async () => {
+    // The `/api/admin` prefix gate is method-agnostic, and the GET rows in the
+    // it.each below already pin it — but no case exercised a MUTATING method
+    // under that prefix, and this is the newest write route beneath it. Its
+    // teeth come from the ADMIN case directly above: that one proves the same
+    // request DOES reach handleAdmin and issue an Update, so the absent Update
+    // here is the gate refusing it and not a route that does not exist.
+    const res = await handler(authed('CASHIER', {
+      httpMethod: 'PUT',
+      path: '/api/admin/display/slides/abc',
+      body: JSON.stringify({ title: 'Promo', startDate: '2026-09-01', expiryDate: '2026-09-30' }),
+    }));
+
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.body).error).toBe('Forbidden');
+    expect(mockDbSend).not.toHaveBeenCalled();
+    expectCors(res);
+  });
+
   it('/api/pos/checklist → handleChecklist (no ADMIN gate)', async () => {
     const res = await handler(authed('CASHIER', { path: '/api/pos/checklist' }));
     expect(res.statusCode).toBe(200);

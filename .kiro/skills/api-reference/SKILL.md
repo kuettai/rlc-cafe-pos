@@ -1,6 +1,6 @@
 ---
 name: api-reference
-description: Complete HTTP endpoint reference for the RLC Café POS API — public, display, POS (CASHIER/ADMIN) and ADMIN routes, with paths and auth requirements, including the passkey/WebAuthn login and enrolment routes (`/api/auth/passkey/*`, `/api/admin/passkeys`), the full `GET /api/cafe/status` payload (café status, celebration mode, featured drink, opening hours and the derived opening state) and which `PUT /api/admin/settings` keys are validated. Use when adding, calling, or debugging an API route, or when asking what a route returns.
+description: Complete HTTP endpoint reference for the RLC Café POS API — public, display, POS (CASHIER/ADMIN) and ADMIN routes, with paths and auth requirements, including the passkey/WebAuthn login and enrolment routes (`/api/auth/passkey/*`, `/api/admin/passkeys`), the full `GET /api/cafe/status` payload (café status, celebration mode, featured drink, opening hours and the derived opening state) and which `PUT /api/admin/settings` keys are validated, plus the display-slide create/edit routes and their shared `YYYY-MM-DD` date validation. Use when adding, calling, or debugging an API route, or when asking what a route returns.
 ---
 
 # API Reference
@@ -217,11 +217,21 @@ JWT — never from a path or body parameter.
 
 ### Display Slides
 
+`startDate` / `expiryDate` are validated identically on **create and edit** by
+one helper, `slideDateRejection()` (`backend/src/routes/admin.ts:53`): both
+required, both `YYYY-MM-DD`, and `expiryDate >= startDate` (equal is a valid
+one-day window). The format check is load-bearing, not cosmetic —
+`routes/display.ts` picks today's slides with a **lexicographic** string compare,
+so `'16/08/2026'` is never rejected downstream, it is silently mis-compared, and
+the slide simply never appears on the TV with nothing logged. **`imageUrl` is not
+editable**: replacing a slide's image stays delete + re-upload.
+
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | /api/admin/display/slides | List all slides |
-| POST | /api/admin/display/slides | Create slide record |
-| DELETE | /api/admin/display/slides/{id} | Delete slide |
+| POST | /api/admin/display/slides | Create slide record. Body `{imageUrl, title, startDate, expiryDate, sortOrder}`; `imageUrl`, `startDate`, `expiryDate` required. **Now rejects what it used to accept** — a free-text date and an inverted range were checked only in the browser, so the API took both; the create path calls the shared validator above (`admin.ts:1178`) |
+| PUT | /api/admin/display/slides/{id} | Edit an existing slide's metadata. Body `{title, startDate, expiryDate, sortOrder}` — a fixed allowlist, never iterated from the body, which is what keeps `imageUrl`, `PK`, `SK`, `slideId` and `createdAt` out of reach. Dates required and validated exactly as on create (`admin.ts:1207`). `200 {updated: id}`; `404 {error:'Slide not found'}` from `ConditionExpression: attribute_exists(PK)` — an `UpdateCommand` upserts by default, and a PUT to a deleted `slideId` would otherwise write a new partial record with no `imageUrl` that the 1080p foyer TV renders as a broken image. Shipped in v1.81.0, together with the POST behaviour change above |
+| DELETE | /api/admin/display/slides/{id} | Delete slide. Does **not** delete the underlying S3 object |
 | GET | /api/admin/display/upload-url | Get presigned S3 upload URL (?filename, ?contentType) |
 
 ### Checklist

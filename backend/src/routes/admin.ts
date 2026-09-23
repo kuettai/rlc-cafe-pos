@@ -34,6 +34,37 @@ function res(statusCode: number, body: unknown): APIGatewayProxyResult {
 }
 
 /**
+ * The ONE validator for a display slide's schedule window. Called by BOTH the
+ * create (`POST /admin/display/slides`) and edit (`PUT .../{id}`) branches —
+ * create/edit parity: a date rule enforced on one path only is not a rule,
+ * because a crafted request to the other path sets the bad value anyway
+ * (`invariants`, "Create / edit parity"). Do not copy these checks to a third
+ * site; the copies drift and the messages stop matching.
+ *
+ * Returns the rejection message, or null when the window is usable.
+ *
+ * The format check is load-bearing, not cosmetic: `routes/display.ts` decides
+ * visibility with a LEXICOGRAPHIC string compare against a `YYYY-MM-DD`, so a
+ * free-text date is not rejected downstream, it is silently mis-compared —
+ * '16/08/2026' sorts after '2026-08-16' and the slide simply never appears on
+ * the TV, with nothing logged. An inverted range is the same class of silent
+ * failure: a slide that can never be shown on any date.
+ */
+function slideDateRejection(startDate: unknown, expiryDate: unknown): string | null {
+  if (!startDate || !expiryDate || typeof startDate !== 'string' || typeof expiryDate !== 'string') {
+    return 'startDate and expiryDate required';
+  }
+  const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+  if (!ISO_DAY.test(startDate) || !ISO_DAY.test(expiryDate)) {
+    return 'startDate and expiryDate must be YYYY-MM-DD';
+  }
+  // Safe as a string compare precisely because both sides are now known to be
+  // YYYY-MM-DD — the same reason display.ts can compare them that way.
+  if (expiryDate < startDate) return 'expiryDate must be on or after startDate';
+  return null;
+}
+
+/**
  * Which admin is calling.
  *
  * `index.ts` has already verified the JWT and refused anything but ADMIN before
@@ -1143,6 +1174,9 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
       if (!imageUrl || !startDate || !expiryDate) {
         return res(400, { error: 'imageUrl, startDate, expiryDate required' });
       }
+      // Shared with the PUT branch below — see slideDateRejection().
+      const dateError = slideDateRejection(startDate, expiryDate);
+      if (dateError) return res(400, { error: dateError });
       const item = {
         PK: `DISPLAY_SLIDE#${slideId}`, SK: 'META', slideId,
         imageUrl,
@@ -1154,6 +1188,53 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
       };
       await docClient.send(new PutCommand({ TableName: SETTINGS_TABLE, Item: item }));
       return res(201, item);
+    }
+
+    // PUT /api/admin/display/slides/{id} — edit an existing slide's title,
+    // schedule window and sort position.
+    //
+    // `imageUrl` is deliberately NOT editable: replacing the image stays
+    // delete + re-upload, so no client can repoint a slide at a different S3
+    // object. The UpdateExpression is therefore built from a fixed allowlist of
+    // four fields and NEVER by iterating the body — which is also what keeps
+    // PK, SK, slideId and createdAt out of reach.
+    //
+    // startDate/expiryDate are REQUIRED here, exactly as on create, and go
+    // through the same slideDateRejection() validator.
+    if (method === 'PUT' && /\/admin\/display\/slides\/[^/]+$/.test(path)) {
+      const id = extractId(path, 'slides');
+      const { title, startDate, expiryDate, sortOrder } = body;
+      const dateError = slideDateRejection(startDate, expiryDate);
+      if (dateError) return res(400, { error: dateError });
+      try {
+        await docClient.send(new UpdateCommand({
+          TableName: SETTINGS_TABLE,
+          Key: { PK: `DISPLAY_SLIDE#${id}`, SK: 'META' },
+          UpdateExpression: 'SET #t = :t, #sd = :sd, #ed = :ed, #so = :so',
+          ExpressionAttributeNames: {
+            '#t': 'title', '#sd': 'startDate', '#ed': 'expiryDate', '#so': 'sortOrder',
+          },
+          ExpressionAttributeValues: {
+            // Same coercions the create path uses, so an edit cannot produce a
+            // record shape create would have refused.
+            ':t': title || '',
+            ':sd': startDate,
+            ':ed': expiryDate,
+            ':so': sortOrder || 0,
+          },
+          // An Update is an UPSERT by default. Without this guard a PUT to a
+          // slideId that has been deleted writes a NEW partial record with no
+          // imageUrl, which the display page renders as a broken image on a
+          // 1080p screen in the foyer.
+          ConditionExpression: 'attribute_exists(PK)',
+        }));
+      } catch (err: any) {
+        if (err?.name === 'ConditionalCheckFailedException') {
+          return res(404, { error: 'Slide not found' });
+        }
+        throw err;
+      }
+      return res(200, { updated: id });
     }
 
     // DELETE /api/admin/display/slides/{id} — remove a slide record.

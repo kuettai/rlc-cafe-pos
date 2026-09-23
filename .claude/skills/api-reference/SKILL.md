@@ -1,6 +1,6 @@
 ---
 name: api-reference
-description: Complete HTTP endpoint reference for the RLC Café POS API — public, display, POS (CASHIER/ADMIN) and ADMIN routes, with paths and auth requirements, including the full `GET /api/cafe/status` payload (café status, celebration mode, featured drink, opening hours and the derived opening state) and which `PUT /api/admin/settings` keys are validated. Use when adding, calling, or debugging an API route, or when asking what a route returns.
+description: Complete HTTP endpoint reference for the RLC Café POS API — public, display, POS (CASHIER/ADMIN) and ADMIN routes, with paths and auth requirements, including the passkey/WebAuthn login and enrolment routes (`/api/auth/passkey/*`, `/api/admin/passkeys`), the full `GET /api/cafe/status` payload (café status, celebration mode, featured drink, opening hours and the derived opening state) and which `PUT /api/admin/settings` keys are validated, plus the display-slide create/edit routes and their shared `YYYY-MM-DD` date validation. Use when adding, calling, or debugging an API route, or when asking what a route returns.
 ---
 
 # API Reference
