@@ -3,7 +3,7 @@
 Sprint-by-sprint completion log, moved out of `.kiro/steering.md` so it does not
 consume context on every turn. See `docs/update-YYYYMMDD.md` for session detail.
 
-## Current Status (as of 2026-09-07)
+## Current Status (as of 2026-09-23)
 ### Completed (Foundation)
 - ✅ All backend routes (auth, cafe, menu, orders, pos, admin)
 - ✅ Customer ordering PWA (menu, cart, order submission)
@@ -400,6 +400,41 @@ table, no new env var, no new SSM parameter. Session detail:
   Also unverified: `InvalidStateError` (device already registered). And
   `login-options` is unauthenticated and writes a challenge record per call with
   **no rate limiting** — nothing in this app has any, so it belongs at API Gateway
+
+### Completed (2026-09-23 Sprint — v1.80.0)
+TV display (`display.html`) layout redesign + slideshow cross-fade fix, plus one
+service-worker fix. **Frontend-only — no backend, no CDK, no schema change**, so
+only `npm run deploy:frontend` is involved. Session detail:
+`docs/update-20260923.md`.
+
+- ✅ **Fullscreen promo image with the orders panel overlaid on it.** The board was
+  a `2fr 1fr` grid — photo left, orders in a flat navy column right — so a 1080p
+  foyer TV gave two thirds of its area to the image and a third to at most 13 order
+  numbers. `.display-container` is now `position:relative` with `.display-promo`
+  at `inset:0` and `.display-orders` absolutely positioned over the right 30%
+  (`min-width:380px`, `z-index:10`). Readability over an arbitrary photo comes from
+  a horizontal scrim (transparent → `rgba(10,14,26,0.92)`) plus `backdrop-filter`
+  and `text-shadow` on the cards, dividers and empty state — **not** from an opaque
+  panel. Portrait TV mounts get a bottom strip (`height:42%`, scrim rotated to
+  `to top`) instead of the old 60/40 row split
+- ✅ **True cross-fade between slides.** Two stacked `.promo-layer` images
+  (`promoImgA`/`promoImgB`) transition `opacity` only; the incoming URL is loaded
+  by a throwaway `new Image()` and the layers are swapped in its `onload`/`onerror`.
+  Replaces a single `<img>` that faded out, swapped `src` on a hard-coded
+  `setTimeout(…, 1000)` matched by hand to a `1s` CSS transition, and faded back in
+  — which dipped through the dark `#111` panel between every slide and could reveal
+  a half-decoded image. Slide-visibility CSS (`img[src=""] ~ .fallback`) is gone;
+  the fallback is now driven by JS, with `clearPromoLayers()` as the single reset
+  path. Recorded as an invariant
+- ✅ **`sw.js` ignores non-`http(s)` requests.** One guard line at the top of the
+  `fetch` listener. A browser extension's `chrome-extension://` fetches were
+  reaching the cache-write branch, where `cache.put` rejects on an unsupported
+  scheme and fails a request the page never made. Recorded as an invariant
+- 📐 Mock-first, per the standing rule: `tmp/display-fullscreen-mock.html` was
+  built and approved before any real CSS was touched. Scratch, not shipped
+- ⚠️ **The v1.77.0 deferral (af) still stands.** This was a *layout* change:
+  `display.css` keeps its own hand-written dark navy values and is still not on the
+  `style.css` token palette. A dark variant remains an unreviewed design decision
 
 ### TODO — Remaining
 - ✅ Email notifications — low stock alert (Sunday last run + Wednesday midweek) and end-of-day summary to admin (expiry cron, gated + exactly-once as of v1.72.0)

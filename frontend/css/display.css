@@ -60,28 +60,33 @@ body {
   margin-top:12px; min-height:1.2em;
 }
 
-/* ─── Main split layout ──────────────────────────────────────────── */
+/* ─── Fullscreen image + overlay orders panel ───────────────────── */
 
 .display-container {
-  display:grid;
-  grid-template-columns:2fr 1fr;
+  position:relative;
   height:100vh;
 }
 
-/* Promo panel — left 2/3 */
+/* Promo layer fills the whole screen; the orders panel floats on
+   top of it with a scrim, not beside it. */
 .display-promo {
-  position:relative; overflow:hidden;
+  position:absolute; inset:0; overflow:hidden;
   background:#111;
-  display:flex; align-items:center; justify-content:center;
 }
-.display-promo img {
+/* Two stacked layers crossfade via opacity — both sit at opacity 1
+   only during the overlap, so there's never a dip through the dark
+   background between slides. JS preloads the incoming image before
+   adding .active, so the fade never reveals a half-decoded frame. */
+.promo-layer {
+  position:absolute; inset:0;
   width:100%; height:100%;
   object-fit:cover;
-  transition:opacity 1s ease;
+  opacity:0;
+  transition:opacity 1.2s ease;
 }
-.display-promo img.fade-out { opacity:0; }
-/* Fallback shown when no slides configured. Hidden as soon as promoImg
-   has a src that's actually loaded. */
+.promo-layer.active { opacity:1; }
+/* Fallback shown when no slides configured. Hidden by JS as soon as
+   a layer goes active. */
 .display-promo-fallback {
   position:absolute; inset:0;
   display:flex; align-items:center; justify-content:center;
@@ -90,25 +95,24 @@ body {
   letter-spacing:0.05em;
   pointer-events:none;
 }
-.display-promo img[src=""] ~ .display-promo-fallback,
-.display-promo img:not([src]) ~ .display-promo-fallback {
-  display:flex;
-}
-.display-promo img[src]:not([src=""]) ~ .display-promo-fallback {
-  display:none;
-}
 
-/* Orders panel — right 1/3 */
+/* Orders panel — floats over the right edge of the photo. Scrim goes
+   transparent near the image and dark behind the text so cards stay
+   readable regardless of what's under them. */
 .display-orders {
-  background:linear-gradient(180deg,#16213e 0%,#0f3460 100%);
-  padding:24px;
+  position:absolute; inset:0 0 0 auto;
+  width:30%; min-width:380px;
+  z-index:10;
+  padding:32px 24px;
   display:flex; flex-direction:column;
   overflow:hidden;
+  background:linear-gradient(to right, transparent 0%, rgba(10,14,26,0.35) 18%, rgba(10,14,26,0.82) 45%, rgba(10,14,26,0.92) 100%);
 }
 .display-header {
-  font-size:1.8rem; font-weight:700;
+  font-size:1.6rem; font-weight:700;
   text-align:center; margin-bottom:20px;
   color:#4ade80;
+  text-shadow:0 2px 12px rgba(0,0,0,0.6);
 }
 
 /* Top 3 hero cards */
@@ -118,13 +122,14 @@ body {
   margin-bottom:20px;
 }
 .display-hero-card {
-  background:linear-gradient(135deg,#065f46,#047857);
+  background:linear-gradient(135deg,rgba(6,95,70,0.85),rgba(4,120,87,0.85));
   border-radius:16px;
-  padding:20px 24px;
-  font-size:2rem; font-weight:700;
+  padding:18px 22px;
+  font-size:1.8rem; font-weight:700;
   text-align:center;
   animation:slideIn 0.5s ease;
-  box-shadow:0 4px 20px rgba(74,222,128,0.2);
+  box-shadow:0 4px 20px rgba(0,0,0,0.35);
+  backdrop-filter:blur(2px);
   white-space:nowrap;
   overflow:hidden;
   text-overflow:ellipsis;
@@ -137,10 +142,11 @@ body {
 /* Compact grid — next 10 orders */
 .display-divider {
   text-align:center;
-  font-size:0.8rem; color:#94a3b8;
+  font-size:0.8rem; color:#cbd5e1;
   text-transform:uppercase;
   letter-spacing:2px;
   margin:12px 0;
+  text-shadow:0 1px 6px rgba(0,0,0,0.6);
 }
 .display-compact {
   display:grid;
@@ -148,10 +154,12 @@ body {
   gap:8px;
 }
 .display-compact-item {
-  background:rgba(255,255,255,0.08);
+  background:rgba(20,24,38,0.55);
+  border:1px solid rgba(255,255,255,0.12);
   border-radius:8px;
   padding:10px 14px;
   font-size:1rem; font-weight:500;
+  backdrop-filter:blur(2px);
   white-space:nowrap;
   overflow:hidden;
   text-overflow:ellipsis;
@@ -160,16 +168,19 @@ body {
 /* Empty state */
 .display-empty {
   text-align:center;
-  font-size:1.5rem;
-  color:#64748b;
+  font-size:1.3rem;
+  color:#cbd5e1;
   margin-top:40px;
+  text-shadow:0 1px 6px rgba(0,0,0,0.6);
 }
 
-/* Portrait mode — stack promo above orders. Threshold on orientation
-   matches typical portrait TV mounts (1080x1920). */
+/* Portrait mode — orders panel becomes a bottom strip over the photo.
+   Threshold on orientation matches typical portrait TV mounts (1080x1920). */
 @media (orientation:portrait) {
-  .display-container {
-    grid-template-columns:1fr;
-    grid-template-rows:60% 40%;
+  .display-orders {
+    inset:auto 0 0 0;
+    width:100%; min-width:0;
+    height:42%;
+    background:linear-gradient(to top, rgba(10,14,26,0.92) 0%, rgba(10,14,26,0.6) 55%, transparent 100%);
   }
 }

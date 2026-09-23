@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rlc-cafe-v1.79.0';
+const CACHE_NAME = 'rlc-cafe-v1.80.0';
 const SHELL = [
   './', './index.html', './track.html', './pos.html', './admin.html', './display.html', './reports.html',
   './css/style.css', './css/admin.css', './css/display.css',
@@ -39,6 +39,7 @@ function handleMenuImage(req) {
 }
 
 self.addEventListener('fetch', e => {
+  if (!e.request.url.startsWith('http')) return;
   if (e.request.url.includes('/api/')) {
     e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
   } else if (e.request.url.includes('/img/menu/')) {

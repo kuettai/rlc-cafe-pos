@@ -11,7 +11,8 @@ const TOKEN_KEY = 'display_token';
 // ─── DOM refs (populated in init after DOM parse) ──────────────────
 
 let loginGate, loginForm, loginUserEl, loginPinEl, loginErrorEl;
-let container, promoImg, promoFallback, youtubeFrame;
+let container, promoImgA, promoImgB, promoFallback, youtubeFrame;
+let promoLayers, activeLayer; // [A, B]; activeLayer is the currently-visible one
 let heroOrders, compactOrders, noOrders, alsoReadyDivider;
 
 // ─── State ─────────────────────────────────────────────────────────
@@ -139,7 +140,7 @@ async function fetchSlides() {
     // Admin chose YouTube mode — always show YouTube regardless of slides
     if (displayMode === 'youtube') {
       slides = [];
-      promoImg.removeAttribute('src');
+      clearPromoLayers();
       showYouTubeFallback();
       return;
     }
@@ -155,7 +156,7 @@ async function fetchSlides() {
         currentSlide = 0;
         showSlide(0);
       } else {
-        promoImg.removeAttribute('src');
+        clearPromoLayers();
       }
     }
   } catch (e) {
@@ -200,18 +201,31 @@ function hideYouTubeFallback() {
   promoFallback.style.display = '';
 }
 
+function clearPromoLayers() {
+  promoImgA.classList.remove('active');
+  promoImgB.classList.remove('active');
+  promoImgA.removeAttribute('src');
+  promoImgB.removeAttribute('src');
+  promoFallback.style.display = '';
+}
+
 function showSlide(index) {
   if (!slides.length) return;
   currentSlide = ((index % slides.length) + slides.length) % slides.length;
   const slide = slides[currentSlide];
-  // Crossfade: fade current image out, swap src on the transitionend-ish
-  // 1s timer (matches the 1s transition in display.css), fade back in.
-  promoImg.classList.add('fade-out');
-  setTimeout(() => {
-    promoImg.src = slide.imageUrl;
-    promoImg.alt = slide.title || '';
-    promoImg.classList.remove('fade-out');
-  }, 1000);
+  const incoming = activeLayer === promoImgA ? promoImgB : promoImgA;
+  // Preload off-screen so the crossfade never reveals a half-decoded
+  // image — the swap only starts once the new image is actually ready.
+  const preload = new Image();
+  preload.onload = preload.onerror = () => {
+    incoming.src = slide.imageUrl;
+    incoming.alt = slide.title || '';
+    promoFallback.style.display = 'none';
+    incoming.classList.add('active');
+    activeLayer.classList.remove('active');
+    activeLayer = incoming;
+  };
+  preload.src = slide.imageUrl;
 }
 
 function nextSlide() {
@@ -256,7 +270,10 @@ function init() {
   loginPinEl     = document.getElementById('displayLoginPin');
   loginErrorEl   = document.getElementById('displayLoginError');
   container      = document.getElementById('displayContainer');
-  promoImg       = document.getElementById('promoImg');
+  promoImgA      = document.getElementById('promoImgA');
+  promoImgB      = document.getElementById('promoImgB');
+  promoLayers    = [promoImgA, promoImgB];
+  activeLayer    = promoImgA;
   promoFallback  = document.getElementById('promoFallback');
   youtubeFrame   = document.getElementById('youtubeFrame');
   heroOrders     = document.getElementById('heroOrders');

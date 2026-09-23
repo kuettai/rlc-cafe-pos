@@ -296,6 +296,17 @@ challenge still sitting in the table.
 | expiryDate | string | When to stop showing |
 | sortOrder | number | Display order |
 
+`startDate` / `expiryDate` are plain `YYYY-MM-DD` strings, **not** the
+settings-table TTL. `GET /api/display/slides`
+(`backend/src/routes/display.ts:67`) selects with
+`s.startDate <= today && s.expiryDate >= today`, where `today` is the **UTC**
+date from `new Date().toISOString().split('T')[0]` — so a slide's visibility
+window turns over at 08:00 MYT, not midnight. **Never write `expiresAt` on a
+slide record:** this table's TTL is armed on `expiresAt` (see the table header
+above), so a numeric value there would have DynamoDB delete the slide silently.
+`scripts/bump-slide-expiry.mjs` revives aged-out slides by moving `expiryDate`
+only, and says so in its header for this reason.
+
 ### Record Type 8: Stock Snapshots
 - PK=`STOCK_SNAPSHOT#{date}`, SK=`{timestamp}`
 
