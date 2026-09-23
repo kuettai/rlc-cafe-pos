@@ -10,6 +10,10 @@
 //   5. POST /api/admin/display/slides with the returned imageUrl,
 //      start date, expiry date, title, sort order.
 //
+// Editing (openSlideEditForm) covers title / sort order / dates only. The
+// image is immutable once uploaded — there is no re-presign path — so changing
+// the picture means deleting the slide and going through the flow above again.
+//
 // Deletion doesn't remove the S3 object (cheap; safer to leave).
 
 async function loadDisplay(container){
@@ -68,6 +72,7 @@ function renderDisplaySection(container, slides, settings){
           </div>
           <div class="admin-card-actions" style="flex-shrink:0">
             <span class="admin-card-badge ${st.cls}">${st.label}</span>
+            <button class="pos-btn pos-btn-sm" data-edit-slide="${escapeAttr(s.slideId)}">Edit</button>
             <button class="pos-btn pos-btn-sm pos-btn-danger" data-del-slide="${escapeAttr(s.slideId)}">Delete</button>
           </div>
         </div>
@@ -117,6 +122,19 @@ function renderDisplaySection(container, slides, settings){
       showSuccess('Display settings saved');
     } catch(e) { showError('Failed to save display settings'); }
   };
+
+  container.querySelectorAll('[data-edit-slide]').forEach(btn => {
+    btn.onclick = () => {
+      // Hand the form the real record, not values re-parsed out of the DOM —
+      // the card renders `sortOrder` through Number() and the dates through the
+      // escaper, so the markup is a lossy view of the slide.
+      const slide = slides.find(s => s.slideId === btn.dataset.editSlide);
+      // Cannot happen from a freshly rendered card, but a silent no-op click is
+      // indistinguishable from a broken button, so say so and re-read.
+      if (!slide){ showError('Slide no longer available'); loadDisplay(container); return; }
+      openSlideEditForm(container, slide);
+    };
+  });
 
   container.querySelectorAll('[data-del-slide]').forEach(btn => {
     btn.onclick = async () => {
@@ -242,6 +260,84 @@ function openSlideUploadForm(container){
       console.error(err);
       progress.textContent = '';
       showError('Upload failed');
+      submitBtn.disabled = false;
+    }
+  };
+}
+
+// --- Edit form ---
+// Metadata only. The image itself is immutable: the backend PUT deliberately
+// refuses to change `imageUrl`, because the S3 object is what the TV is already
+// showing and a swap would need a fresh presign plus a delete of the old key.
+// Replacing an image = delete the slide and upload again. So no file input here
+// — a control that cannot do anything is worse than its absence.
+function openSlideEditForm(container, slide){
+  const form = document.createElement('form');
+  form.className = 'admin-form';
+  // `title`, `startDate` and `expiryDate` are admin-authored but they are STORED
+  // data landing in a quoted attribute, so they go through escapeAttr (all five
+  // characters) exactly as the card markup above does.
+  form.innerHTML = `
+    <h3 style="margin-bottom:12px">Edit Display Slide</h3>
+    <div class="admin-form-group" style="margin-bottom:10px">
+      <label>Image</label>
+      ${slide.imageUrl
+        ? `<img src="${escapeAttr(slide.imageUrl)}" alt="" style="max-width:100%;max-height:180px;border-radius:8px;background:var(--band-2)" onerror="this.style.display='none'">`
+        : ''}
+      <div style="font-family:monospace;font-size:.75rem;color:var(--text-light);word-break:break-all;margin-top:6px">${escapeHtml(slide.imageUrl || '(no image)')}</div>
+      <p class="admin-form-hint">The image can't be changed here. To use a different picture, delete this slide and upload a new one.</p>
+    </div>
+    <div class="admin-form-row">
+      <div class="admin-form-group"><label>Title (optional)</label><input id="slideEditTitle" class="pos-input" maxlength="80" placeholder="e.g. Christmas Special" value="${escapeAttr(slide.title || '')}"></div>
+      <div class="admin-form-group"><label>Sort order</label><input id="slideEditSort" type="number" class="pos-input" value="${Number(slide.sortOrder || 0)}" style="max-width:100px"></div>
+    </div>
+    <div class="admin-form-row">
+      <div class="admin-form-group"><label>Start date</label><input id="slideEditStart" type="date" class="pos-input" value="${escapeAttr(slide.startDate || '')}" required></div>
+      <div class="admin-form-group"><label>Expiry date</label><input id="slideEditExpiry" type="date" class="pos-input" value="${escapeAttr(slide.expiryDate || '')}" required></div>
+    </div>
+    <div class="admin-form-actions" style="margin-top:12px">
+      <button type="submit" class="pos-btn pos-btn-primary" id="slideEditSubmit">Save Changes</button>
+      <button type="button" class="pos-btn" id="slideEditCancel">Cancel</button>
+    </div>
+    <p id="slideEditProgress" style="margin-top:10px;font-size:.85rem;color:var(--text-light)"></p>
+  `;
+  showFormModal(form);
+
+  const progress = form.querySelector('#slideEditProgress');
+
+  form.querySelector('#slideEditCancel').onclick = () => form._overlay.remove();
+
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+
+    const title      = form.querySelector('#slideEditTitle').value.trim();
+    const startDate  = form.querySelector('#slideEditStart').value;
+    const expiryDate = form.querySelector('#slideEditExpiry').value;
+    const sortOrder  = parseInt(form.querySelector('#slideEditSort').value, 10) || 0;
+
+    // Same two checks, same wording, as the create form — a second phrasing of
+    // the same rule reads to the admin as a different rule.
+    if (!startDate || !expiryDate){ showError('Start and expiry dates are required'); return; }
+    if (expiryDate < startDate){ showError('Expiry must be on or after start date'); return; }
+
+    const submitBtn = form.querySelector('#slideEditSubmit');
+    submitBtn.disabled = true;
+
+    try {
+      progress.textContent = 'Saving...';
+      await api('PUT', `/api/admin/display/slides/${encodeURIComponent(slide.slideId)}`, {
+        title, startDate, expiryDate, sortOrder,
+      });
+      form._overlay.remove();
+      loadDisplay(container);
+      showSuccess('Slide updated');
+    } catch(err){
+      console.error(err);
+      progress.textContent = '';
+      // The backend's own 400/404 sentence names which value to fix or tells the
+      // admin the slide is gone; a blanket message throws that away. The modal
+      // stays open so nothing they typed is lost.
+      showError(serverMessage(err, 'Update failed'));
       submitBtn.disabled = false;
     }
   };
