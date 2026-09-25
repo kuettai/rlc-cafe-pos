@@ -1,6 +1,6 @@
 ---
 name: pricing-rules
-description: Discount and pricing rules for RLC Café POS — the cheapest-candidate-wins algorithm, CELEBRATION / STAFF / PASTOR / NEWCOMER / PREORDER classes, which menu categories each class may discount (PASTOR and NEWCOMER discount FOOD as well as DRINK; STAFF, PREORDER and CELEBRATION are DRINK-only — "FOOD is never discounted" is withdrawn), the one `classAppliesToCategory` / `CLASS_CATEGORIES` allowlist that owns that scope, the customer-requested STAFF price from the staff link and how it is reverted on approve, the system-only PREORDER class for free ministry pre-orders and its MINISTRY_PREORDER discountType, net vs gross vs offset storage, and the reprice-on-approve path. Use when touching prices, discounts, totals, reports that aggregate money, the staff link, ministry pre-orders, or the walk-up cart.
+description: Discount and pricing rules for RLC Café POS — the cheapest-candidate-wins algorithm, CELEBRATION / STAFF / PASTOR / NEWCOMER / BLESSING / PREORDER classes, which menu categories each class may discount (PASTOR, NEWCOMER and BLESSING discount FOOD as well as DRINK; STAFF, PREORDER and CELEBRATION are DRINK-only — "FOOD is never discounted" is withdrawn), the one `classAppliesToCategory` / `CLASS_CATEGORIES` allowlist that owns that scope, the four cashier-selectable classes including the BLESSING full-waiver fallback for comping a whole order when no named class fits, the customer-requested STAFF price from the staff link and how it is reverted on approve, the system-only PREORDER class for free ministry pre-orders and its MINISTRY_PREORDER discountType, why WHO DECIDES rather than the size of the discount is what keeps PREORDER out of `parseCustomerClass` while BLESSING is admitted, net vs gross vs offset storage, and the reprice-on-approve path. Use when touching prices, discounts, totals, reports that aggregate money, the staff link, ministry pre-orders, comped or free orders, or the walk-up cart.
 ---
 
 # Pricing & Discounts
@@ -24,9 +24,10 @@ CELEBRATION  = min(gross, celebrationPrice + variant modifiers)   eligible DRINK
 STAFF        = flat RM5 (absorbs variant modifiers)               DRINKs only
 PASTOR       = RM0                                                ALL categories (DRINK + FOOD)
 NEWCOMER     = RM0                                                ALL categories (DRINK + FOOD)
+BLESSING     = RM0                                                ALL categories (DRINK + FOOD)
 PREORDER     = RM0                                                DRINKs only
-FOOD         = discounted by PASTOR / NEWCOMER only; never by
-               STAFF, PREORDER or CELEBRATION
+FOOD         = discounted by PASTOR / NEWCOMER / BLESSING only;
+               never by STAFF, PREORDER or CELEBRATION
 ```
 
 - Replaced an old "celebration always wins" rule that cancelled a newcomer's
@@ -40,23 +41,29 @@ FOOD         = discounted by PASTOR / NEWCOMER only; never by
 - Celebration eligibility is per menu item: `celebrationEligible === true` **and**
   `settings.celebrationMode`.
 - **Category scope is a per-class fact, and ONE helper owns it.**
-  `classAppliesToCategory(customerClass, category)` (`pricing.ts:185`) is the only
-  place the question is asked, over the `CLASS_CATEGORIES` allowlist at `:170`:
+  `classAppliesToCategory(customerClass, category)` (`pricing.ts:198`) is the only
+  place the question is asked, over the `CLASS_CATEGORIES` allowlist at `:182`:
   `STAFF: ['DRINK']`, `PREORDER: ['DRINK']`, `PASTOR: ['DRINK','FOOD']`,
-  `NEWCOMER: ['DRINK','FOOD']`. **Written as an allowlist, never as a negation** —
+  `NEWCOMER: ['DRINK','FOOD']`, `BLESSING: ['DRINK','FOOD']`.
+  **Written as an allowlist, never as a negation** —
   the category arrives as `String(menu.category || '')`, so an unknown or missing
   category must match nothing; a `category !== 'DRINK'` test would price a
   malformed menu record free. And `Record<CustomerClass, …>` is exhaustive, so a
   new customer class cannot ship without its categories being decided.
-  There are **two** customer-class gates — `priceLine` (submission-time, `:216`)
-  and `repriceStoredItems` (approve-time, `:426`) — and both must call that helper
+  `BLESSING` lists both members of the enum for the strongest reason of the three
+  all-category classes: covering everything is not a *consequence* of the class,
+  it **is** the class. If a third menu category is ever added, BLESSING must gain
+  it or the waiver silently stops being full.
+  There are **two** customer-class gates — `priceLine` (submission-time, `:229`)
+  and `repriceStoredItems` (approve-time, `:453`) — and both must call that helper
   rather than inlining the test. A scope that differs between them prices the same
   order two ways depending on when the class was applied: the customer sees one
   number and the cashier grants another.
 
-  The display mirror `frontend/js/pricing.js:36` has a `classAppliesToCategory` of
+  The display mirror `frontend/js/pricing.js:38` has a `classAppliesToCategory` of
   the same name and one gate, but **not the same shape** — it is an
-  `ALL_CATEGORY_CLASSES` list plus a `category === 'DRINK'` fallback, and it
+  `ALL_CATEGORY_CLASSES` list (`:37`, now
+  `['PASTOR','NEWCOMER','BLESSING']`) plus a `category === 'DRINK'` fallback, and it
   defaults a missing category to `'DRINK'`. Display-only, so it can never persist
   a number; if you touch it, prefer converging on the backend's allowlist rather
   than copying the fallback back the other way.
@@ -69,7 +76,23 @@ FOOD         = discounted by PASTOR / NEWCOMER only; never by
 
 ## Who may select a class: cashier, one customer-requested case, one system-only
 
-Classes are normally **cashier-selected at approve**. The one exception is the
+Classes are normally **cashier-selected**: at approve for a customer-submitted
+order, or up front in the walk-up cart's discount chips (`pos-walkup.js`) when the
+cashier is ringing the order up themselves. There are four such classes:
+`STAFF`, `PASTOR`, `NEWCOMER` and `BLESSING`. Both paths narrow the selection
+through `parseCustomerClass`, so the accepted set cannot drift between them.
+
+`BLESSING` sits in exactly that tier, alongside `PASTOR` / `NEWCOMER`: it is
+**cashier-selected, never customer-requestable** (unlike the staff link) and
+**never server-assigned** (unlike `PREORDER`). It is also the one class whose
+*entire purpose* is a full waiver — every item, every category, RM0 — so it is
+the **fallback the cashier reaches for when no named class fits** but the café
+wants to comp the whole order. Because a human at the till chose it, the waiver
+has somebody accountable for it in `approvedBy`; that accountability is the only
+thing standing behind it, which is why it must never become selectable by a
+customer.
+
+The one exception to cashier-selection is the
 staff link (`?code=<CODE>`, `backend/src/routes/staffcode.ts`): a customer can
 **request** `STAFF` themselves, and `createOrder` prices the order that way up
 front so the customer sees the number they will pay.
@@ -90,10 +113,11 @@ A ministry pre-order is free by construction. Before v1.71 that was hardcoded
 other rule, as the `PREORDER` customer class: **DRINK lines price at RM0, FOOD is
 untouched, and no new arithmetic was added** — it is another RM0 candidate in the
 existing cheapest-wins list, mechanically the same *kind* of candidate as
-`PASTOR` / `NEWCOMER`.
+`PASTOR` / `NEWCOMER` / `BLESSING`.
 
 **It is not scoped like them, though, and that is the part that matters:**
-`PREORDER` applies to DRINK lines only, while `PASTOR` / `NEWCOMER` apply to every
+`PREORDER` applies to DRINK lines only, while `PASTOR` / `NEWCOMER` / `BLESSING`
+apply to every
 category. Pre-orders being drinks-only is enforced upstream as well
 (`preorderItemRejection()`, on both create and edit — see the `invariants` skill),
 so the DRINK gate here is the second half of a rule, not an arbitrary
@@ -109,6 +133,18 @@ Three rules make it safe:
   derived from the order record's own `isPreOrder` flag: `createOrder` /
   `modifyOrder` derive it from `preorderRecord`, `approveOrder` /
   `releasePreOrderToPreparing` force it from the stored order.
+
+  **The dividing line is WHO DECIDES, not the size of the discount** — and
+  `BLESSING` is what makes that explicit. `BLESSING` also zeroes an entire order,
+  across *both* categories rather than just drinks, and it **is** accepted from a
+  request body. So "it zeroes the order" was never the reason for the refusal. The
+  reason is provenance: `BLESSING` is a **till-side judgement call**, which has to
+  be expressible in a request and is accountable in `approvedBy`; `PREORDER` is a
+  **server-derived flag**, and a server-derived fact that a request could assert
+  is simply forgeable. A class that a human selects belongs in `parseCustomerClass`
+  however large its discount; a class the server assigns belongs out of it however
+  small. `pricing.ts:317-343` carries this same reasoning at the function — keep
+  the two in agreement.
 - **It never reaches a report as `discountType`.** `summarizeOrderDiscount` maps
   the class to `discountType: 'MINISTRY_PREORDER'` **unconditionally** (not
   conditional on a rule having fired — a hypothetical RM0 menu item would
@@ -117,6 +153,17 @@ Three rules make it safe:
   `Exclude`s `'PREORDER'`, so forgetting the mapping is a compile error. Every
   report switches on `discountType` against a fixed list that has no `PREORDER`
   in it.
+
+  **`BLESSING` gets no remap at all, and that asymmetry is deliberate.** It
+  reports as its own literal `discountType: 'BLESSING'` when it actually reduced a
+  price, and `NONE` when it reduced nothing — the ordinary conditional path every
+  cashier-selected class takes. `PREORDER` is remapped *unconditionally* because a
+  pre-order is free **by construction**, so its label must not depend on a rule
+  having fired. A `BLESSING` order is the opposite: it is a real till decision
+  about a specific basket, and labelling an order BLESSING when nothing was in fact
+  reduced would **overstate how often the café comps** — padding the waiver row of
+  the discount report with orders that gave away nothing. Do not "align" BLESSING
+  with PREORDER here.
 - **Item `unitPrice` stays FULL until approve.** Free-ness is an *order-level*
   fact: `totalAmount` 0, `discountOffset` = the whole gross. `createOrder` and
   `modifyOrder` therefore store the items from a second `priceLine(..., null)`
@@ -130,7 +177,7 @@ Three rules make it safe:
 ## Two different questions, two fields
 
 - `customerClass` — the raw selection (`STAFF` / `PASTOR` / `NEWCOMER` /
-  `PREORDER` / null). **Who the customer is.** Cashier-selected except for the two
+  `BLESSING` / `PREORDER` / null). **Who the customer is.** Cashier-selected except for the two
   create-time writers: the staff link, where `STAFF` means "requested", not
   "granted"; and a ministry pre-order, where `PREORDER` is assigned by the server.
 - `discountType` — which rule actually reduced a price (adds `CELEBRATION`,
@@ -142,7 +189,7 @@ happened to the money).
 
 Reports counting newcomers must use `isNewcomerOrder()` — which accepts
 **either** field (`customerClass === 'NEWCOMER' || discountType === 'NEWCOMER'`,
-`pricing.ts:327`) — never `discountType` alone. `discountType` names **the rule that
+`pricing.ts:355`) — never `discountType` alone. `discountType` names **the rule that
 won the line**, and which rule wins is decided by the candidate comparison and its
 tie-break — not by who the customer is. That is not hypothetical: under the old
 "celebration always wins" rule a newcomer on a celebration day came out tagged
@@ -180,7 +227,8 @@ stacked. Orders predating `grossUnitPrice` fall back to treating stored net as
 gross, which understates the offset rather than inventing a number.
 
 **A pre-order must be repriced with the class forced to `'PREORDER'`.** The
-cashier's dropdown has no PREORDER entry and `parseCustomerClass` refuses one, so
+cashier's dropdown has four entries (`STAFF` / `PASTOR` / `NEWCOMER` /
+`BLESSING`) and **no PREORDER entry**, and `parseCustomerClass` refuses one, so
 the class is null there; with a null class the stored FULL `unitPrice` wins as the
 incumbent candidate and releasing a pre-order would **bill it** — `totalAmount` =
 full gross, `discountType` `NONE`, the MINISTRY_PREORDER label gone.
@@ -238,7 +286,7 @@ walk-up cart sends `qty`. Always go through it.
    record and its restrictions.
 5. Reports read these fields — check `frontend/js/reports.js` and
    `backend/src/routes/admin.ts` before renaming anything. A scope change lands
-   here too: because `PASTOR` / `NEWCOMER` now discount FOOD,
+   here too: because `PASTOR` / `NEWCOMER` / `BLESSING` discount FOOD,
    `GET /api/admin/reports/discounts` returns a **`foodBreakdown`** alongside its
    existing `drinkBreakdown` (same shape,
    `{ [discountType]: { [itemName]: quantity } }`), rendered by

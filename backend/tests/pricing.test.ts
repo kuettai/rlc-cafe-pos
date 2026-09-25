@@ -108,12 +108,19 @@ describe('priceLine — no cashier discount', () => {
   });
 });
 
-describe('priceLine — NEWCOMER and PASTOR', () => {
-  it.each(['NEWCOMER', 'PASTOR'] as const)('%s drinks are free with celebration off', cls => {
+// BLESSING rides along with PASTOR / NEWCOMER in every case below because it is
+// mechanically the same candidate — RM0 on both categories, variant surcharges
+// absorbed. It differs from them only in WHY the café grants it (no named
+// category fits; the till simply comps the order), which is not a pricing fact
+// and so needs no separate arithmetic. Parametrising rather than copying is
+// deliberate: a change that broke one of the three would otherwise be caught for
+// only two.
+describe('priceLine — NEWCOMER, PASTOR and BLESSING', () => {
+  it.each(['NEWCOMER', 'PASTOR', 'BLESSING'] as const)('%s drinks are free with celebration off', cls => {
     expect(priceLine(latte, one(), CELEBRATION_OFF, cls).unitPrice).toBe(0);
   });
 
-  it.each(['NEWCOMER', 'PASTOR'] as const)(
+  it.each(['NEWCOMER', 'PASTOR', 'BLESSING'] as const)(
     '%s drinks stay free when celebration is ON (regression)',
     cls => {
       // Old behaviour: celebration won, so a newcomer was charged RM5.
@@ -133,10 +140,12 @@ describe('priceLine — NEWCOMER and PASTOR', () => {
     expect(priceLine(latte, oatMilk(), CELEBRATION_ON, 'NEWCOMER').unitPrice).toBe(0);
   });
 
-  it.each(['NEWCOMER', 'PASTOR'] as const)('%s FOOD is free too, not just drinks', cls => {
+  it.each(['NEWCOMER', 'PASTOR', 'BLESSING'] as const)('%s FOOD is free too, not just drinks', cls => {
     // Scope widening: PASTOR and NEWCOMER are hospitality classes and cover the
     // WHOLE order — the café gives a first-time visitor their croissant as well
-    // as their coffee. Only STAFF (flat RM5, meaningless on food) and PREORDER
+    // as their coffee. BLESSING covers both categories too, and by definition:
+    // it IS the full waiver, so "every category" is the class rather than a
+    // consequence of it. Only STAFF (flat RM5, meaningless on food) and PREORDER
     // (drinks-only ministry link) remain DRINK-only.
     const off = priceLine(croissant, one(), CELEBRATION_OFF, cls);
     expect(off.unitPrice).toBe(0);
@@ -148,7 +157,7 @@ describe('priceLine — NEWCOMER and PASTOR', () => {
     expect(on.appliedRule).toBe(cls);
   });
 
-  it.each(['NEWCOMER', 'PASTOR'] as const)('%s FOOD is free including variant surcharges', cls => {
+  it.each(['NEWCOMER', 'PASTOR', 'BLESSING'] as const)('%s FOOD is free including variant surcharges', cls => {
     // Gross 6 + RM1 modifier = 7, and the whole 7 goes.
     const line = priceLine(croissant, oatMilk(), CELEBRATION_ON, cls);
     expect(line.grossUnitPrice).toBe(7);
@@ -188,8 +197,8 @@ describe('priceLine — STAFF', () => {
   it('never charges food to staff at drink prices', () => {
     // STAFF is one of the two DRINK-only classes: the flat RM5 is a drink price
     // and means nothing against food. This is NOT a general "FOOD is never
-    // discounted" rule — PASTOR and NEWCOMER DO free food (see their describe
-    // block above). PREORDER is the other DRINK-only class.
+    // discounted" rule — PASTOR, NEWCOMER and BLESSING all free food (see their
+    // describe block above). PREORDER is the other DRINK-only class.
     expect(priceLine(croissant, one(), CELEBRATION_OFF, 'STAFF').unitPrice).toBe(6);
     expect(priceLine(croissant, one(), CELEBRATION_ON, 'STAFF').unitPrice).toBe(6);
   });
@@ -222,10 +231,10 @@ describe('priceLine — PREORDER', () => {
   });
 
   it('leaves FOOD at full price', () => {
-    // STAFF and PREORDER are the two DRINK-only classes. PASTOR and NEWCOMER do
-    // discount FOOD (see their describe block above), so this is specifically a
-    // PREORDER fact, not a fact about FOOD. The pre-order link rejects food up
-    // front, so this is the belt to that braces.
+    // STAFF and PREORDER are the two DRINK-only classes. PASTOR, NEWCOMER and
+    // BLESSING all discount FOOD (see their describe block above), so this is
+    // specifically a PREORDER fact, not a fact about FOOD. The pre-order link
+    // rejects food up front, so this is the belt to that braces.
     expect(priceLine(croissant, one(), CELEBRATION_OFF, 'PREORDER').unitPrice).toBe(6);
     expect(priceLine(croissant, one(), CELEBRATION_ON, 'PREORDER').unitPrice).toBe(6);
   });
@@ -322,6 +331,59 @@ describe('summarizeOrderDiscount', () => {
     expect(summary.customerClass).toBe('NEWCOMER');
   });
 
+  it('reports BLESSING as its own label on a mixed DRINK+FOOD basket', () => {
+    // BLESSING is reported LITERALLY, exactly like PASTOR / NEWCOMER: it goes
+    // through the `rules.has(customerClass)` branch and comes out as
+    // `discountType: 'BLESSING'`. It is NOT remapped the way PREORDER is — see
+    // the next test for why that difference is deliberate — and it must not
+    // collapse to 'NONE' on an order it demonstrably zeroed.
+    //
+    // Eligible drink RM7 + non-eligible drink RM8 + food RM6 = RM21 gross, all
+    // three candidate shapes in one basket. Celebration is ON, so the latte has
+    // a competing RM5 candidate that the RM0 waiver must beat.
+    const lines = [
+      priceLine(latte, one('latte'), CELEBRATION_ON, 'BLESSING'),
+      priceLine(matcha, one('matcha'), CELEBRATION_ON, 'BLESSING'),
+      priceLine(croissant, one('croissant'), CELEBRATION_ON, 'BLESSING'),
+    ];
+    const summary = summarizeOrderDiscount(lines, 'BLESSING');
+    expect(summary.discountType).toBe('BLESSING');
+    expect(summary.discountType).not.toBe('NONE');
+    expect(summary.discountType).not.toBe('MINISTRY_PREORDER');
+    expect(summary.discountType).not.toBe('CELEBRATION');
+    expect(summary.customerClass).toBe('BLESSING');
+    expect(summary.totalAmount).toBe(0);
+    expect(summary.grossAmount).toBe(21);
+    expect(summary.discountOffset).toBe(21);
+    expect(summary.discountOffset).toBe(summary.grossAmount - summary.totalAmount);
+  });
+
+  it('reports NONE when BLESSING reduced nothing — no unconditional remap', () => {
+    // The deliberate difference from PREORDER, pinned so nobody "fixes" it by
+    // adding a `customerClass === 'BLESSING'` remap beside the PREORDER one.
+    //
+    // PREORDER is remapped UNCONDITIONALLY because it is assigned by the server
+    // from the order's own `isPreOrder` flag: the order is free by construction,
+    // nobody chose the label, and a ministry order that happened to contain only
+    // an RM0 item would otherwise vanish from every discount table with no human
+    // able to notice. BLESSING is the opposite case on every count — a cashier
+    // picks it per order and is recorded in `approvedBy`, so an order where it
+    // reduced nothing is an ordinary, visible, correctable till event. Reporting
+    // 'NONE' there is the honest answer: the discount tables aggregate
+    // `discountOffset`, and a BLESSING row claiming a waiver worth RM0 would
+    // overstate how often the café comps an order. `customerClass` still records
+    // that the cashier chose it, which is the field that answers "who".
+    const free = { name: '🚰 Tap Water', category: 'DRINK', basePrice: 0 };
+    const lines = [priceLine(free, one(), CELEBRATION_OFF, 'BLESSING')];
+    expect(lines[0].appliedRule).toBe('NONE');   // nothing was reduced
+    const summary = summarizeOrderDiscount(lines, 'BLESSING');
+    expect(summary.discountType).toBe('NONE');
+    expect(summary.discountType).not.toBe('BLESSING');
+    expect(summary.customerClass).toBe('BLESSING');
+    expect(summary.totalAmount).toBe(0);
+    expect(summary.discountOffset).toBe(0);
+  });
+
   it('records customerClass even when nothing was discounted (FOOD-only STAFF)', () => {
     // STAFF is DRINK-only, so a food-only staff order genuinely reduces nothing
     // — but the volunteer must still be counted, so `customerClass` is recorded
@@ -357,8 +419,8 @@ describe('summarizeOrderDiscount', () => {
   });
 
   it('never produces a negative total or offset', () => {
-    const combos: (null | 'STAFF' | 'PASTOR' | 'NEWCOMER' | 'PREORDER')[] =
-      [null, 'STAFF', 'PASTOR', 'NEWCOMER', 'PREORDER'];
+    const combos: (null | 'STAFF' | 'PASTOR' | 'NEWCOMER' | 'BLESSING' | 'PREORDER')[] =
+      [null, 'STAFF', 'PASTOR', 'NEWCOMER', 'BLESSING', 'PREORDER'];
     const menus = [latte, longBlack, soda, matcha, mocha, water, croissant];
     for (const cls of combos) {
       for (const settings of [CELEBRATION_ON, CELEBRATION_OFF, { celebrationMode: true, celebrationPrice: 3 }]) {
@@ -373,10 +435,17 @@ describe('summarizeOrderDiscount', () => {
 });
 
 describe('parseCustomerClass', () => {
-  it('accepts the three valid classes', () => {
+  it('accepts the four cashier-selected classes', () => {
     expect(parseCustomerClass('STAFF')).toBe('STAFF');
     expect(parseCustomerClass('PASTOR')).toBe('PASTOR');
     expect(parseCustomerClass('NEWCOMER')).toBe('NEWCOMER');
+    // BLESSING is cashier-selected like PASTOR / NEWCOMER, so it is accepted —
+    // and note this sits one test above 'PREORDER' being refused, even though
+    // both zero an order. The line is not the size of the discount but WHO
+    // decides it: a cashier picks BLESSING and lands in `approvedBy`, while
+    // PREORDER is derived server-side from a stored flag and so must not be
+    // forgeable.
+    expect(parseCustomerClass('BLESSING')).toBe('BLESSING');
   });
 
   it('rejects anything else', () => {
@@ -386,8 +455,9 @@ describe('parseCustomerClass', () => {
     // drink at RM0 — accepting it would let a crafted request zero ANY order and
     // have it reported as MINISTRY_PREORDER, i.e. a free order with nobody
     // accountable. A system-only class must never be parseable from input; it may
-    // only be derived from the order record's own `isPreOrder` flag.
-    for (const v of ['NONE', 'CELEBRATION', 'PREORDER', 'MINISTRY_PREORDER', '', undefined, null, 'staff', 0]) {
+    // only be derived from the order record's own `isPreOrder` flag. Adding
+    // BLESSING to the accepted list above does not soften this by one inch.
+    for (const v of ['NONE', 'CELEBRATION', 'PREORDER', 'MINISTRY_PREORDER', '', undefined, null, 'staff', 'blessing', 0]) {
       expect(parseCustomerClass(v)).toBeNull();
     }
   });
@@ -445,13 +515,16 @@ describe('repriceStoredItems — PREORDER at release', () => {
   });
 });
 
-// ─── PASTOR / NEWCOMER cover FOOD as well as DRINK ────────────────────────
+// ─── PASTOR / NEWCOMER / BLESSING cover FOOD as well as DRINK ─────────────
 //
 // The approve path is a SECOND eligibility gate, independent of `priceLine`: a
 // customer-submitted order is priced at submission with no class and repriced
 // when the cashier picks one. Widening `priceLine` alone would free a walk-up
 // newcomer's croissant but still bill it on approve, so both gates are pinned.
-describe('repriceStoredItems — PASTOR and NEWCOMER also zero stored FOOD', () => {
+// BLESSING is pinned on both for the same reason, and it is the class most
+// likely to arrive here rather than at `priceLine`: a full waiver is usually
+// decided when the cashier is already looking at a submitted order.
+describe('repriceStoredItems — PASTOR, NEWCOMER and BLESSING also zero stored FOOD', () => {
   const storedDrink = {
     menuItemId: 'latte', name: '☕ Latte', variant: null, quantity: 2,
     unitPrice: 8, grossUnitPrice: 8, category: 'DRINK',
@@ -461,7 +534,7 @@ describe('repriceStoredItems — PASTOR and NEWCOMER also zero stored FOOD', () 
     unitPrice: 6, grossUnitPrice: 6, category: 'FOOD',
   };
 
-  it.each(['PASTOR', 'NEWCOMER'] as const)('%s zeroes a stored FOOD-only order', cls => {
+  it.each(['PASTOR', 'NEWCOMER', 'BLESSING'] as const)('%s zeroes a stored FOOD-only order', cls => {
     const { items, summary } = repriceStoredItems([storedFood], cls);
     expect(items[0].unitPrice).toBe(0);
     // Preserved, so the offset stays computable after the rewrite.
@@ -473,7 +546,7 @@ describe('repriceStoredItems — PASTOR and NEWCOMER also zero stored FOOD', () 
     expect(summary.customerClass).toBe(cls);
   });
 
-  it.each(['PASTOR', 'NEWCOMER'] as const)('%s zeroes BOTH lines of a mixed basket', cls => {
+  it.each(['PASTOR', 'NEWCOMER', 'BLESSING'] as const)('%s zeroes BOTH lines of a mixed basket', cls => {
     const { items, summary } = repriceStoredItems([storedDrink, storedFood], cls);
     expect(items.map(i => i.unitPrice)).toEqual([0, 0]);
     expect(summary.totalAmount).toBe(0);

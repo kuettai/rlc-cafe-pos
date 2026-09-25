@@ -16,7 +16,11 @@
  *   STAFF        = flat RM5                               (DRINKs only)
  *   PASTOR       = RM0                                    (DRINKs AND FOOD)
  *   NEWCOMER     = RM0                                    (DRINKs AND FOOD)
+ *   BLESSING     = RM0                                    (DRINKs AND FOOD)
  *   PREORDER     = RM0                                    (DRINKs only)
+ *
+ * BLESSING is the explicit full-waiver class: the cashier picks it when
+ * STAFF/PASTOR/NEWCOMER do not fit but the café wants to comp the whole order.
  *
  * Which categories a class covers is a per-class fact, not a global one, and it
  * lives in exactly one place: `classAppliesToCategory` below. CELEBRATION is
@@ -47,12 +51,12 @@ export const DEFAULT_CELEBRATION_PRICE = 5;
 /**
  * Customer category a line is priced for. Identifies WHO, not how much.
  *
- * STAFF / PASTOR / NEWCOMER are cashier-selected (STAFF may also be
+ * STAFF / PASTOR / NEWCOMER / BLESSING are cashier-selected (STAFF may also be
  * customer-REQUESTED via the staff link). PREORDER is neither: it is derived
  * from the order record's `isPreOrder` flag and can never arrive from a request
  * body — `parseCustomerClass` rejects it.
  */
-export type CustomerClass = 'STAFF' | 'PASTOR' | 'NEWCOMER' | 'PREORDER';
+export type CustomerClass = 'STAFF' | 'PASTOR' | 'NEWCOMER' | 'BLESSING' | 'PREORDER';
 
 /** Rule that produced the charged price for a line. */
 export type PricingRule = 'NONE' | 'CELEBRATION' | CustomerClass;
@@ -154,8 +158,16 @@ export function resolveVariants(
  * PASTOR and NEWCOMER are hospitality classes: the café gives the visitor their
  * whole order, so they cover both categories.
  *
- * The other two are DRINK-only for reasons specific to each, which is why this
- * cannot be a single global "FOOD is never discounted" rule:
+ * BLESSING covers both categories too, and for the strongest reason of the three:
+ * it IS the full waiver. It exists precisely for the case where the cashier wants
+ * to comp an entire order and none of the named classes fit, so "everything at
+ * RM0, every category" is the whole definition of the class rather than a
+ * consequence of one. Listing both members of the category enum is therefore
+ * deliberate and complete — if a third category is ever added to the enum,
+ * BLESSING must gain it, or the waiver silently stops being full.
+ *
+ * The remaining two are DRINK-only for reasons specific to each, which is why
+ * this cannot be a single global "FOOD is never discounted" rule:
  *  - STAFF is a flat RM5 *drink* price, not a percentage. Against food it is not
  *    a discount anybody decided on — it would charge RM5 for a RM6 pastry and
  *    leave a RM3 cookie untouched.
@@ -172,6 +184,7 @@ const CLASS_CATEGORIES: Record<CustomerClass, readonly string[]> = {
   PREORDER: ['DRINK'],
   PASTOR: ['DRINK', 'FOOD'],
   NEWCOMER: ['DRINK', 'FOOD'],
+  BLESSING: ['DRINK', 'FOOD'],
 };
 
 /**
@@ -304,16 +317,30 @@ export function summarizeOrderDiscount(
 /**
  * Narrow arbitrary request input to a valid CustomerClass, or null.
  *
- * STAFF / PASTOR / NEWCOMER only. **'PREORDER' is deliberately NOT accepted.**
- * This function's whole input is untrusted request bodies (`body.discountType`
- * on approve, the walk-up cart's `discountType`). PREORDER prices every drink
- * at RM0, so accepting it here would let a cashier — or a crafted request —
- * zero out any order and have it reported as MINISTRY_PREORDER, i.e. a free
- * order with nobody accountable. The PREORDER class may only be derived from
- * the order record's own `isPreOrder` flag, never from input.
+ * The four CASHIER-SELECTED classes only: STAFF / PASTOR / NEWCOMER / BLESSING.
+ * BLESSING belongs here for the same reason PASTOR and NEWCOMER do — a human at
+ * the till chooses it and is recorded in `approvedBy`, so the waiver has somebody
+ * accountable for it.
+ *
+ * **'PREORDER' is deliberately NOT accepted, and that is unaffected by the
+ * above.** This function's whole input is untrusted request bodies
+ * (`body.discountType` on approve, the walk-up cart's `discountType`). PREORDER
+ * prices every drink at RM0, so accepting it here would let a cashier — or a
+ * crafted request — zero out any order and have it reported as
+ * MINISTRY_PREORDER, i.e. a free order with nobody accountable. The PREORDER
+ * class may only be derived from the order record's own `isPreOrder` flag, never
+ * from input. Note that BLESSING zeroes an order too: what separates them is not
+ * the size of the discount but WHO decides it — PREORDER is assigned by the
+ * server from a stored flag and so must never be forgeable, while BLESSING is a
+ * till-side judgement call that has to be expressible in a request.
+ *
+ * Any future class the server assigns rather than a human selects belongs in
+ * `CustomerClass` but not in this list.
  */
 export function parseCustomerClass(value: any): CustomerClass | null {
-  return value === 'STAFF' || value === 'PASTOR' || value === 'NEWCOMER' ? value : null;
+  return value === 'STAFF' || value === 'PASTOR' || value === 'NEWCOMER' || value === 'BLESSING'
+    ? value
+    : null;
 }
 
 /**

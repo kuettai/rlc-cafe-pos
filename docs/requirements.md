@@ -70,13 +70,16 @@ orders are accepted.
 - Actions on pending orders:
   - **Approve** → move to Preparing (after verifying payment proof)
   - **Mark Newcomer** → move to Preparing, log offset (free drinks **and food**, see §6)
+  - **Blessing** → move to Preparing with the whole order waived (free drinks
+    **and food**, see §6), for when no named class fits. Confirmed with the
+    cashier first, and not offered on a ministry pre-order, which is free already
   - **Reject** → only for unpaid orders, select rejection reason
 - Actions on preparing orders:
   - **Ready** → move to Ready for Collection
 
 ### 4.3 Walk-up Orders
 - Cashier creates order for staff/pastors who come to counter
-- Select items from same menu → apply discount type (Staff RM5 / Pastor Free) → confirm → auto-moves to Preparing
+- Select items from same menu → apply discount type (Staff RM5 / Pastor Free / Newcomer Free / Blessing Free) → confirm → auto-moves to Preparing
 
 ### 4.4 Day Management
 - Open café for the day (enables customer ordering)
@@ -146,6 +149,7 @@ orders are accepted.
 | Newcomer | Free | **Free** (since v1.82.0) | Cashier marks per-order at approval |
 | Staff (walk-up) | RM5 flat | Normal — RM5 is a *drink* price and is never applied to food | Cashier creates walk-up order |
 | Pastor (walk-up) | Free | **Free** (since v1.82.0) | Cashier creates walk-up order |
+| Blessing | Free | **Free** | Cashier marks per-order at approval, or on a walk-up order (since v1.83.0). The explicit full-waiver class for comping an order when Staff / Pastor / Newcomer do not fit — same visibility as Pastor / Newcomer, its own `discountType: 'BLESSING'` row in the discount report |
 | Staff (staff link, self-order) | RM5 flat — **requested, not granted** | Normal | Customer orders through the staff link (`?code=<CODE>`). The order lands PENDING already showing RM5, but the price only survives if the cashier explicitly confirms STAFF at approval; otherwise it reverts to celebration-or-full |
 | Staff/Pastor (self-order, no staff link) | Normal price | Normal | No discount — plain self-service is normal pricing |
 

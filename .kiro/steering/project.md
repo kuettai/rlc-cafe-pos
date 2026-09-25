@@ -73,7 +73,7 @@ docs/            requirements, architecture, deployment, update-YYYYMMDD.md
   uploading the screenshot (parsed by Bedrock) or by showing the payment to the
   cashier, who confirms it in the POS
 - Menu: ~10 drinks with variant groups (Temperature / Milk / Flavor) + food
-- Pricing rules (celebration, staff, pastor, newcomer) live in ONE place:
+- Pricing rules (celebration, staff, pastor, newcomer, blessing) live in ONE place:
   `backend/src/lib/pricing.ts`, mirrored for display only in
   `frontend/js/pricing.js`. Never reimplement them inline — see
   `backend/tests/pricing.test.ts` for the specification.

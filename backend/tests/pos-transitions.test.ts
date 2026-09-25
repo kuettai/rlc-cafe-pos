@@ -1445,6 +1445,40 @@ describe('POST /api/pos/orders — createWalkUp', () => {
     expect(item.customerClass).toBe('NEWCOMER');
   });
 
+  it('comps a mixed DRINK+FOOD BLESSING walk-up outright and records the class', async () => {
+    mockDbSend.mockReset();
+    mockDbSend
+      .mockResolvedValueOnce({ Item: OPEN_SETTINGS })
+      .mockResolvedValueOnce({ Item: LATTE_MENU })                          // priceLine lookup, drink
+      .mockResolvedValueOnce({ Item: COOKIE_MENU })                         // priceLine lookup, food
+      .mockResolvedValue({ Item: { ...COOKIE_MENU, foodReserved: 1 } });    // reserve + checkSoldOut
+
+    await walkUp({
+      customerName: 'Walk-up', discountType: 'BLESSING',
+      items: [{ menuItemId: 'latte', quantity: 2 }, { menuItemId: 'cookie', quantity: 1 }],
+    });
+
+    const item = orderPuts()[0].Item;
+    // BLESSING is the explicit full waiver, so BOTH categories go: 2 × RM8 latte
+    // + 1 × RM3 cookie = RM19 gross, RM0 collected, the whole RM19 as offset.
+    // This is the walk-up half of the pair — `parseCustomerClass` is the only
+    // thing that lets the cashier's pill reach `priceLine` here, so a class
+    // missing from its accepted list would silently fall through to null and
+    // this order would be BILLED in full.
+    expect(item.totalAmount).toBe(0);
+    expect(item.grossAmount).toBe(19);
+    expect(item.discountOffset).toBe(19);
+    expect(item.discountOffset).toBe(item.grossAmount - item.totalAmount);
+    // Reported under its own literal label, not remapped the way PREORDER is.
+    expect(item.discountType).toBe('BLESSING');
+    expect(item.customerClass).toBe('BLESSING');
+    // Per-line teeth: neither category was left at its stored price.
+    expect(item.items.map((i: any) => i.unitPrice)).toEqual([0, 0]);
+    expect(item.items.map((i: any) => i.grossUnitPrice)).toEqual([8, 3]);
+    // A walk-up still never carries a TTL, waiver or not.
+    expect(item).not.toHaveProperty('expiresAt');
+  });
+
   it('records customerClass when the class discounted nothing (FOOD-only STAFF)', async () => {
     mockDbSend.mockReset();
     mockDbSend

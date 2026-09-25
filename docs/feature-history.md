@@ -505,6 +505,62 @@ discount FOOD as well as DRINK. **Backend + frontend**, so
   Any report, export or tile assuming food lines always carry full price will
   overstate takings
 
+### Completed (2026-09-25 Sprint — v1.83.0)
+`BLESSING`, a fourth **cashier-selectable** discount class: a full waiver, RM0 on
+every item in both categories, for when STAFF / PASTOR / NEWCOMER do not fit but
+the café wants to comp the order. **Backend + frontend**, so
+`npm run deploy:backend` ships first. Session detail: `docs/update-20260925.md`
+(Part 2).
+
+- ✅ **New `BLESSING` customer class.** Added to `CustomerClass`, to
+  `CLASS_CATEGORIES` as `['DRINK','FOOD']`, and to `parseCustomerClass`
+  (`backend/src/lib/pricing.ts`). **No new arithmetic** — it reuses the existing
+  `customerClass === 'STAFF' ? STAFF_DRINK_PRICE : 0` branch, so it lands on 0 by
+  the same path PASTOR and NEWCOMER do. `DiscountType` derives from
+  `CustomerClass`, so the `BLESSING` `discountType` came along with the type
+  change rather than being declared twice
+- ✅ **Accepted from a request body, unlike `PREORDER`.** The rule that keeps
+  `PREORDER` out of `parseCustomerClass` is **WHO DECIDES, never the size of the
+  discount** — `PREORDER` is assigned by the server from a stored `isPreOrder`
+  flag and so must not be forgeable, while `BLESSING` is a till-side judgement
+  call recorded in `approvedBy` and therefore has to be expressible in a request.
+  That `BLESSING` waives *more* than `PREORDER` does not change which side of the
+  line it sits on. Written up in `pricing-rules` and `invariants` so the next
+  class added is decided on the same test
+- ✅ **Cashier surfaces.** A "🙏 Blessing" button in the PENDING order-detail
+  modal, and a Blessing chip in the walk-up cart's discount selector. The modal
+  button asks first via the existing `posConfirm` helper, naming the ringgit
+  amount being waived — it sits one button from Payment Confirmed and from
+  Reject, so a mis-tap is a till discrepancy nobody would notice until
+  end-of-day. Newcomer and Blessing are now **not rendered at all** on a
+  pre-order card: a pre-order is already free, and relabelling
+  `MINISTRY_PREORDER` as either would only muddy the report
+- ✅ **A forced two-row split, not a natural wrap.** `.pos-row-split`
+  (`flex-basis:100%;height:0`) puts Approve alone on the top row and the three
+  exception actions below it. With four buttons all fitting on one line on a
+  1024px counter tablet, "comp the whole order" would otherwise sit a
+  thumb-width from "payment confirmed". `.pos-reject-picker` gained
+  `flex-basis:100%` so it still takes its own full row now that the row is fuller
+- ✅ **Reports.** `BLESSING` added to every fixed `discountType` enumeration —
+  the dashboard badge/label map, the admin discount table **and** its
+  `#btnCopyDiscounts` duplicate (now cross-referenced in comments, since a type
+  added to one and not the other makes the clipboard text disagree with the
+  screen), and the reports prose. Same visibility tier as PASTOR / NEWCOMER
+- ✅ **Bonus fix, pre-existing:** the Reports summary note enumerating which
+  `discountOffset` types make up the discount total had **omitted
+  `MINISTRY_PREORDER`** since that type was introduced, so the figure looked
+  larger than the types it named. Fixed in the same edit
+  (`frontend/js/reports.js`)
+- 📝 **No new hue.** The `BLESSING` discount badge deliberately reuses the
+  audited grey `other` pill plus the word "Blessing" rather than becoming a
+  seventh discount colour, which would need ΔE measurement against all six
+  existing hues in normal *and* deutan vision first. Recorded in `invariants` as
+  the sanctioned cheap path for a new badge variant
+- 📝 **Training tour unchanged by design.** The tour scripts Approve and Reject
+  only; Newcomer was never demoed either, and `highlightModalButton` dims
+  whatever it is not cueing, so a fourth sibling neither needs a step nor slows
+  the existing ones. Only comments changed (`frontend/js/pos-training.js`)
+
 ### TODO — Remaining
 - ✅ Email notifications — low stock alert (Sunday last run + Wednesday midweek) and end-of-day summary to admin (expiry cron, gated + exactly-once as of v1.72.0)
 - ✅ Customer order modify UI (change items while order is still PENDING) — Tier 1 (race-safe + cashier indicators), Tier 2 (add items + notes), Tier 3 (variant editing via shared variants.js)
@@ -527,7 +583,9 @@ discount FOOD as well as DRINK. **Backend + frontend**, so
 - Special pricing: Celebration (eligible drinks RM5), Newcomer (free — **drinks and
   food**, since v1.82.0), Pastor (walk-up only; free — **drinks and food**, since
   v1.82.0), Staff (flat RM5, **drinks only**; walk-up, or self-requested via the
-  staff link `?code=<CODE>` and confirmed by the cashier at approval). Which
-  categories each class covers is per-class — see the `pricing-rules` skill
+  staff link `?code=<CODE>` and confirmed by the cashier at approval), Blessing
+  (free — **drinks and food**; the full-waiver fallback when no named class fits,
+  since v1.83.0). Which categories each class covers is per-class — see the
+  `pricing-rules` skill
 - Inventory: recipe-based estimation, cashier manual override
 - Menu: ~10 drinks (variant groups: Temperature hot/iced, Milk oat milk, Flavor for tea/soda) + food (subject to availability)

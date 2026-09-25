@@ -189,7 +189,7 @@ Attributes:
 - items (list: [{menuItemId, name, variant, quantity, unitPrice}])
 - totalAmount (number)
 - status (enum: PENDING | PREPARING | READY | ARCHIVED | EXPIRED | CANCELLED)
-- discountType (enum: NONE | NEWCOMER | STAFF | PASTOR | CELEBRATION)
+- discountType (enum: NONE | NEWCOMER | STAFF | PASTOR | BLESSING | CELEBRATION | MINISTRY_PREORDER | VOUCHER)
 - discountOffset (number)
 - createdAt (ISO timestamp)
 - updatedAt (ISO timestamp)

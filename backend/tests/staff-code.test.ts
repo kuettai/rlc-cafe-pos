@@ -130,8 +130,9 @@ describe('createOrder — staff code', () => {
     const order = writtenOrder();
 
     // Drink at the staff rate, food untouched BECAUSE STAFF IS DRINK-ONLY — the
-    // flat RM5 is a drink price. This is not a general rule about FOOD: PASTOR
-    // and NEWCOMER do free food (see `classAppliesToCategory` in lib/pricing.ts).
+    // flat RM5 is a drink price. This is not a general rule about FOOD: PASTOR,
+    // NEWCOMER and BLESSING all free food (see `classAppliesToCategory` in
+    // lib/pricing.ts).
     const drink = order.items.find((i: any) => i.menuItemId === 'latte');
     const food = order.items.find((i: any) => i.menuItemId === 'cookie');
     expect(drink.unitPrice).toBe(5);

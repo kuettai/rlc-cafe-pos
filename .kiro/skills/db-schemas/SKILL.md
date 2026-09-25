@@ -20,7 +20,7 @@ description: DynamoDB table schemas for RLC Café POS — orders, menu, ingredie
 | totalAmount | number | **NET** total in MYR (what is collected) — 0 on a ministry pre-order |
 | grossAmount | number | Undiscounted total. `discountOffset = grossAmount - totalAmount` |
 | status | string | PENDING / PREPARING / READY / ARCHIVED / EXPIRED / CANCELLED |
-| discountType | string | NONE / NEWCOMER / STAFF / PASTOR / CELEBRATION / MINISTRY_PREORDER / VOUCHER. Never `PREORDER` — that is a *customerClass* value only, and every report switches on this field against a fixed list that has no `PREORDER` in it |
+| discountType | string | NONE / NEWCOMER / STAFF / PASTOR / BLESSING / CELEBRATION / MINISTRY_PREORDER / VOUCHER. `BLESSING` is the cashier's full-waiver comp and appears here **literally** — unlike a pre-order it is *not* remapped, and it is only written when the waiver actually reduced a price (otherwise `NONE`), so the row is not padded with orders that gave away nothing. Never `PREORDER` — that is a *customerClass* value only, and every report switches on this field against a fixed list that has no `PREORDER` in it |
 | discountOffset | number | Amount discounted |
 | createdAt | string | ISO timestamp |
 | updatedAt | string | ISO timestamp |
@@ -34,7 +34,7 @@ description: DynamoDB table schemas for RLC Café POS — orders, menu, ingredie
 | isPreOrder | boolean | `true` = ministry pre-order placed through a pre-order link. Created **PENDING** since v1.71 (previously PREPARING) so the customer can still edit it; the cashier's release to PREPARING is the lock. Its `expiresAt` is an **ISO string**, so it is inert as a TTL and survives for days — the 1-hour PENDING sweep and `closeCafe` both skip these records, and only `expirePreOrders()` in `expiry.ts` expires them. **Never write a numeric `expiresAt` on one:** that arms a real TTL and DynamoDB deletes the order silently |
 | preorderCode | string | Pre-order code if from pre-order. Also the key back to the `PREORDER_CODE#` settings record, which supplies the restrictions on edit and the `serviceEndTime` fallback in `expirePreOrders()` |
 | staffCode | string | Staff code the customer ordered through (staff link). Present = the STAFF price was **requested**, not granted; the POS keys its confirmation prompt off this, and `approveOrder` reverts the price unless the cashier passes `discountType: 'STAFF'` |
-| customerClass | string | STAFF / PASTOR / NEWCOMER / CELEBRATION / PREORDER — normally written by the cashier at approve. Two paths set it at **create** time: the staff link (`'STAFF'`, a request rather than an approval) and a ministry pre-order (`'PREORDER'`, assigned by the server and never accepted from a request body — `parseCustomerClass` refuses it) |
+| customerClass | string | STAFF / PASTOR / NEWCOMER / BLESSING / CELEBRATION / PREORDER — normally written by the cashier at approve. `BLESSING` is cashier-selected at approve (or at walk-up create), exactly like PASTOR / NEWCOMER, and covers **both** DRINK and FOOD at RM0. Two paths set it at **create** time: the staff link (`'STAFF'`, a request rather than an approval) and a ministry pre-order (`'PREORDER'`, assigned by the server and never accepted from a request body — `parseCustomerClass` refuses it) |
 | remark | string | Customer remark / special instructions |
 | readyAt | string | ISO timestamp when marked ready |
 

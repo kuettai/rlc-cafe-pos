@@ -151,6 +151,27 @@ const D_STAFF_NO_OFFSET = {
   grossAmount: 5, totalAmount: 4, discountType: 'STAFF',
   items: [{ name: 'Cookie', category: 'FOOD', quantity: 2 }],
 };
+/**
+ * BLESSING — the cashier-selected full waiver, mixed basket, comped outright.
+ *
+ * Present to prove the discount report needed NO code change for the new class:
+ * the handler keys `summary` / `drinkBreakdown` / `foodBreakdown` off each order's
+ * own `o.discountType` rather than a fixed list of types (`routes/admin.ts`), so a
+ * fourth class appears by itself. If anybody ever narrows that to a switch or an
+ * allowlist, the three expectations below go red.
+ *
+ * Hand-computed: Latte RM7 × 1 + Croissant RM3 × 2 = RM13 gross, RM0 net, RM13
+ * offset — the whole of it, both categories, which is what a full waiver means.
+ */
+const D_BLESSING = {
+  PK: 'ORDER#d8', orderId: 'd8', status: 'ARCHIVED', createdAt: `${SERVICE_DATE}T03:10:00.000Z`,
+  grossAmount: 13, totalAmount: 0, discountOffset: 13, discountType: 'BLESSING',
+  customerClass: 'BLESSING',
+  items: [
+    { name: 'Latte', category: 'DRINK', quantity: 1 },
+    { name: 'Croissant', category: 'FOOD', quantity: 2 },
+  ],
+};
 
 /** Orders for /reports/sessions, spread across the morning in MYT. */
 const S_1000 = {
@@ -464,6 +485,7 @@ describe('GET /api/admin/reports — which orders are reportable, and in what or
 describe('GET /api/admin/reports/discounts — the offset summary', () => {
   const ALL_DISCOUNT_ORDERS = [
     D_NEWCOMER_1, D_NEWCOMER_2, D_CELEBRATION, D_NONE, D_UNDISCOUNTED, D_PREORDER, D_STAFF_NO_OFFSET,
+    D_BLESSING,
   ];
 
   it('groups by discountType and sums discountOffset — hand-computed', async () => {
@@ -474,17 +496,20 @@ describe('GET /api/admin/reports/discounts — the offset summary', () => {
     // NEWCOMER: 3 + 2 = 5 over two orders. CELEBRATION: 4 — NOT the 10 that
     // grossAmount − totalAmount would give for that fixture, which is how this
     // pins the field being summed. MINISTRY_PREORDER: the whole 8 gross written
-    // off. STAFF: no discountOffset attribute at all → 0, not NaN.
+    // off. STAFF: no discountOffset attribute at all → 0, not NaN. BLESSING: the
+    // whole 13 gross written off, and it is here with no route change because the
+    // handler keys off `o.discountType` rather than a fixed list of types.
     expect(body.summary).toEqual({
       NEWCOMER: { count: 2, totalOffset: 5 },
       CELEBRATION: { count: 1, totalOffset: 4 },
       MINISTRY_PREORDER: { count: 1, totalOffset: 8 },
       STAFF: { count: 1, totalOffset: 0 },
+      BLESSING: { count: 1, totalOffset: 13 },
     });
     // 'NONE' and the order with no discountType are both filtered out in JS.
     expect(Object.keys(body.summary)).not.toContain('NONE');
-    expect(body.totalDiscountedOrders).toBe(5);
-    expect(body.totalOffset).toBe(17); // 3 + 2 + 4 + 8 + 0
+    expect(body.totalDiscountedOrders).toBe(6);
+    expect(body.totalOffset).toBe(30); // 3 + 2 + 4 + 8 + 0 + 13
   });
 
   it('drinkBreakdown counts DRINK lines per discount type and skips FOOD', async () => {
@@ -496,9 +521,13 @@ describe('GET /api/admin/reports/discounts — the offset summary', () => {
       NEWCOMER: { Latte: 3 },            // 2 from d1, then d2's line with NO quantity → 1
       CELEBRATION: { Mocha: 3 },
       MINISTRY_PREORDER: { 'Long Black': 1 },
+      BLESSING: { Latte: 1 },            // d8's single Latte, under its OWN type key
       // STAFF is absent, not `{}`: the key is only created when a DRINK is seen,
       // and d7 is two cookies.
     });
+    // d8 and d1 both contain Lattes under DIFFERENT discount types, so this also
+    // pins that the counts are keyed per type and not pooled by item name.
+    expect(body.drinkBreakdown.NEWCOMER.Latte).toBe(3);
     expect(body.drinkBreakdown.STAFF).toBeUndefined();
     // FOOD is excluded from THIS aggregate only. It is counted in the parallel
     // `foodBreakdown` — see the next test — because PASTOR/NEWCOMER discount food.
@@ -511,12 +540,18 @@ describe('GET /api/admin/reports/discounts — the offset summary', () => {
     const body = await getReport('/api/admin/reports/discounts', { date: SERVICE_DATE });
 
     // Hand-computed from the fixtures: d1 (NEWCOMER) has one Cookie alongside its
-    // two Lattes; d7 (STAFF) is two Cookies and nothing else. d2/d3/d4/d6 are
-    // drink-only, so they contribute no keys at all.
+    // two Lattes; d7 (STAFF) is two Cookies and nothing else; d8 (BLESSING) has
+    // two Croissants alongside its Latte. d2/d3/d4/d6 are drink-only, so they
+    // contribute no keys at all.
     expect(body.foodBreakdown).toEqual({
       NEWCOMER: { Cookie: 1 },
       STAFF: { Cookie: 2 },
+      BLESSING: { Croissant: 2 },
     });
+    // BLESSING appears in BOTH breakdowns (as NEWCOMER does), which is what a
+    // both-categories waiver has to look like in the report. A class that showed
+    // up in only one of the two would mean half the giveaway went unitemised.
+    expect(body.drinkBreakdown.BLESSING).toEqual({ Latte: 1 });
     // The asymmetry worth pinning: d7 appears HERE but is absent from
     // drinkBreakdown, and the drink-only CELEBRATION / MINISTRY_PREORDER orders
     // are the other way round. A type with no matching line gets no key — not an
