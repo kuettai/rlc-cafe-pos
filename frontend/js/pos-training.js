@@ -337,7 +337,12 @@ function refreshTrainingBoard() {
 // action button for the trainee.
 //
 // It has to cover THREE things in sequence: notice the modal opened, read which
-// of Payment Confirmed / Newcomer / Reject is ringed, and register the click.
+// of the action buttons is ringed (a PENDING order offers four — Payment
+// Confirmed / Newcomer / Blessing / Reject), and register the click.
+//
+// The value is unchanged by Blessing arriving: the ringed button is found by the
+// ring and the dimming of its siblings, not by reading the row left to right, so
+// a fourth sibling does not add to the reading time.
 //
 // Tuned by feedback rather than theory: 1400ms was far too fast, 3200ms was
 // still reported as rushed, so 6200ms. Erring long is the right trade here —
@@ -381,10 +386,16 @@ async function openTrainingDetail(orderId, highlightSelector) {
   const modal = document.querySelector('.pos-modal-overlay');
   if (!modal) return null;
 
-  // Mark the button the tour is about to press BEFORE the dwell. The detail
-  // modal offers three similar-looking buttons (Payment Confirmed / Newcomer /
-  // Reject), and without this the trainee saw the modal appear and vanish with
-  // no clue which one was used — the step's whole point.
+  // Mark the button the tour is about to press BEFORE the dwell. A PENDING
+  // detail modal offers four similar-looking buttons (Payment Confirmed /
+  // Newcomer / Blessing / Reject), and without this the trainee saw the modal
+  // appear and vanish with no clue which one was used — the step's whole point.
+  //
+  // The tour scripts Approve and Reject only; Newcomer and Blessing are not
+  // demoed, deliberately — they are exceptions a cashier is told about verbally,
+  // and highlightModalButton dims whatever it is not cueing, so an undemoed
+  // button never competes with the step. Nothing here enumerates buttons, so a
+  // fifth would need no change either.
   highlightModalButton(modal, highlightSelector);
   // The tour dialog is anchored to the card BEHIND this modal, so it lands on
   // top of it and hides the buttons being explained. Shift it aside.

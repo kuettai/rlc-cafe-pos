@@ -1093,6 +1093,13 @@ function discountBadgeHtml(discountType) {
     CELEBRATION:       { label: 'Celebration', variant: 'celebration' },
     MINISTRY_PREORDER: { label: 'Pre-Order',   variant: 'preorder' },
     VOUCHER:           { label: 'Voucher',     variant: 'voucher' },
+    // BLESSING takes the grey `other` pill DELIBERATELY — it is listed here for
+    // its label, not for a colour. A seventh hue would have to be measured for
+    // ΔE against all six above (normal AND deutan vision) before it could ship,
+    // and the word "Blessing" already carries the non-colour channel the status
+    // rules require. Do not "finish the set" with an unmeasured hex; see the
+    // colour rules in the `invariants` skill.
+    BLESSING:          { label: 'Blessing',    variant: 'other' },
   }[discountType];
   const label = meta?.label || (discountType.charAt(0) + discountType.slice(1).toLowerCase());
   const variant = meta?.variant || 'other';
@@ -1237,8 +1244,9 @@ function cardHtml(o){
 // card, swipe-right, and the detail modal's "Payment Confirmed" — so a
 // staff-price request cannot be approved without the cashier being asked, and a
 // pre-order for a LATER service cannot be released on one stray tap.
-// #btnNewcomer is deliberately NOT routed here: choosing Newcomer is already an
-// explicit decision about the discount.
+// #btnNewcomer and #btnBlessing are deliberately NOT routed here: choosing a
+// discount is already an explicit decision about the discount. Blessing carries
+// its own posConfirm at the call site because it waives the whole order.
 //
 // Resolves true when the order was approved, false when the cashier dismissed
 // either prompt (the order is left PENDING and untouched). Rejects on API
@@ -1571,8 +1579,15 @@ function openDetail(id){
   let actions = '';
   // A pre-order is RM0 — there is no payment to confirm, the cashier is simply
   // releasing it to the barista on the day.
+  // The `.pos-row-split` between Approve and the rest is load-bearing: it forces
+  // the ordinary action onto its own row and groups the three exceptions
+  // (Newcomer / Blessing / Reject) below it. Without it all four buttons fit on
+  // one line on the counter tablet, which is how a mis-tap turns "payment
+  // confirmed" into "the whole order is free".
   if(o.status==='PENDING') actions=`<button class="pos-btn pos-btn-primary pos-btn-lg" id="btnApprove">${isPreOrder(o) ? 'Release to barista' : '✓ Payment Confirmed'}</button>
-    <button class="pos-btn pos-btn-lg pos-btn-preorder-release" id="btnNewcomer">🎁 Newcomer</button>
+    <div class="pos-row-split"></div>
+    ${isPreOrder(o) ? '' : `<button class="pos-btn pos-btn-lg pos-btn-preorder-release" id="btnNewcomer">🎁 Newcomer</button>
+    <button class="pos-btn pos-btn-lg pos-btn-blessing" id="btnBlessing">🙏 Blessing</button>`}
     <button class="pos-btn pos-btn-danger pos-btn-lg" id="btnReject">✗ Reject</button>`;
   else if(o.status==='PREPARING') actions=`<button class="pos-btn pos-btn-ready pos-btn-lg" id="btnReady">🔔 Mark Ready</button>
     <button class="pos-btn pos-btn-lg pos-btn-secondary" id="btnUndo">↩ Undo</button>`;
@@ -1601,7 +1616,31 @@ function openDetail(id){
 
   if(o.status==='PENDING'){
     modal.querySelector('#btnApprove').onclick=async()=>{ if(!approveGuardOk(id)) return; const ok = await approveOrder(id); if(!ok) return; modal.remove(); fetchOrders(); };
-    modal.querySelector('#btnNewcomer').onclick=async()=>{ if(!approveGuardOk(id)) return; await api('PUT',`/api/pos/orders/${id}/approve`,{approvedBy:currentUser,discountType:'NEWCOMER'}); modal.remove(); fetchOrders(); };
+    // Newcomer/Blessing aren't rendered on a pre-order — it's already free, and
+    // relabelling MINISTRY_PREORDER as either would only muddy the report.
+    modal.querySelector('#btnNewcomer')?.addEventListener('click',async()=>{ if(!approveGuardOk(id)) return; await api('PUT',`/api/pos/orders/${id}/approve`,{approvedBy:currentUser,discountType:'NEWCOMER'}); modal.remove(); fetchOrders(); });
+    // Blessing is NOT routed through approveOrder, for the same reason Newcomer
+    // isn't (see the note above approveOrder): choosing it is already an explicit
+    // decision about the discount. Unlike Newcomer it asks first — Blessing
+    // waives the ENTIRE order, food included, and it sits one button away from
+    // Approve and Reject, so a mis-tap here is a real till discrepancy nobody
+    // would notice until the end-of-day numbers. Same posConfirm dialog as
+    // Logout/Tutorial rather than a second confirm mechanism; dismissing leaves
+    // the order PENDING and untouched.
+    modal.querySelector('#btnBlessing')?.addEventListener('click',async()=>{
+      if(!approveGuardOk(id)) return;
+      const total = Number(o.total||o.totalAmount||0);
+      const ok = await posConfirm({
+        title: 'Give this order as a Blessing?',
+        body: `Every item is priced at RM0 — food included — and the order is approved straight to the barista. RM ${total.toFixed(2)} will not be collected.`,
+        yes: `🙏 Bless — waive RM ${total.toFixed(2)}`,
+        no: 'Cancel',
+        danger: true,
+      });
+      if(!ok) return;
+      await api('PUT',`/api/pos/orders/${id}/approve`,{approvedBy:currentUser,discountType:'BLESSING'});
+      modal.remove(); fetchOrders();
+    });
     modal.querySelector('#btnReject').onclick=()=>showRejectDialog(id, modal);
   } else if(o.status==='PREPARING'){
     modal.querySelector('#btnReady').onclick=async()=>{ await api('PUT',`/api/pos/orders/${id}/ready`); modal.remove(); playReadySound(); showNameFlash(o.customerName); fetchOrders(); };

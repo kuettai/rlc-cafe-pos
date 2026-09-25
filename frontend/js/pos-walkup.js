@@ -436,6 +436,7 @@ async function openWalkup(){
                 {value:'STAFF',    label:'Staff (RM5)'},
                 {value:'PASTOR',   label:'Pastor (Free)'},
                 {value:'NEWCOMER', label:'Newcomer (Free)'},
+                {value:'BLESSING', label:'Blessing (Free)'},
               ].map(o=>`<label class="pos-chip"><input type="radio" name="wkDiscount" value="${o.value}" ${selectedDiscount===o.value?'checked':''}><span>${o.label}</span></label>`).join('')}
             </fieldset>
             <button id="wkSubmit" class="pos-btn pos-btn-primary pos-btn-lg" ${cart.length?'':'disabled'}>Submit Order</button>

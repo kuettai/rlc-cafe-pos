@@ -2106,11 +2106,15 @@ function renderReportsSection(container, daily, inventory, weekly, discounts, se
     // Types are the values `discountType` can take on stored orders.
     // Add MINISTRY_PREORDER (free ministry pre-order drinks) and VOUCHER
     // (redeemed voucher offsets) alongside the classic cashier discounts.
-    const types = ['NEWCOMER','STAFF','PASTOR','CELEBRATION','MINISTRY_PREORDER','VOUCHER'];
+    // This list is DUPLICATED by the #btnCopyDiscounts handler below — the
+    // rendered table and the clipboard text must not disagree, so a type added
+    // here is added there in the same edit.
+    const types = ['NEWCOMER','STAFF','PASTOR','BLESSING','CELEBRATION','MINISTRY_PREORDER','VOUCHER'];
     const labelFor = t => ({
       NEWCOMER: 'Newcomer',
       STAFF: 'Staff',
       PASTOR: 'Pastor',
+      BLESSING: 'Blessing',
       CELEBRATION: 'Celebration',
       MINISTRY_PREORDER: 'Ministry Pre-Order',
       VOUCHER: 'Voucher',
@@ -2175,11 +2179,13 @@ function renderReportsSection(container, daily, inventory, weekly, discounts, se
 
   // Copy discount summary handler
   if(discounts && container.querySelector('#btnCopyDiscounts')){
-    const types = ['NEWCOMER','STAFF','PASTOR','CELEBRATION','MINISTRY_PREORDER','VOUCHER'];
+    // Must match the table's own list above, type for type and label for label.
+    const types = ['NEWCOMER','STAFF','PASTOR','BLESSING','CELEBRATION','MINISTRY_PREORDER','VOUCHER'];
     const labelFor = t => ({
       NEWCOMER: 'Newcomer',
       STAFF: 'Staff',
       PASTOR: 'Pastor',
+      BLESSING: 'Blessing',
       CELEBRATION: 'Celebration',
       MINISTRY_PREORDER: 'Ministry Pre-Order',
       VOUCHER: 'Voucher',

@@ -320,7 +320,7 @@ function renderSummary(container) {
     </div>
     <p style="font-size:.8rem;color:var(--text-light);margin-top:12px">
       Gross / Net based on ARCHIVED + READY orders. Refunds = post-completion cancellations.
-      Discounts include all <code>discountOffset</code> values (NEWCOMER, STAFF, PASTOR, CELEBRATION, VOUCHER).
+      Discounts include all <code>discountOffset</code> values (NEWCOMER, STAFF, PASTOR, BLESSING, CELEBRATION, MINISTRY_PREORDER, VOUCHER).
     </p>
     <div id="rptActivityLog" style="margin-top:28px">
       <h3 style="margin:0 0 10px;color:var(--brand-ink)">📋 Activity Log</h3>

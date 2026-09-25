@@ -2155,6 +2155,32 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--on-band-2)}
   border-color:var(--preorder-deep);
   color:var(--on-preorder);
 }
+/* Blessing — comp the whole order, food included. Sits beside Newcomer in the
+   secondary row of the PENDING detail modal and must not read as the same
+   action, but it does NOT get a seventh hue: the BLESSING badge deliberately
+   takes the grey `other` pill for the reason documented in `discountBadgeHtml`
+   (a new colour would have to be measured for ΔE against all six existing
+   discount hues in normal AND deutan vision). This is the same fill-vs-outline
+   channel `.pos-btn-collect` already uses to sit a step below a filled primary:
+   Newcomer's espresso family, outlined instead of filled. Box metrics copied
+   from `.pos-btn-preorder-release` above so the two exception buttons read as a
+   pair and Reject takes the remainder of the row. */
+.pos-btn-blessing{
+  background:var(--quiet);
+  border-color:var(--band);
+  color:var(--band);          /* 13.0:1 on --quiet */
+  font-weight:700;
+  min-height:var(--tap);
+  padding:10px 16px;
+  white-space:nowrap;
+  flex:0 0 auto;
+}
+.pos-btn-blessing:hover,
+.pos-btn-blessing:focus-visible{
+  background:var(--band);
+  border-color:var(--band);
+  color:var(--on-band);
+}
 /* The `[disabled]{opacity:.6;cursor:default}` that used to sit here was the only
    disabled styling in the POS. It is now handled for every variant by the
    generalised `.pos-btn:disabled` rule above — see the note there. */
@@ -2773,7 +2799,20 @@ body.pos-shell .pos-header :focus-visible{outline-color:var(--on-band-2)}
   gap:10px;
   margin-top:20px;
 }
-.pos-reject-picker{margin-top:16px}
+/* A DELIBERATE row break inside the actions row, not a natural wrap.
+   The PENDING actions are four buttons (Approve / Newcomer / Blessing / Reject)
+   and where they wrap must not depend on how wide the modal happens to be: on a
+   1024px counter tablet all four fit on one line, which puts "comp the whole
+   order" and "reject it" a thumb-width from "payment confirmed". This forces
+   Approve — the action taken hundreds of times a service — onto its own row
+   (`.pos-btn-lg` is `flex:1`, so alone it fills the width), with the three
+   exception actions grouped below it. Zero-height so it costs no vertical space
+   beyond the existing `gap`. */
+.pos-detail-actions .pos-row-split{flex-basis:100%;height:0}
+/* Its own row too. The picker is appended INTO .pos-detail-actions (see
+   showRejectDialog), so as a plain flex item it would be squeezed in beside the
+   secondary buttons. */
+.pos-reject-picker{margin-top:16px;flex-basis:100%}
 .pos-reject-picker h4{
   margin-bottom:10px;
   color:var(--text-light);

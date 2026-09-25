@@ -13,8 +13,10 @@
 //   STAFF       = flat RM5   (DRINKs only)
 //   PASTOR      = RM0        (any category — DRINK and FOOD)
 //   NEWCOMER    = RM0        (any category — DRINK and FOOD)
+//   BLESSING    = RM0        (any category — DRINK and FOOD)
 //   PREORDER    = RM0        (DRINKs only; system-only class, see below)
-//   FOOD        = discounted by PASTOR / NEWCOMER only; no other rule touches it
+//   FOOD        = discounted by PASTOR / NEWCOMER / BLESSING only; no other rule
+//                 touches it
 
 (function (global) {
   'use strict';
@@ -25,14 +27,14 @@
   // `PREORDER` is deliberately absent: it is server-assigned only, so it never
   // reaches this display mirror.
   function parseCustomerClass(value) {
-    return value === 'STAFF' || value === 'PASTOR' || value === 'NEWCOMER' ? value : null;
+    return value === 'STAFF' || value === 'PASTOR' || value === 'NEWCOMER' || value === 'BLESSING' ? value : null;
   }
 
-  // Which menu categories a customer class may discount. PASTOR and NEWCOMER
-  // apply across the whole menu; STAFF (flat RM5) and PREORDER stay DRINK-only.
-  // One helper, called from every gate, so the class list is never written
-  // twice. Mirrors the same split in backend/src/lib/pricing.ts.
-  const ALL_CATEGORY_CLASSES = ['PASTOR', 'NEWCOMER'];
+  // Which menu categories a customer class may discount. PASTOR, NEWCOMER and
+  // BLESSING apply across the whole menu; STAFF (flat RM5) and PREORDER stay
+  // DRINK-only. One helper, called from every gate, so the class list is never
+  // written twice. Mirrors the same split in backend/src/lib/pricing.ts.
+  const ALL_CATEGORY_CLASSES = ['PASTOR', 'NEWCOMER', 'BLESSING'];
   function classAppliesToCategory(customerClass, category) {
     if (!customerClass) return false;
     if (ALL_CATEGORY_CLASSES.indexOf(customerClass) !== -1) return true;

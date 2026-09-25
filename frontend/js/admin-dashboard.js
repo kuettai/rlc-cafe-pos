@@ -105,14 +105,16 @@ function renderDashboard(container, data){
     ['NEWCOMER',          'Newcomer'],
     ['STAFF',             'Staff'],
     ['PASTOR',            'Pastor'],
+    ['BLESSING',          'Blessing'],
     ['CELEBRATION',       'Celebration'],
     ['MINISTRY_PREORDER', 'Pre-Order'],
     ['VOUCHER',           'Voucher'],
   ];
   const discountSummary = discounts?.summary || {};
   const drinkBreakdown = discounts?.drinkBreakdown || {};
-  // PASTOR / NEWCOMER discount food as well as drinks, so the API reports a
-  // second breakdown. A type with no matching lines is absent, not empty.
+  // PASTOR / NEWCOMER / BLESSING discount food as well as drinks, so the API
+  // reports a second breakdown. A type with no matching lines is absent, not
+  // empty.
   const foodBreakdown = discounts?.foodBreakdown || {};
   const totalDiscOrders = Number(discounts?.totalDiscountedOrders || 0);
   const totalDiscOffset = Number(discounts?.totalOffset || 0);
