@@ -1208,6 +1208,12 @@
   padding:0 0 var(--dash-2) var(--dash-4);
   font-size:.85rem;color:var(--text-light);
 }
+/* The breakdown cell holds two kinds of line (drinks, food) since PASTOR and
+   NEWCOMER started discounting food, so each group is named. */
+.dash-breakdown-group + .dash-breakdown-group{margin-top:var(--dash-1)}
+.dash-breakdown-label{
+  font-weight:600;color:var(--text);margin-right:var(--dash-1);
+}
 
 /* Simple list rows (low stock, activity, stock count, featured audit) */
 .dash-list-row{

@@ -111,6 +111,9 @@ function renderDashboard(container, data){
   ];
   const discountSummary = discounts?.summary || {};
   const drinkBreakdown = discounts?.drinkBreakdown || {};
+  // PASTOR / NEWCOMER discount food as well as drinks, so the API reports a
+  // second breakdown. A type with no matching lines is absent, not empty.
+  const foodBreakdown = discounts?.foodBreakdown || {};
   const totalDiscOrders = Number(discounts?.totalDiscountedOrders || 0);
   const totalDiscOffset = Number(discounts?.totalOffset || 0);
 
@@ -223,14 +226,26 @@ function renderDashboard(container, data){
           <tbody>
           ${discountTypes.map(([key, label]) => {
             const row = discountSummary[key] || { count: 0, totalOffset: 0 };
-            const drinks = drinkBreakdown[key] || {};
-            const drinkEntries = Object.entries(drinks);
-            // The drink name is admin-entered rather than customer-entered, so
+            const drinkEntries = Object.entries(drinkBreakdown[key] || {});
+            const foodEntries = Object.entries(foodBreakdown[key] || {});
+            // The item name is admin-entered rather than customer-entered, so
             // this is lower severity than the customer-text sites — but it is
             // still a string going into innerHTML, and every render site gets
             // escaped, not just the ones with a scary source.
-            const drinkText = drinkEntries.map(([name, qty]) => `${escapeHtml(name)} ×${qty}`).join(', ');
-            const hasBreakdown = drinkEntries.length > 0;
+            const entryText = (entries) =>
+              entries.map(([name, qty]) => `${escapeHtml(name)} ×${qty}`).join(', ');
+            // Drinks and food are LABELLED: the cell used to hold drinks only,
+            // where bare item names were unambiguous, and stops being so now
+            // that a newcomer's food lines can land in the same cell. A group
+            // with no lines is omitted rather than shown as an empty label.
+            const breakdownHtml = [['Drinks', drinkEntries], ['Food', foodEntries]]
+              .filter(([, entries]) => entries.length > 0)
+              .map(([groupLabel, entries]) =>
+                `<div class="dash-breakdown-group"><span class="dash-breakdown-label">${groupLabel}</span>${entryText(entries)}</div>`)
+              .join('');
+            // Food-only is the case this feature exists for (a NEWCOMER food
+            // order), so either group present makes the row expandable.
+            const hasBreakdown = drinkEntries.length > 0 || foodEntries.length > 0;
             const accordionId = `discount-accordion-${key}`;
             return `<tr class="discount-row ${hasBreakdown ? 'dash-row-toggle' : 'dash-row-static'}"
               data-accordion="${accordionId}"
@@ -240,7 +255,7 @@ function renderDashboard(container, data){
               <td class="num">${Number(row.totalOffset||0).toFixed(2)}</td>
             </tr>
             <tr id="${accordionId}" class="discount-breakdown dash-breakdown" style="display:none">
-              <td colspan="3">${drinkText || '—'}</td>
+              <td colspan="3">${breakdownHtml || '—'}</td>
             </tr>`;
           }).join('')}
           </tbody>

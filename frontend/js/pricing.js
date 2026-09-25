@@ -11,9 +11,10 @@
 //   gross       = basePrice + variant modifiers
 //   CELEBRATION = min(gross, celebrationPrice + variant modifiers)  eligible DRINKs only
 //   STAFF       = flat RM5   (DRINKs only)
-//   PASTOR      = RM0        (DRINKs only)
-//   NEWCOMER    = RM0        (DRINKs only)
-//   FOOD        = never discounted
+//   PASTOR      = RM0        (any category — DRINK and FOOD)
+//   NEWCOMER    = RM0        (any category — DRINK and FOOD)
+//   PREORDER    = RM0        (DRINKs only; system-only class, see below)
+//   FOOD        = discounted by PASTOR / NEWCOMER only; no other rule touches it
 
 (function (global) {
   'use strict';
@@ -21,8 +22,21 @@
   const STAFF_DRINK_PRICE = 5;
   const DEFAULT_CELEBRATION_PRICE = 5;
 
+  // `PREORDER` is deliberately absent: it is server-assigned only, so it never
+  // reaches this display mirror.
   function parseCustomerClass(value) {
     return value === 'STAFF' || value === 'PASTOR' || value === 'NEWCOMER' ? value : null;
+  }
+
+  // Which menu categories a customer class may discount. PASTOR and NEWCOMER
+  // apply across the whole menu; STAFF (flat RM5) and PREORDER stay DRINK-only.
+  // One helper, called from every gate, so the class list is never written
+  // twice. Mirrors the same split in backend/src/lib/pricing.ts.
+  const ALL_CATEGORY_CLASSES = ['PASTOR', 'NEWCOMER'];
+  function classAppliesToCategory(customerClass, category) {
+    if (!customerClass) return false;
+    if (ALL_CATEGORY_CLASSES.indexOf(customerClass) !== -1) return true;
+    return category === 'DRINK';
   }
 
   /**
@@ -41,7 +55,7 @@
 
     const candidates = [{ rule: 'NONE', price: grossUnitPrice }];
 
-    if (category === 'DRINK' && customerClass) {
+    if (classAppliesToCategory(customerClass, category)) {
       candidates.push({
         rule: customerClass,
         price: customerClass === 'STAFF' ? STAFF_DRINK_PRICE : 0,
