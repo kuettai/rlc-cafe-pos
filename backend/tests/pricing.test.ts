@@ -133,8 +133,27 @@ describe('priceLine — NEWCOMER and PASTOR', () => {
     expect(priceLine(latte, oatMilk(), CELEBRATION_ON, 'NEWCOMER').unitPrice).toBe(0);
   });
 
-  it('still charges for food', () => {
-    expect(priceLine(croissant, one(), CELEBRATION_ON, 'NEWCOMER').unitPrice).toBe(6);
+  it.each(['NEWCOMER', 'PASTOR'] as const)('%s FOOD is free too, not just drinks', cls => {
+    // Scope widening: PASTOR and NEWCOMER are hospitality classes and cover the
+    // WHOLE order — the café gives a first-time visitor their croissant as well
+    // as their coffee. Only STAFF (flat RM5, meaningless on food) and PREORDER
+    // (drinks-only ministry link) remain DRINK-only.
+    const off = priceLine(croissant, one(), CELEBRATION_OFF, cls);
+    expect(off.unitPrice).toBe(0);
+    expect(off.grossUnitPrice).toBe(6);
+    expect(off.appliedRule).toBe(cls);
+    // Celebration never applies to FOOD, so the class is the only candidate.
+    const on = priceLine(croissant, one(), CELEBRATION_ON, cls);
+    expect(on.unitPrice).toBe(0);
+    expect(on.appliedRule).toBe(cls);
+  });
+
+  it.each(['NEWCOMER', 'PASTOR'] as const)('%s FOOD is free including variant surcharges', cls => {
+    // Gross 6 + RM1 modifier = 7, and the whole 7 goes.
+    const line = priceLine(croissant, oatMilk(), CELEBRATION_ON, cls);
+    expect(line.grossUnitPrice).toBe(7);
+    expect(line.unitPrice).toBe(0);
+    expect(line.appliedRule).toBe(cls);
   });
 });
 
@@ -167,7 +186,12 @@ describe('priceLine — STAFF', () => {
   });
 
   it('never charges food to staff at drink prices', () => {
+    // STAFF is one of the two DRINK-only classes: the flat RM5 is a drink price
+    // and means nothing against food. This is NOT a general "FOOD is never
+    // discounted" rule — PASTOR and NEWCOMER DO free food (see their describe
+    // block above). PREORDER is the other DRINK-only class.
     expect(priceLine(croissant, one(), CELEBRATION_OFF, 'STAFF').unitPrice).toBe(6);
+    expect(priceLine(croissant, one(), CELEBRATION_ON, 'STAFF').unitPrice).toBe(6);
   });
 });
 
@@ -198,8 +222,10 @@ describe('priceLine — PREORDER', () => {
   });
 
   it('leaves FOOD at full price', () => {
-    // FOOD is never discounted by any rule, PREORDER included. The pre-order link
-    // rejects food up front, so this is the belt to that braces.
+    // STAFF and PREORDER are the two DRINK-only classes. PASTOR and NEWCOMER do
+    // discount FOOD (see their describe block above), so this is specifically a
+    // PREORDER fact, not a fact about FOOD. The pre-order link rejects food up
+    // front, so this is the belt to that braces.
     expect(priceLine(croissant, one(), CELEBRATION_OFF, 'PREORDER').unitPrice).toBe(6);
     expect(priceLine(croissant, one(), CELEBRATION_ON, 'PREORDER').unitPrice).toBe(6);
   });
@@ -281,14 +307,31 @@ describe('summarizeOrderDiscount', () => {
     expect(summary.discountType).toBe('NEWCOMER');
   });
 
-  it('records customerClass even when nothing was discounted', () => {
-    // Food-only newcomer: no price change, but they must still be counted.
+  it('frees a FOOD-ONLY newcomer order outright', () => {
+    // Was 'records customerClass even when nothing was discounted', asserting
+    // RM6 collected and a NONE label. PASTOR/NEWCOMER now cover FOOD, so a
+    // food-only newcomer order is free and reports as NEWCOMER — the whole gross
+    // becomes offset. The class-recording guard it used to carry now lives on the
+    // STAFF test below, which is the honest fixture for "discounted nothing".
     const lines = [priceLine(croissant, one(), CELEBRATION_ON, 'NEWCOMER')];
     const summary = summarizeOrderDiscount(lines, 'NEWCOMER');
+    expect(summary.totalAmount).toBe(0);
+    expect(summary.grossAmount).toBe(6);
+    expect(summary.discountOffset).toBe(6);
+    expect(summary.discountType).toBe('NEWCOMER');
+    expect(summary.customerClass).toBe('NEWCOMER');
+  });
+
+  it('records customerClass even when nothing was discounted (FOOD-only STAFF)', () => {
+    // STAFF is DRINK-only, so a food-only staff order genuinely reduces nothing
+    // — but the volunteer must still be counted, so `customerClass` is recorded
+    // while `discountType` stays NONE. Two questions, two fields.
+    const lines = [priceLine(croissant, one(), CELEBRATION_ON, 'STAFF')];
+    const summary = summarizeOrderDiscount(lines, 'STAFF');
     expect(summary.totalAmount).toBe(6);
     expect(summary.discountOffset).toBe(0);
     expect(summary.discountType).toBe('NONE');
-    expect(summary.customerClass).toBe('NEWCOMER');
+    expect(summary.customerClass).toBe('STAFF');
   });
 
   it('falls back to CELEBRATION when the cashier class priced nothing', () => {
@@ -386,6 +429,9 @@ describe('repriceStoredItems — PREORDER at release', () => {
   });
 
   it('leaves a stored FOOD item alone', () => {
+    // PREORDER is DRINK-only, so the food line is billed in full even though the
+    // drink is zeroed. PASTOR/NEWCOMER behave differently here — see the describe
+    // block below.
     const storedFood = {
       menuItemId: 'croissant', name: '🥐 Croissant', variant: null, quantity: 1,
       unitPrice: 6, grossUnitPrice: 6, category: 'FOOD',
@@ -396,5 +442,55 @@ describe('repriceStoredItems — PREORDER at release', () => {
     expect(summary.totalAmount).toBe(6);
     expect(summary.grossAmount).toBe(22);
     expect(summary.discountOffset).toBe(16);
+  });
+});
+
+// ─── PASTOR / NEWCOMER cover FOOD as well as DRINK ────────────────────────
+//
+// The approve path is a SECOND eligibility gate, independent of `priceLine`: a
+// customer-submitted order is priced at submission with no class and repriced
+// when the cashier picks one. Widening `priceLine` alone would free a walk-up
+// newcomer's croissant but still bill it on approve, so both gates are pinned.
+describe('repriceStoredItems — PASTOR and NEWCOMER also zero stored FOOD', () => {
+  const storedDrink = {
+    menuItemId: 'latte', name: '☕ Latte', variant: null, quantity: 2,
+    unitPrice: 8, grossUnitPrice: 8, category: 'DRINK',
+  };
+  const storedFood = {
+    menuItemId: 'croissant', name: '🥐 Croissant', variant: null, quantity: 3,
+    unitPrice: 6, grossUnitPrice: 6, category: 'FOOD',
+  };
+
+  it.each(['PASTOR', 'NEWCOMER'] as const)('%s zeroes a stored FOOD-only order', cls => {
+    const { items, summary } = repriceStoredItems([storedFood], cls);
+    expect(items[0].unitPrice).toBe(0);
+    // Preserved, so the offset stays computable after the rewrite.
+    expect(items[0].grossUnitPrice).toBe(6);
+    expect(summary.totalAmount).toBe(0);
+    expect(summary.grossAmount).toBe(18);
+    expect(summary.discountOffset).toBe(18);
+    expect(summary.discountType).toBe(cls);
+    expect(summary.customerClass).toBe(cls);
+  });
+
+  it.each(['PASTOR', 'NEWCOMER'] as const)('%s zeroes BOTH lines of a mixed basket', cls => {
+    const { items, summary } = repriceStoredItems([storedDrink, storedFood], cls);
+    expect(items.map(i => i.unitPrice)).toEqual([0, 0]);
+    expect(summary.totalAmount).toBe(0);
+    expect(summary.grossAmount).toBe(34); // 2 × 8 + 3 × 6
+    expect(summary.discountOffset).toBe(34);
+    expect(summary.discountType).toBe(cls);
+  });
+
+  it('STAFF still bills a stored FOOD line in full — the gate is per CLASS', () => {
+    // Teeth for the other half of `classAppliesToCategory`: if the widened gate
+    // were simply "any class, any category", the flat RM5 staff price would be
+    // applied to food here and this line would come back at RM5.
+    const { items, summary } = repriceStoredItems([storedFood], 'STAFF');
+    expect(items[0].unitPrice).toBe(6);
+    expect(summary.totalAmount).toBe(18);
+    expect(summary.discountOffset).toBe(0);
+    expect(summary.discountType).toBe('NONE');
+    expect(summary.customerClass).toBe('STAFF');
   });
 });

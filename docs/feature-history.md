@@ -3,7 +3,7 @@
 Sprint-by-sprint completion log, moved out of `.kiro/steering.md` so it does not
 consume context on every turn. See `docs/update-YYYYMMDD.md` for session detail.
 
-## Current Status (as of 2026-09-23)
+## Current Status (as of 2026-09-25)
 ### Completed (Foundation)
 - ✅ All backend routes (auth, cafe, menu, orders, pos, admin)
 - ✅ Customer ordering PWA (menu, cart, order submission)
@@ -467,6 +467,44 @@ this one is the admin screen that manages its slides. **Backend + frontend**, so
   regex accepts calendar-invalid values like `2026-13-45` (harmless — they still
   sort correctly against a real date)
 
+### Completed (2026-09-25 Sprint — v1.82.0)
+Discount **category scope** became a per-class fact: `PASTOR` and `NEWCOMER` now
+discount FOOD as well as DRINK. **Backend + frontend**, so
+`npm run deploy:backend` ships first. Session detail: `docs/update-20260925.md`.
+
+- ✅ **Pastor and Newcomer discounts cover food.** Both hospitality classes price
+  the whole order at RM0 instead of drinks only — the café gives a visiting pastor
+  or a newcomer their food too, which the code had never allowed. `STAFF` and
+  `PREORDER` are **unchanged and stay DRINK-only**, each for its own reason:
+  `STAFF` is a flat RM5 *drink* price that against food would charge RM5 for a RM6
+  pastry and leave a RM3 cookie untouched, and `PREORDER` is the drinks-only
+  ministry pre-order whose link already rejects food up front. `CELEBRATION` is
+  untouched (eligible-DRINK-only)
+- ✅ **The scope lives in one allowlist that fails closed.** `CLASS_CATEGORIES` +
+  `classAppliesToCategory()` (`backend/src/lib/pricing.ts:170`), read by **both**
+  pricing gates — `priceLine` (submission) and `repriceStoredItems` (approve) —
+  which previously each carried their own hardcoded `category === 'DRINK'` test.
+  Two gates with the rule written twice is how an order gets freed on one path and
+  billed on the other. Written as an allowlist rather than a `!== 'DRINK'`
+  negation so a menu record with a missing category matches nothing instead of
+  being handed out free, and typed `Record<CustomerClass, …>` so a future fifth
+  class cannot ship without its categories being decided
+- ✅ **Admin discount report itemises food.** `GET /api/admin/reports/discounts`
+  returns a new `foodBreakdown` alongside `drinkBreakdown` (same shape), rendered
+  as a labelled "Food" group in the dashboard's existing discount accordion.
+  Without it a newcomer's discounted food was written off with nothing itemising
+  it. Drink and food lines are now **labelled** in that cell — bare item names
+  were unambiguous when it held drinks only, and stopped being so
+- ⚠️ **Known deliberate divergence:** the display mirror
+  `frontend/js/pricing.js` defaults a category-less menu record to `DRINK`, where
+  the backend allowlist fails closed and charges full price. Display-only, cannot
+  persist a number, recorded in the `pricing-rules` skill; converge on the
+  backend's allowlist if that file is touched
+- 📝 **Invariant withdrawn:** the flat "FOOD is never discounted" assertion is now
+  false and was replaced in the `invariants` skill by the per-class allowlist rule.
+  Any report, export or tile assuming food lines always carry full price will
+  overstate takings
+
 ### TODO — Remaining
 - ✅ Email notifications — low stock alert (Sunday last run + Wednesday midweek) and end-of-day summary to admin (expiry cron, gated + exactly-once as of v1.72.0)
 - ✅ Customer order modify UI (change items while order is still PENDING) — Tier 1 (race-safe + cashier indicators), Tier 2 (add items + notes), Tier 3 (variant editing via shared variants.js)
@@ -486,7 +524,10 @@ this one is the admin screen that manages its slides. **Backend + frontend**, so
 - Payment: **QR only — no cash, no card.** A Maybank DuitNow QR **printed on the
   café tables**; the app never renders one. The customer scans it, then either
   uploads the screenshot (parsed by Bedrock) or shows the payment to the cashier
-- Special pricing: Celebration (all drinks RM5), Newcomer (free), Pastor (walk-up only),
-  Staff (walk-up, or self-requested via the staff link `?code=<CODE>` and confirmed by the cashier at approval)
+- Special pricing: Celebration (eligible drinks RM5), Newcomer (free — **drinks and
+  food**, since v1.82.0), Pastor (walk-up only; free — **drinks and food**, since
+  v1.82.0), Staff (flat RM5, **drinks only**; walk-up, or self-requested via the
+  staff link `?code=<CODE>` and confirmed by the cashier at approval). Which
+  categories each class covers is per-class — see the `pricing-rules` skill
 - Inventory: recipe-based estimation, cashier manual override
 - Menu: ~10 drinks (variant groups: Temperature hot/iced, Milk oat milk, Flavor for tea/soda) + food (subject to availability)

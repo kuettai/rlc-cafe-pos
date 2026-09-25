@@ -1,6 +1,6 @@
 ---
 name: pricing-rules
-description: Discount and pricing rules for RLC Café POS — the cheapest-candidate-wins algorithm, CELEBRATION / STAFF / PASTOR / NEWCOMER / PREORDER classes, the customer-requested STAFF price from the staff link and how it is reverted on approve, the system-only PREORDER class for free ministry pre-orders and its MINISTRY_PREORDER discountType, net vs gross vs offset storage, and the reprice-on-approve path. Use when touching prices, discounts, totals, reports that aggregate money, the staff link, ministry pre-orders, or the walk-up cart.
+description: Discount and pricing rules for RLC Café POS — the cheapest-candidate-wins algorithm, CELEBRATION / STAFF / PASTOR / NEWCOMER / PREORDER classes, which menu categories each class may discount (PASTOR and NEWCOMER discount FOOD as well as DRINK; STAFF, PREORDER and CELEBRATION are DRINK-only — "FOOD is never discounted" is withdrawn), the one `classAppliesToCategory` / `CLASS_CATEGORIES` allowlist that owns that scope, the customer-requested STAFF price from the staff link and how it is reverted on approve, the system-only PREORDER class for free ministry pre-orders and its MINISTRY_PREORDER discountType, net vs gross vs offset storage, and the reprice-on-approve path. Use when touching prices, discounts, totals, reports that aggregate money, the staff link, ministry pre-orders, or the walk-up cart.
 ---
 
 # Pricing & Discounts

@@ -189,7 +189,7 @@ JWT — never from a path or body parameter.
 | GET | /api/admin/reports/monthly | Monthly aggregated report |
 | GET | /api/admin/reports/inventory | Low stock report |
 | GET | /api/admin/reports/restock | Restock recommendation |
-| GET | /api/admin/reports/discounts | Discount breakdown report |
+| GET | /api/admin/reports/discounts | Discount breakdown report. Returns `summary`, `totalDiscountedOrders`, `totalOffset`, and **two** per-item breakdowns — `drinkBreakdown` and `foodBreakdown`, both `Record<discountType, Record<itemName, quantity>>`. `foodBreakdown` exists because PASTOR / NEWCOMER discount FOOD too (see `pricing-rules`); a discount type with no matching lines is **absent** from a breakdown rather than present as `{}`, so read it as `breakdown[type] \|\| {}` |
 | GET | /api/admin/reports/sessions | Session 1 vs Session 2 breakdown. **Does not use `lib/opening-hours.ts`** — it buckets orders by a hardcoded `8:00 – 14:00 MYT` span split at the handover-checklist completion time (default `splitMinutes = 690`, i.e. 11:30), with its own open-coded `(utcHour + 8) % 24` conversions. So its `timeRange` strings are genuinely 8:00-based and do **not** match the configured opening hours; the admin dashboard nonetheless labels these cards `Session 1 (10:15-11:30)` / `Session 2 (12:45-13:30)`, so heading and numbers disagree. Follow-ups (a) and (b) in `docs/update-20260819.md` |
 | GET | /api/admin/activity-log | Activity log |
 

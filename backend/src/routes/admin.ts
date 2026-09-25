@@ -612,21 +612,30 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
       const orders = (result.Items || []).filter(o => o.discountType && o.discountType !== 'NONE');
       const summary: Record<string, { count: number; totalOffset: number }> = {};
       const drinkBreakdown: Record<string, Record<string, number>> = {};
+      // PASTOR and NEWCOMER discount FOOD as well as DRINK (lib/pricing.ts,
+      // `classAppliesToCategory`), so the discounted food lines need their own
+      // breakdown or they are written off with nothing itemising them. Same shape
+      // as the drink one: a discount type only gets a key once a matching line is
+      // seen, so a type with no FOOD lines is ABSENT rather than `{}`.
+      const foodBreakdown: Record<string, Record<string, number>> = {};
       for (const o of orders) {
         if (!summary[o.discountType]) summary[o.discountType] = { count: 0, totalOffset: 0 };
         summary[o.discountType].count++;
         summary[o.discountType].totalOffset += o.discountOffset || 0;
-        // Build drink breakdown per discount type
+        // Build drink and food breakdowns per discount type
         for (const item of (o.items || [])) {
           if (item.category === 'DRINK') {
             if (!drinkBreakdown[o.discountType]) drinkBreakdown[o.discountType] = {};
             drinkBreakdown[o.discountType][item.name] = (drinkBreakdown[o.discountType][item.name] || 0) + (item.quantity || 1);
+          } else if (item.category === 'FOOD') {
+            if (!foodBreakdown[o.discountType]) foodBreakdown[o.discountType] = {};
+            foodBreakdown[o.discountType][item.name] = (foodBreakdown[o.discountType][item.name] || 0) + (item.quantity || 1);
           }
         }
       }
       const totalDiscountedOrders = orders.length;
       const totalOffset = orders.reduce((s, o) => s + (o.discountOffset || 0), 0);
-      return res(200, { summary, drinkBreakdown, totalDiscountedOrders, totalOffset });
+      return res(200, { summary, drinkBreakdown, foodBreakdown, totalDiscountedOrders, totalOffset });
     }
 
     if (method === 'GET' && path.endsWith('/admin/reports/sessions')) {

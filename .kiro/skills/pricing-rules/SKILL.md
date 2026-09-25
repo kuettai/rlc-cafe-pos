@@ -1,6 +1,6 @@
 ---
 name: pricing-rules
-description: Discount and pricing rules for RLC Café POS — the cheapest-candidate-wins algorithm, CELEBRATION / STAFF / PASTOR / NEWCOMER / PREORDER classes, the customer-requested STAFF price from the staff link and how it is reverted on approve, the system-only PREORDER class for free ministry pre-orders and its MINISTRY_PREORDER discountType, net vs gross vs offset storage, and the reprice-on-approve path. Use when touching prices, discounts, totals, reports that aggregate money, the staff link, ministry pre-orders, or the walk-up cart.
+description: Discount and pricing rules for RLC Café POS — the cheapest-candidate-wins algorithm, CELEBRATION / STAFF / PASTOR / NEWCOMER / PREORDER classes, which menu categories each class may discount (PASTOR and NEWCOMER discount FOOD as well as DRINK; STAFF, PREORDER and CELEBRATION are DRINK-only — "FOOD is never discounted" is withdrawn), the one `classAppliesToCategory` / `CLASS_CATEGORIES` allowlist that owns that scope, the customer-requested STAFF price from the staff link and how it is reverted on approve, the system-only PREORDER class for free ministry pre-orders and its MINISTRY_PREORDER discountType, net vs gross vs offset storage, and the reprice-on-approve path. Use when touching prices, discounts, totals, reports that aggregate money, the staff link, ministry pre-orders, or the walk-up cart.
 ---
 
 # Pricing & Discounts
@@ -22,10 +22,11 @@ For each line, build every applicable candidate price and charge the lowest:
 gross        = basePrice + variant modifiers
 CELEBRATION  = min(gross, celebrationPrice + variant modifiers)   eligible DRINKs only
 STAFF        = flat RM5 (absorbs variant modifiers)               DRINKs only
-PASTOR       = RM0                                                DRINKs only
-NEWCOMER     = RM0                                                DRINKs only
+PASTOR       = RM0                                                ALL categories (DRINK + FOOD)
+NEWCOMER     = RM0                                                ALL categories (DRINK + FOOD)
 PREORDER     = RM0                                                DRINKs only
-FOOD         = never discounted by any rule
+FOOD         = discounted by PASTOR / NEWCOMER only; never by
+               STAFF, PREORDER or CELEBRATION
 ```
 
 - Replaced an old "celebration always wins" rule that cancelled a newcomer's
@@ -38,6 +39,33 @@ FOOD         = never discounted by any rule
   deliberate asymmetry, preserved to avoid silently repricing staff drinks.
 - Celebration eligibility is per menu item: `celebrationEligible === true` **and**
   `settings.celebrationMode`.
+- **Category scope is a per-class fact, and ONE helper owns it.**
+  `classAppliesToCategory(customerClass, category)` (`pricing.ts:185`) is the only
+  place the question is asked, over the `CLASS_CATEGORIES` allowlist at `:170`:
+  `STAFF: ['DRINK']`, `PREORDER: ['DRINK']`, `PASTOR: ['DRINK','FOOD']`,
+  `NEWCOMER: ['DRINK','FOOD']`. **Written as an allowlist, never as a negation** —
+  the category arrives as `String(menu.category || '')`, so an unknown or missing
+  category must match nothing; a `category !== 'DRINK'` test would price a
+  malformed menu record free. And `Record<CustomerClass, …>` is exhaustive, so a
+  new customer class cannot ship without its categories being decided.
+  There are **two** customer-class gates — `priceLine` (submission-time, `:216`)
+  and `repriceStoredItems` (approve-time, `:426`) — and both must call that helper
+  rather than inlining the test. A scope that differs between them prices the same
+  order two ways depending on when the class was applied: the customer sees one
+  number and the cashier grants another.
+
+  The display mirror `frontend/js/pricing.js:36` has a `classAppliesToCategory` of
+  the same name and one gate, but **not the same shape** — it is an
+  `ALL_CATEGORY_CLASSES` list plus a `category === 'DRINK'` fallback, and it
+  defaults a missing category to `'DRINK'`. Display-only, so it can never persist
+  a number; if you touch it, prefer converging on the backend's allowlist rather
+  than copying the fallback back the other way.
+- **Scope and winner are separate decisions.** Whether a candidate is *offered*
+  (category scope) and which candidate *wins* (cheapest, ties to the cashier's
+  explicit class) are independent. Widening a class to a new category adds
+  candidates; it must not touch the comparison or the tie-break.
+- `celebrationApplies()` is unchanged by any of this: DRINK **and**
+  `celebrationEligible`, never widened to FOOD.
 
 ## Who may select a class: cashier, one customer-requested case, one system-only
 
@@ -61,7 +89,16 @@ A ministry pre-order is free by construction. Before v1.71 that was hardcoded
 ("free" written out at each site); it now goes through `pricing.ts` like every
 other rule, as the `PREORDER` customer class: **DRINK lines price at RM0, FOOD is
 untouched, and no new arithmetic was added** — it is another RM0 candidate in the
-existing cheapest-wins list, exactly like `PASTOR` / `NEWCOMER`.
+existing cheapest-wins list, mechanically the same *kind* of candidate as
+`PASTOR` / `NEWCOMER`.
+
+**It is not scoped like them, though, and that is the part that matters:**
+`PREORDER` applies to DRINK lines only, while `PASTOR` / `NEWCOMER` apply to every
+category. Pre-orders being drinks-only is enforced upstream as well
+(`preorderItemRejection()`, on both create and edit — see the `invariants` skill),
+so the DRINK gate here is the second half of a rule, not an arbitrary
+restriction. Do not "align" `PREORDER` with the other RM0 classes: a pre-order
+zeroes the whole gross, so widening it to FOOD is uncapped cost to the café.
 
 Three rules make it safe:
 
@@ -101,12 +138,23 @@ Three rules make it safe:
 
 They differ legitimately, and `PREORDER` is the sharpest case: `customerClass`
 stays `'PREORDER'` (who) while `discountType` is `'MINISTRY_PREORDER'` (what
-happened to the money). Likewise a newcomer who orders only food gets no
-reduction, so `discountType` is `NONE` while `customerClass` stays
-`NEWCOMER`. Reports counting
-newcomers must use `isNewcomerOrder()`, never `discountType` alone — under the
-old rules a newcomer on a celebration day was tagged `CELEBRATION` and vanished
-from the count.
+happened to the money).
+
+Reports counting newcomers must use `isNewcomerOrder()` — which accepts
+**either** field (`customerClass === 'NEWCOMER' || discountType === 'NEWCOMER'`,
+`pricing.ts:327`) — never `discountType` alone. `discountType` names **the rule that
+won the line**, and which rule wins is decided by the candidate comparison and its
+tie-break — not by who the customer is. That is not hypothetical: under the old
+"celebration always wins" rule a newcomer on a celebration day came out tagged
+`CELEBRATION` and **vanished from the newcomer count**. Ties go to the cashier's
+explicit class today, so the label is right — but the thing keeping it right is a
+tie-break in `pricing.ts`, one rule change away from doing it again.
+
+(An earlier version of this section used "a newcomer who orders only food gets no
+reduction, so `discountType` is `NONE`" as the example. That is **no longer true** —
+`NEWCOMER` discounts FOOD, so a food-only newcomer order is fully discounted and
+its `discountType` *is* `NEWCOMER`. The `isNewcomerOrder()` rule above is
+unaffected; only the example was wrong.)
 
 ## Storage convention — all aggregations assume it
 
@@ -176,8 +224,12 @@ walk-up cart sends `qty`. Always go through it.
 
 ## Changing a rule
 
-1. Edit `backend/src/lib/pricing.ts` only.
-2. Add the case to `backend/tests/pricing.test.ts` first — it is the spec.
+1. Edit `backend/src/lib/pricing.ts` only. A change to a class's **category
+   scope** is a change to `classAppliesToCategory`, nowhere else — check that
+   both gates (`priceLine`, `repriceStoredItems`) still route through it.
+2. Add the case to `backend/tests/pricing.test.ts` first — it is the spec. A scope
+   change needs a FOOD case and a DRINK case per affected class, and an
+   approve-time reprice case, or the second gate is untested.
 3. If the customer-facing UI shows the price, mirror in `frontend/js/pricing.js`
    (display only — the backend number always wins).
 4. Vouchers still price separately in `backend/src/routes/vouchers.ts` and feed
@@ -185,4 +237,10 @@ walk-up cart sends `qty`. Always go through it.
    through this module as the `PREORDER` class; `preorder.ts` only holds the link
    record and its restrictions.
 5. Reports read these fields — check `frontend/js/reports.js` and
-   `backend/src/routes/admin.ts` before renaming anything.
+   `backend/src/routes/admin.ts` before renaming anything. A scope change lands
+   here too: because `PASTOR` / `NEWCOMER` now discount FOOD,
+   `GET /api/admin/reports/discounts` returns a **`foodBreakdown`** alongside its
+   existing `drinkBreakdown` (same shape,
+   `{ [discountType]: { [itemName]: quantity } }`), rendered by
+   `frontend/js/admin-dashboard.js` in the per-type discount accordion. A
+   breakdown that counts only drink lines under-reports what was given away.

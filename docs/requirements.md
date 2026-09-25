@@ -69,7 +69,7 @@ orders are accepted.
 - Tap order → see: customer name, items, total price
 - Actions on pending orders:
   - **Approve** → move to Preparing (after verifying payment proof)
-  - **Mark Newcomer** → move to Preparing, log offset (free drinks)
+  - **Mark Newcomer** → move to Preparing, log offset (free drinks **and food**, see §6)
   - **Reject** → only for unpaid orders, select rejection reason
 - Actions on preparing orders:
   - **Ready** → move to Ready for Collection
@@ -143,9 +143,9 @@ orders are accepted.
 |---------------|-------------|------------|-------------|
 | Regular | Normal menu price | Normal | Automatic |
 | Special Celebration | RM5 flat (all drinks) | Normal | Cashier toggles for the day; customer sees RM5 on menu |
-| Newcomer | Free | Normal | Cashier marks per-order at approval |
-| Staff (walk-up) | RM5 flat | Normal | Cashier creates walk-up order |
-| Pastor (walk-up) | Free | Normal | Cashier creates walk-up order |
+| Newcomer | Free | **Free** (since v1.82.0) | Cashier marks per-order at approval |
+| Staff (walk-up) | RM5 flat | Normal — RM5 is a *drink* price and is never applied to food | Cashier creates walk-up order |
+| Pastor (walk-up) | Free | **Free** (since v1.82.0) | Cashier creates walk-up order |
 | Staff (staff link, self-order) | RM5 flat — **requested, not granted** | Normal | Customer orders through the staff link (`?code=<CODE>`). The order lands PENDING already showing RM5, but the price only survives if the cashier explicitly confirms STAFF at approval; otherwise it reverts to celebration-or-full |
 | Staff/Pastor (self-order, no staff link) | Normal price | Normal | No discount — plain self-service is normal pricing |
 

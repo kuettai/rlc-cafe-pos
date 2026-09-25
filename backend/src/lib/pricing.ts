@@ -14,10 +14,13 @@
  *   gross        = basePrice + variant modifiers
  *   CELEBRATION  = celebrationPrice + variant modifiers   (eligible DRINKs only)
  *   STAFF        = flat RM5                               (DRINKs only)
- *   PASTOR       = RM0                                    (DRINKs only)
- *   NEWCOMER     = RM0                                    (DRINKs only)
+ *   PASTOR       = RM0                                    (DRINKs AND FOOD)
+ *   NEWCOMER     = RM0                                    (DRINKs AND FOOD)
  *   PREORDER     = RM0                                    (DRINKs only)
- *   FOOD         = never discounted by any rule
+ *
+ * Which categories a class covers is a per-class fact, not a global one, and it
+ * lives in exactly one place: `classAppliesToCategory` below. CELEBRATION is
+ * separate and stays eligible-DRINK-only (`celebrationApplies`).
  *
  * PREORDER is the ministry pre-order class. It is NOT cashier-selectable and
  * `parseCustomerClass` deliberately refuses it — see the note there. It exists
@@ -144,6 +147,45 @@ export function resolveVariants(
   return { variantLabel: null, variantModifiers: 0 };
 }
 
+/**
+ * Menu categories each customer class may discount. The category enum is exactly
+ * 'DRINK' | 'FOOD'.
+ *
+ * PASTOR and NEWCOMER are hospitality classes: the café gives the visitor their
+ * whole order, so they cover both categories.
+ *
+ * The other two are DRINK-only for reasons specific to each, which is why this
+ * cannot be a single global "FOOD is never discounted" rule:
+ *  - STAFF is a flat RM5 *drink* price, not a percentage. Against food it is not
+ *    a discount anybody decided on — it would charge RM5 for a RM6 pastry and
+ *    leave a RM3 cookie untouched.
+ *  - PREORDER is the ministry drinks-only pre-order. Its link rejects food up
+ *    front (`preorderItemRejection` in routes/orders.ts), so a food line here is
+ *    already an anomaly and must not be silently zeroed.
+ *
+ * A `Record<CustomerClass, …>` on purpose: adding a class without deciding its
+ * categories is a compile error rather than a silent DRINK-only default. An
+ * unknown or missing category matches nothing, so it fails closed.
+ */
+const CLASS_CATEGORIES: Record<CustomerClass, readonly string[]> = {
+  STAFF: ['DRINK'],
+  PREORDER: ['DRINK'],
+  PASTOR: ['DRINK', 'FOOD'],
+  NEWCOMER: ['DRINK', 'FOOD'],
+};
+
+/**
+ * Does this customer class discount this menu category at all?
+ *
+ * The ONE copy of that question — called by both `priceLine` (submission /
+ * walk-up) and `repriceStoredItems` (approve). Two gates with the same rule
+ * written out twice is how the class list drifts and an order gets freed on one
+ * path and billed on the other.
+ */
+function classAppliesToCategory(customerClass: CustomerClass, category: string): boolean {
+  return CLASS_CATEGORIES[customerClass].includes(category);
+}
+
 function celebrationApplies(menu: MenuItemLike, settings?: PricingSettings): boolean {
   return !!settings?.celebrationMode
     && menu.category === 'DRINK'
@@ -171,7 +213,7 @@ export function priceLine(
   // land on the same amount — the label then reflects who the customer is.
   const candidates: { rule: PricingRule; price: number }[] = [{ rule: 'NONE', price: grossUnitPrice }];
 
-  if (category === 'DRINK' && customerClass) {
+  if (customerClass && classAppliesToCategory(customerClass, category)) {
     const price = customerClass === 'STAFF' ? STAFF_DRINK_PRICE : 0;
     candidates.push({ rule: customerClass, price });
   }
@@ -381,7 +423,7 @@ export function repriceStoredItems(
     let unitPrice = incumbentNet;
     let appliedRule: PricingRule = incumbentNet < gross ? 'CELEBRATION' : 'NONE';
 
-    if (item.category === 'DRINK' && customerClass) {
+    if (customerClass && classAppliesToCategory(customerClass, item.category)) {
       const classPrice = customerClass === 'STAFF' ? STAFF_DRINK_PRICE : 0;
       // `<=` so an explicit cashier class wins ties, matching priceLine.
       if (classPrice <= unitPrice) {

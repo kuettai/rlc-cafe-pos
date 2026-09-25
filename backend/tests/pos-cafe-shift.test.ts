@@ -544,8 +544,13 @@ describe('GET /api/pos/shift-summary — revenue is NET and completed-only', () 
       orders: [
         order({ orderId: 'n1', status: 'ARCHIVED', createdAt: '2026-08-16T01:00:00.000Z', totalAmount: 0, customerClass: 'NEWCOMER', items: [] }),
         order({ orderId: 'n2', status: 'ARCHIVED', createdAt: '2026-08-16T01:00:00.000Z', totalAmount: 3, discountType: 'NEWCOMER', items: [] }),
-        // A newcomer who ordered FOOD only gets no discount, so `discountType`
-        // is NONE — they must still be counted, via `customerClass`.
+        // The two fields can still diverge, so a NEWCOMER whose `discountType`
+        // is NONE must still be counted via `customerClass`. (The old example
+        // for this was "a newcomer who ordered FOOD only gets no discount" —
+        // no longer true, NEWCOMER discounts FOOD now. Records written under
+        // the old DRINK-only rules keep this shape, and an all-RM0 basket
+        // still reduces nothing today.) `items` is empty here on purpose: this
+        // pins the COUNTING rule, not a price computation.
         order({ orderId: 'n3', status: 'ARCHIVED', createdAt: '2026-08-16T01:00:00.000Z', totalAmount: 3, customerClass: 'NEWCOMER', discountType: 'NONE', items: [] }),
         order({ orderId: 'r1', status: 'ARCHIVED', createdAt: '2026-08-16T01:00:00.000Z', totalAmount: 8, customerClass: 'REGULAR', items: [] }),
       ],

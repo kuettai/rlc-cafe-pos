@@ -1421,7 +1421,7 @@ describe('POST /api/pos/orders — createWalkUp', () => {
     expect(item.discountType).toBe('CELEBRATION');
   });
 
-  it('records customerClass even when the class discounted nothing (FOOD only)', async () => {
+  it('frees a FOOD-only NEWCOMER walk-up and records the class', async () => {
     mockDbSend.mockReset();
     mockDbSend
       .mockResolvedValueOnce({ Item: OPEN_SETTINGS })
@@ -1434,10 +1434,37 @@ describe('POST /api/pos/orders — createWalkUp', () => {
     });
 
     const item = orderPuts()[0].Item;
-    // FOOD is never discounted, but the newcomer must still be countable.
+    // PASTOR/NEWCOMER cover FOOD as well as DRINK, so the RM3 cookie is given —
+    // NET 0, the whole gross as offset. (This test previously asserted RM3
+    // collected and a zero offset, when the class was DRINK-only.) The
+    // class-recording half of its original intent is kept below, and the
+    // "discounted nothing" half now lives on the STAFF test that follows.
+    expect(item.totalAmount).toBe(0);
+    expect(item.grossAmount).toBe(3);
+    expect(item.discountOffset).toBe(3);
+    expect(item.customerClass).toBe('NEWCOMER');
+  });
+
+  it('records customerClass when the class discounted nothing (FOOD-only STAFF)', async () => {
+    mockDbSend.mockReset();
+    mockDbSend
+      .mockResolvedValueOnce({ Item: OPEN_SETTINGS })
+      .mockResolvedValueOnce({ Item: COOKIE_MENU })
+      .mockResolvedValue({ Item: COOKIE_MENU });
+
+    await walkUp({
+      customerName: 'Walk-up', discountType: 'STAFF',
+      items: [{ menuItemId: 'cookie', quantity: 1 }],
+    });
+
+    const item = orderPuts()[0].Item;
+    // STAFF stays DRINK-only (the flat RM5 is a drink price), so this is now the
+    // honest fixture for the original guard: a class that reduces nothing is still
+    // RECORDED on the order, or newcomer/staff counting silently loses the order.
     expect(item.totalAmount).toBe(3);
     expect(item.discountOffset).toBe(0);
-    expect(item.customerClass).toBe('NEWCOMER');
+    expect(item.discountType).toBe('NONE');
+    expect(item.customerClass).toBe('STAFF');
   });
 
   it('reserves food and checks sold-out before writing the order', async () => {

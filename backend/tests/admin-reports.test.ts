@@ -487,7 +487,7 @@ describe('GET /api/admin/reports/discounts — the offset summary', () => {
     expect(body.totalOffset).toBe(17); // 3 + 2 + 4 + 8 + 0
   });
 
-  it('breaks DRINK lines down per discount type and skips FOOD entirely', async () => {
+  it('drinkBreakdown counts DRINK lines per discount type and skips FOOD', async () => {
     stage({ ordersScan: ALL_DISCOUNT_ORDERS });
 
     const body = await getReport('/api/admin/reports/discounts', { date: SERVICE_DATE });
@@ -497,10 +497,34 @@ describe('GET /api/admin/reports/discounts — the offset summary', () => {
       CELEBRATION: { Mocha: 3 },
       MINISTRY_PREORDER: { 'Long Black': 1 },
       // STAFF is absent, not `{}`: the key is only created when a DRINK is seen,
-      // and d7 is two cookies. FOOD is never counted anywhere here.
+      // and d7 is two cookies.
     });
     expect(body.drinkBreakdown.STAFF).toBeUndefined();
+    // FOOD is excluded from THIS aggregate only. It is counted in the parallel
+    // `foodBreakdown` — see the next test — because PASTOR/NEWCOMER discount food.
     expect(JSON.stringify(body.drinkBreakdown)).not.toContain('Cookie');
+  });
+
+  it('foodBreakdown counts FOOD lines per discount type and skips DRINK', async () => {
+    stage({ ordersScan: ALL_DISCOUNT_ORDERS });
+
+    const body = await getReport('/api/admin/reports/discounts', { date: SERVICE_DATE });
+
+    // Hand-computed from the fixtures: d1 (NEWCOMER) has one Cookie alongside its
+    // two Lattes; d7 (STAFF) is two Cookies and nothing else. d2/d3/d4/d6 are
+    // drink-only, so they contribute no keys at all.
+    expect(body.foodBreakdown).toEqual({
+      NEWCOMER: { Cookie: 1 },
+      STAFF: { Cookie: 2 },
+    });
+    // The asymmetry worth pinning: d7 appears HERE but is absent from
+    // drinkBreakdown, and the drink-only CELEBRATION / MINISTRY_PREORDER orders
+    // are the other way round. A type with no matching line gets no key — not an
+    // empty object — in both aggregates.
+    expect(body.drinkBreakdown.STAFF).toBeUndefined();
+    expect(body.foodBreakdown.CELEBRATION).toBeUndefined();
+    expect(body.foodBreakdown.MINISTRY_PREORDER).toBeUndefined();
+    expect(JSON.stringify(body.foodBreakdown)).not.toContain('Latte');
   });
 
   it('scopes the scan to the requested date and to completed sales only', async () => {
@@ -540,7 +564,9 @@ describe('GET /api/admin/reports/discounts — the offset summary', () => {
 
     const body = await getReport('/api/admin/reports/discounts', { date: SERVICE_DATE });
 
-    expect(body).toEqual({ summary: {}, drinkBreakdown: {}, totalDiscountedOrders: 0, totalOffset: 0 });
+    expect(body).toEqual({
+      summary: {}, drinkBreakdown: {}, foodBreakdown: {}, totalDiscountedOrders: 0, totalOffset: 0,
+    });
   });
 });
 
@@ -844,8 +870,10 @@ describe('GET /api/admin/reports/monthly', () => {
     const body = await getReport('/api/admin/reports/monthly');
 
     // Latte 2 (m1) + 1 (m2) = 3; Tea 2; the rest 1 each. Ties keep first-seen
-    // order because Array#sort is stable. FOOD counts here (unlike the discount
-    // breakdown) — this is a popularity ranking, not a money figure.
+    // order because Array#sort is stable. FOOD counts here in the SAME list as
+    // drinks — this is a popularity ranking, not a money figure, so it needs no
+    // per-category split (the discount report splits DRINK and FOOD into two
+    // breakdowns because there the categories are discounted by different rules).
     expect(body.topItems).toEqual([
       { name: 'Latte', count: 3 }, { name: 'Tea', count: 2 },
       { name: 'Mocha', count: 1 }, { name: 'Cookie', count: 1 }, { name: 'Long Black', count: 1 },
