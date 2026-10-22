@@ -4,6 +4,7 @@
 
 // --- Ingredients ---
 async function loadIngredients(container){
+  ingRearrange = null; // a fresh load always leaves Rearrange mode
   container.innerHTML = '<div class="loading">Loading ingredients...</div>';
   try{
     const [data, menuData, recipeData] = await Promise.all([
@@ -24,6 +25,10 @@ let ingLocationFilter = 'ALL';
 // than replacing it.
 let ingLowStockOnly = false;
 
+// Rearrange mode: null when off, else { order: [ingredientId…], dirty }.
+// Nothing is written until Save — drag/↑↓ only reorder this working list.
+let ingRearrange = null;
+
 // Same rule as the "Low Stock" badge: disabled ingredients are never low.
 function isIngredientLow(ing){
   return ing.isActive !== false && ing.currentStock <= (ing.lowStockThreshold||0);
@@ -36,16 +41,27 @@ function renderIngredientsSection(container, items, menuItems, recipes){
     ? items
     : items.filter(i => i.storageLocation === ingLocationFilter || i.storageLocation === 'BOTH');
   const lowCount = byLocation.filter(isIngredientLow).length;
-  const filtered = ingLowStockOnly ? byLocation.filter(isIngredientLow) : byLocation;
+  const rearranging = !!ingRearrange;
+  // Rearrange works on the WHOLE list (a filtered subset has no unambiguous
+  // place in the full sequence), in the working order.
+  const filtered = rearranging
+    ? ingRearrange.order.map(id => items.find(i => i.ingredientId === id)).filter(Boolean)
+    : (ingLowStockOnly ? byLocation.filter(isIngredientLow) : byLocation);
+  const headerButtons = rearranging
+    ? `<button class="pos-btn pos-btn-sm" id="btnRearrangeCancel">Cancel</button>
+        <button class="pos-btn pos-btn-primary" id="btnRearrangeSave" ${ingRearrange.dirty?'':'disabled'}>Save Order</button>`
+    : `<button class="pos-btn pos-btn-sm" id="btnStockHistory">📋 Stock History</button>
+        <button class="pos-btn pos-btn-sm" id="btnRearrange" ${items.length < 2 ? 'disabled' : ''}>↕ Rearrange</button>
+        <button class="pos-btn pos-btn-primary" id="btnAddIngredient">+ Add Ingredient</button>`;
   let html = `<div class="admin-section">
     <div class="admin-section-header">
       <h2>Ingredients</h2>
-      <div style="display:flex;gap:8px">
-        <button class="pos-btn pos-btn-sm" id="btnStockHistory">📋 Stock History</button>
-        <button class="pos-btn pos-btn-primary" id="btnAddIngredient">+ Add Ingredient</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${headerButtons}
       </div>
     </div>
-    <div style="display:flex;gap:6px;margin-bottom:16px">
+    ${rearranging ? `<p class="admin-rearrange-hint">Drag <span aria-hidden="true">⠿</span> or use ↑ ↓ to set the POS Stock Count order, then Save Order. Disabled ingredients stay at the bottom.</p>` : ''}
+    <div style="display:flex;gap:6px;margin-bottom:16px;${rearranging ? 'display:none' : ''}">
       <button class="pos-btn pos-btn-sm ${ingLocationFilter==='ALL'?'active':''}" data-ing-loc="ALL">All</button>
       <button class="pos-btn pos-btn-sm ${ingLocationFilter==='FRIDGE'?'active':''}" data-ing-loc="FRIDGE">🧊 Fridge</button>
       <button class="pos-btn pos-btn-sm ${ingLocationFilter==='STOREROOM'?'active':''}" data-ing-loc="STOREROOM">🗄️ Storeroom</button>
@@ -55,6 +71,7 @@ function renderIngredientsSection(container, items, menuItems, recipes){
   if(!filtered.length){
     html += `<div class="admin-empty"><p>${ingLowStockOnly ? 'No low-stock ingredients in this location' : 'No ingredients in this location'}</p></div>`;
   } else {
+    html += '<div id="ingList">';
     // Sort: active first, disabled at the bottom. Within each group, keep
     // the server order — Sort Order, then location, then name — which is the
     // same sequence POS → Stock Count shows.
@@ -63,29 +80,40 @@ function renderIngredientsSection(container, items, menuItems, recipes){
       const bActive = b.isActive !== false ? 0 : 1;
       return aActive - bActive;
     });
-    sorted.forEach(ing=>{
+    sorted.forEach((ing, idx)=>{
       const isActive = ing.isActive !== false;
       const isLow = isIngredientLow(ing);
       const usageLabel = ing.usageUnit ? ` · recipe unit: ${escapeHtml(ing.usageUnit)}` : '';
-      const orderLabel = Number.isFinite(ing.sortOrder) ? `#${Number(ing.sortOrder)} · ` : '';
-      html += `<div class="admin-card ${isActive ? '' : 'is-disabled'}">
+      // In Rearrange mode show the position Save will write, not the stored one.
+      const orderLabel = rearranging ? `#${idx + 1} · `
+        : Number.isFinite(ing.sortOrder) ? `#${Number(ing.sortOrder)} · ` : '';
+      const dis = rearranging ? 'disabled' : '';
+      const group = isActive ? 'active' : 'disabled';
+      const moveCtl = rearranging ? `<div class="admin-rearrange-ctl">
+            <button class="pos-btn pos-btn-sm" data-move-ing="${escapeAttr(ing.ingredientId)}" data-dir="-1" aria-label="Move ${escapeAttr(ing.name)} up">↑</button>
+            <button class="pos-btn pos-btn-sm" data-move-ing="${escapeAttr(ing.ingredientId)}" data-dir="1" aria-label="Move ${escapeAttr(ing.name)} down">↓</button>
+          </div>` : '';
+      html += `<div class="admin-card admin-ing-row ${isActive ? '' : 'is-disabled'}${rearranging ? ' is-rearranging' : ''}" data-ing-id="${escapeAttr(ing.ingredientId)}" data-ing-group="${group}">
         <div class="admin-card-header">
-          <div>
+          ${rearranging ? `<span class="admin-drag-handle" data-drag-ing title="Drag to reorder" aria-hidden="true">⠿</span>` : ''}
+          <div class="admin-card-id">
             <div class="admin-card-title">${escapeHtml(ing.name)}${isActive ? '' : ' <span class="admin-card-badge badge-disabled" style="margin-left:6px">Disabled</span>'}</div>
             <div class="admin-card-subtitle">${orderLabel}${Number(ing.currentStock||0)} ${escapeHtml(ing.unit)} · ${escapeHtml(ing.storageLocation||'—')}${usageLabel}${isActive ? '' : ' · <em>drinks that use this should be disabled from the Menu tab</em>'}</div>
           </div>
           <div class="admin-card-actions">
             ${isLow ? '<span class="admin-card-badge badge-inactive">Low Stock</span>' : ''}
             <label class="toggle-switch" title="${isActive?'Click to disable':'Click to enable'}">
-              <input type="checkbox" data-toggle-ing="${escapeAttr(ing.ingredientId)}" ${isActive?'checked':''}>
+              <input type="checkbox" data-toggle-ing="${escapeAttr(ing.ingredientId)}" ${isActive?'checked':''} ${dis}>
               <span class="toggle-slider"></span>
             </label>
-            <button class="pos-btn pos-btn-sm" data-edit-ing="${escapeAttr(ing.ingredientId)}">Edit</button>
-            <button class="pos-btn pos-btn-sm pos-btn-danger" data-del-ing="${escapeAttr(ing.ingredientId)}">Delete</button>
+            <button class="pos-btn pos-btn-sm" data-edit-ing="${escapeAttr(ing.ingredientId)}" ${dis}>Edit</button>
+            <button class="pos-btn pos-btn-sm pos-btn-danger" data-del-ing="${escapeAttr(ing.ingredientId)}" ${dis}>Delete</button>
+            ${moveCtl}
           </div>
         </div>
       </div>`;
     });
+    html += '</div>';
   }
   html += '</div>';
 
@@ -111,7 +139,7 @@ function renderIngredientsSection(container, items, menuItems, recipes){
             <div class="admin-card-title" style="font-size:.95rem">${escapeHtml(mi.name)}</div>
             <div class="admin-card-subtitle">Base: ${baseStr}${overrideCount ? ` · ${overrideCount} variant override(s)` : ''}</div>
           </div>
-          <button class="pos-btn pos-btn-sm" data-edit-recipe="${escapeAttr(id)}">Edit</button>
+          <button class="pos-btn pos-btn-sm" data-edit-recipe="${escapeAttr(id)}" ${rearranging?'disabled':''}>Edit</button>
         </div>
       </div>`;
     });
@@ -119,6 +147,17 @@ function renderIngredientsSection(container, items, menuItems, recipes){
   html += '</div>';
   container.innerHTML = html;
 
+  if (rearranging){
+    bindIngredientRearrange(container, items, menuItems, recipes);
+    return; // every other control is disabled; bind nothing else
+  }
+
+  $('#btnRearrange').onclick = ()=>{
+    // Start from what the admin sees under "All": server order, disabled last.
+    const ordered = items.slice().sort((a, b) => (a.isActive !== false ? 0 : 1) - (b.isActive !== false ? 0 : 1));
+    ingRearrange = { order: ordered.map(i => i.ingredientId), dirty: false };
+    renderIngredientsSection(container, items, menuItems, recipes);
+  };
   $('#btnAddIngredient').onclick = ()=> openIngredientForm(container, null, items);
   $('#btnStockHistory').onclick = ()=> openStockHistoryModal();
   container.querySelectorAll('[data-ing-loc]').forEach(btn=>{
@@ -158,6 +197,106 @@ function renderIngredientsSection(container, items, menuItems, recipes){
     btn.onclick=()=>{
       const mi = menuItems.find(m=>(m.menuItemId||m.id)===btn.dataset.editRecipe);
       openRecipeForm(container, mi, items, recipes, menuItems);
+    };
+  });
+}
+
+// Rearrange-mode wiring. Drag uses pointer events on the ⠿ handle (works for
+// mouse, touch and pen; HTML5 drag-and-drop does not work on touch screens).
+// A card only moves within its own group, because disabled ingredients are
+// always shown at the bottom — letting one be dragged up would look accepted
+// and then snap back after Save.
+function bindIngredientRearrange(container, items, menuItems, recipes){
+  const list = container.querySelector('#ingList');
+  const rerender = () => renderIngredientsSection(container, items, menuItems, recipes);
+  const syncFromDom = () => {
+    const next = [...list.querySelectorAll('[data-ing-id]')].map(c => c.dataset.ingId);
+    if (next.join('|') !== ingRearrange.order.join('|')){
+      ingRearrange.order = next;
+      ingRearrange.dirty = true;
+      container.querySelector('#btnRearrangeSave').disabled = false;
+    }
+  };
+
+  container.querySelector('#btnRearrangeCancel').onclick = ()=>{
+    if (ingRearrange.dirty && !confirm('Discard the new order?')) return;
+    ingRearrange = null;
+    rerender();
+  };
+
+  container.querySelector('#btnRearrangeSave').onclick = async ()=>{
+    const btn = container.querySelector('#btnRearrangeSave');
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+    try{
+      const r = await api('PUT', '/api/admin/ingredients/reorder', { order: ingRearrange.order });
+      // A row deleted in another tab mid-rearrange is reported, not recreated.
+      if (r.missing && r.missing.length) showError(`${r.missing.length} ingredient(s) no longer exist and were skipped`);
+      else showSuccess('Ingredient order saved');
+      loadIngredients(container);
+    } catch(e){
+      btn.disabled = false;
+      btn.textContent = 'Save Order';
+      showError('Failed to save order — nothing was changed');
+    }
+  };
+
+  if (!list) return;
+
+  // ↑ / ↓ — the keyboard and fallback path. Re-render, then return focus to
+  // the same button so repeated presses keep moving the same ingredient.
+  list.querySelectorAll('[data-move-ing]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const card = btn.closest('[data-ing-id]');
+      const dir = Number(btn.dataset.dir);
+      const peer = dir < 0 ? card.previousElementSibling : card.nextElementSibling;
+      if (!peer || peer.dataset.ingGroup !== card.dataset.ingGroup) return;
+      if (dir < 0) list.insertBefore(card, peer); else list.insertBefore(peer, card);
+      syncFromDom();
+      rerender();
+      const again = container.querySelector(`[data-move-ing="${CSS.escape(card.dataset.ingId)}"][data-dir="${dir}"]`);
+      if (again) again.focus();
+    };
+  });
+
+  list.querySelectorAll('[data-drag-ing]').forEach(handle=>{
+    handle.onpointerdown = e=>{
+      if (e.button !== 0) return;
+      e.preventDefault();
+      const card = handle.closest('[data-ing-id]');
+
+      // Listen on document, not the handle: moving the card re-parents the
+      // handle, which silently releases pointer capture, so a handle listener
+      // stops hearing moves after the first swap.
+      const move = ev=>{
+        if (ev.pointerId !== e.pointerId) return;
+        ev.preventDefault();
+        const peers = [...list.querySelectorAll(`[data-ing-group="${card.dataset.ingGroup}"]`)].filter(c => c !== card);
+        if (!peers.length) return;
+        const before = peers.find(c => { const r = c.getBoundingClientRect(); return ev.clientY < r.top + r.height / 2; });
+        if (before) { if (card.nextElementSibling !== before) list.insertBefore(card, before); }
+        else {
+          const last = peers[peers.length - 1];
+          if (last.nextElementSibling !== card) list.insertBefore(card, last.nextElementSibling);
+        }
+        // Edge auto-scroll so a long list can be dragged past the fold.
+        const edge = 60;
+        if (ev.clientY < edge) window.scrollBy(0, -12);
+        else if (ev.clientY > window.innerHeight - edge) window.scrollBy(0, 12);
+      };
+      const end = ev=>{
+        if (ev.pointerId !== e.pointerId) return;
+        document.removeEventListener('pointermove', move);
+        document.removeEventListener('pointerup', end);
+        document.removeEventListener('pointercancel', end);
+        card.classList.remove('is-dragging');
+        syncFromDom();
+        rerender(); // refresh ↑/↓ wiring against the new DOM order
+      };
+      card.classList.add('is-dragging');
+      document.addEventListener('pointermove', move, { passive: false });
+      document.addEventListener('pointerup', end);
+      document.addEventListener('pointercancel', end);
     };
   });
 }

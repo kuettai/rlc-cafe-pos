@@ -321,6 +321,24 @@
 .admin-card.is-disabled .admin-card-title{text-decoration:line-through;color:var(--disabled-ink)}
 .admin-card.is-disabled .admin-card-subtitle{color:var(--disabled-ink)}
 
+/* Ingredients → Rearrange mode. The handle is the only drag start, so the
+   page still scrolls by touch anywhere else on the card. */
+.admin-rearrange-hint{font-size:.85rem;color:var(--ink-quiet);background:var(--quiet);border-radius:var(--radius-lg);padding:10px 14px;margin:0 0 14px}
+.admin-drag-handle{
+  display:inline-flex;align-items:center;justify-content:center;
+  min-width:44px;min-height:44px;margin:-6px 8px -6px -10px;
+  font-size:1.4rem;line-height:1;color:var(--ink-quiet);
+  cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;border-radius:8px;
+}
+.admin-drag-handle:hover{background:var(--quiet)}
+.admin-card.is-rearranging .admin-card-header{margin-bottom:0}
+.admin-card.is-dragging{border-color:var(--brand);box-shadow:var(--shadow);position:relative;z-index:1}
+.admin-card.is-dragging .admin-drag-handle{cursor:grabbing;background:var(--brand-soft);color:var(--brand-soft-ink)}
+.admin-rearrange-ctl{display:flex;gap:4px;margin-left:4px}
+.admin-rearrange-ctl .pos-btn{min-width:40px}
+.admin-ing-row .admin-card-header{gap:12px}
+.admin-ing-row .admin-card-id{flex:1 1 0;min-width:0}
+
 /* Checklist config rows (Admin > Checklist) — reorderable by drag handle or ▲▼
    ---------------------------------------------------------------------------
    TWO LINES per row. Line 1 is the label input at full width; the controls sit
@@ -1254,6 +1272,14 @@
     border-top:1px solid var(--cream-dark);padding-top:9px;margin-top:9px;
   }
   .admin-menu-row.is-disabled .admin-card-actions{border-top-color:var(--disabled-bd)}
+  /* Ingredient rows: same treatment — name (and drag handle) on line one,
+     badge / switch / buttons on their own line. */
+  .admin-ing-row .admin-card-header{flex-wrap:wrap}
+  .admin-ing-row .admin-card-actions{
+    flex:1 1 100%;justify-content:flex-end;flex-wrap:wrap;
+    border-top:1px solid var(--cream-dark);padding-top:9px;margin-top:9px;
+  }
+  .admin-ing-row.is-disabled .admin-card-actions{border-top-color:var(--disabled-bd)}
   /* No sidebar to indent past. */
   .cl-line2{padding-left:0}
   .admin-bulk-label{flex:1 1 100%}
