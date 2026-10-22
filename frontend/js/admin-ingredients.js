@@ -20,13 +20,23 @@ async function loadIngredients(container){
 }
 
 let ingLocationFilter = 'ALL';
+// Low Stock is a subfilter: it narrows whichever location is selected rather
+// than replacing it.
+let ingLowStockOnly = false;
+
+// Same rule as the "Low Stock" badge: disabled ingredients are never low.
+function isIngredientLow(ing){
+  return ing.isActive !== false && ing.currentStock <= (ing.lowStockThreshold||0);
+}
 
 function renderIngredientsSection(container, items, menuItems, recipes){
   // Items marked BOTH appear under either Fridge or Storeroom filter (and ALL),
   // matching the POS stock-count filter behavior.
-  const filtered = ingLocationFilter === 'ALL'
+  const byLocation = ingLocationFilter === 'ALL'
     ? items
     : items.filter(i => i.storageLocation === ingLocationFilter || i.storageLocation === 'BOTH');
+  const lowCount = byLocation.filter(isIngredientLow).length;
+  const filtered = ingLowStockOnly ? byLocation.filter(isIngredientLow) : byLocation;
   let html = `<div class="admin-section">
     <div class="admin-section-header">
       <h2>Ingredients</h2>
@@ -39,12 +49,15 @@ function renderIngredientsSection(container, items, menuItems, recipes){
       <button class="pos-btn pos-btn-sm ${ingLocationFilter==='ALL'?'active':''}" data-ing-loc="ALL">All</button>
       <button class="pos-btn pos-btn-sm ${ingLocationFilter==='FRIDGE'?'active':''}" data-ing-loc="FRIDGE">🧊 Fridge</button>
       <button class="pos-btn pos-btn-sm ${ingLocationFilter==='STOREROOM'?'active':''}" data-ing-loc="STOREROOM">🗄️ Storeroom</button>
+      <span style="width:1px;background:var(--rule);margin:0 4px" aria-hidden="true"></span>
+      <button class="pos-btn pos-btn-sm ${ingLowStockOnly?'active':''}" id="btnIngLowOnly" aria-pressed="${ingLowStockOnly}">Low Stock (${lowCount})</button>
     </div>`;
   if(!filtered.length){
-    html += '<div class="admin-empty"><p>No ingredients in this location</p></div>';
+    html += `<div class="admin-empty"><p>${ingLowStockOnly ? 'No low-stock ingredients in this location' : 'No ingredients in this location'}</p></div>`;
   } else {
     // Sort: active first, disabled at the bottom. Within each group, keep
-    // the DB order so the admin can still spot low-stock among actives.
+    // the server order — Sort Order, then location, then name — which is the
+    // same sequence POS → Stock Count shows.
     const sorted = filtered.slice().sort((a, b) => {
       const aActive = a.isActive !== false ? 0 : 1;
       const bActive = b.isActive !== false ? 0 : 1;
@@ -52,13 +65,14 @@ function renderIngredientsSection(container, items, menuItems, recipes){
     });
     sorted.forEach(ing=>{
       const isActive = ing.isActive !== false;
-      const isLow = isActive && ing.currentStock <= (ing.lowStockThreshold||0);
+      const isLow = isIngredientLow(ing);
       const usageLabel = ing.usageUnit ? ` · recipe unit: ${escapeHtml(ing.usageUnit)}` : '';
+      const orderLabel = Number.isFinite(ing.sortOrder) ? `#${Number(ing.sortOrder)} · ` : '';
       html += `<div class="admin-card ${isActive ? '' : 'is-disabled'}">
         <div class="admin-card-header">
           <div>
             <div class="admin-card-title">${escapeHtml(ing.name)}${isActive ? '' : ' <span class="admin-card-badge badge-disabled" style="margin-left:6px">Disabled</span>'}</div>
-            <div class="admin-card-subtitle">${Number(ing.currentStock||0)} ${escapeHtml(ing.unit)} · ${escapeHtml(ing.storageLocation||'—')}${usageLabel}${isActive ? '' : ' · <em>drinks that use this should be disabled from the Menu tab</em>'}</div>
+            <div class="admin-card-subtitle">${orderLabel}${Number(ing.currentStock||0)} ${escapeHtml(ing.unit)} · ${escapeHtml(ing.storageLocation||'—')}${usageLabel}${isActive ? '' : ' · <em>drinks that use this should be disabled from the Menu tab</em>'}</div>
           </div>
           <div class="admin-card-actions">
             ${isLow ? '<span class="admin-card-badge badge-inactive">Low Stock</span>' : ''}
@@ -113,6 +127,10 @@ function renderIngredientsSection(container, items, menuItems, recipes){
       renderIngredientsSection(container, items, menuItems, recipes);
     };
   });
+  $('#btnIngLowOnly').onclick = ()=>{
+    ingLowStockOnly = !ingLowStockOnly;
+    renderIngredientsSection(container, items, menuItems, recipes);
+  };
   container.querySelectorAll('[data-edit-ing]').forEach(btn=>{
     btn.onclick=()=>{ const ing=items.find(i=>i.ingredientId===btn.dataset.editIng); openIngredientForm(container, ing, items); };
   });
@@ -279,6 +297,9 @@ function openIngredientForm(container, ing, allItems){
       <div class="admin-form-group"><label>Current Stock</label><input id="ifStock" type="number" step="0.1" class="pos-input" value="${ing?.currentStock||0}"></div>
       <div class="admin-form-group"><label>Low Stock Threshold</label><input id="ifThreshold" type="number" step="0.1" class="pos-input" value="${ing?.lowStockThreshold||0}"></div>
     </div>
+    <div class="admin-form-row">
+      <div class="admin-form-group"><label>Sort Order (Stock Count position)</label><input id="ifSort" type="number" step="1" min="0" class="pos-input" placeholder="Blank = after numbered items" value="${Number.isFinite(ing?.sortOrder) ? Number(ing.sortOrder) : ''}" style="max-width:220px"></div>
+    </div>
     <div class="admin-form-actions">
       <button class="pos-btn pos-btn-primary" id="ifSubmit">${isEdit?'Save Changes':'Add Ingredient'}</button>
       <button class="pos-btn" id="ifCancel">Cancel</button>
@@ -295,6 +316,11 @@ function openIngredientForm(container, ing, allItems){
       lowStockThreshold: +form.querySelector('#ifThreshold').value,
       storageLocation: form.querySelector('#ifLocation').value
     };
+    // Blank clears the position (null, not 0) so the item drops back below
+    // every numbered one instead of jumping to the top.
+    const sortRaw = form.querySelector('#ifSort').value.trim();
+    body.sortOrder = sortRaw === '' ? null : parseInt(sortRaw, 10);
+    if(body.sortOrder !== null && !Number.isFinite(body.sortOrder)){ showError('Sort Order must be a whole number'); return; }
     if(!body.name){ showError('Name is required'); return; }
     try{
       if(isEdit) await api('PUT',`/api/admin/ingredients/${ing.ingredientId}`, body);

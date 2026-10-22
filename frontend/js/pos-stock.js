@@ -63,6 +63,7 @@ async function openManualStockCount(){
           const loc = i.storageLocation || '';
           return loc === filter || loc === 'BOTH';
         });
+    // Server order is the admin-defined Sort Order (then location, then name).
     // Disabled ingredients (isActive === false) sink to the bottom. Cashiers
     // can still count them (they're not removed from stock physically),
     // but they're visually muted.
