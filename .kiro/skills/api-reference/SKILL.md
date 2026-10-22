@@ -140,6 +140,7 @@ Load-bearing details:
 | PUT | /api/admin/ingredients/{id} | Edit ingredient |
 | DELETE | /api/admin/ingredients/{id} | Delete ingredient |
 | PUT | /api/admin/ingredients/{id}/toggle-active | Toggle ingredient active |
+| PUT | /api/admin/ingredients/reorder | Body `{ order: [ingredientId…] }` (1–500 unique ids). Sets `sortOrder` = 1-based position, each write conditioned on `attribute_exists(PK)`; returns `{ updated, missing }`. Routed BEFORE `/{id}` |
 
 ### Recipes
 

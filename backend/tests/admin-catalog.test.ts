@@ -1006,6 +1006,73 @@ describe('PUT /api/admin/ingredients/{id}', () => {
   });
 });
 
+describe('PUT /api/admin/ingredients/reorder', () => {
+  const reorder = (body: unknown) =>
+    call(makeEvent({ httpMethod: 'PUT', path: '/api/admin/ingredients/reorder', body }));
+
+  it('writes sortOrder = 1-based position for each id, conditioned on the row existing', async () => {
+    const [status, body] = await reorder({ order: ['sugar', 'milk-001', 'tea'] });
+
+    expect(status).toBe(200);
+    expect(body).toEqual({ updated: 3, missing: [] });
+    const ups = sent('Update', 'test-ingredients');
+    expect(ups.map((u: any) => [u.Key.PK, u.ExpressionAttributeValues[':o']]))
+      .toEqual([['INGREDIENT#sugar', 1], ['INGREDIENT#milk-001', 2], ['INGREDIENT#tea', 3]]);
+    for (const u of ups) {
+      expect(u.Key.SK).toBe('META');
+      expect(u.UpdateExpression).toBe('SET sortOrder = :o');
+      expect(u.ConditionExpression).toBe('attribute_exists(PK)');
+    }
+  });
+
+  it('PATH ORDER: "reorder" is never treated as an ingredient id by the generic PUT', async () => {
+    await reorder({ order: ['sugar'] });
+    const keys = sent('Update', 'test-ingredients').map((u: any) => u.Key.PK);
+    expect(keys).not.toContain('INGREDIENT#reorder');
+  });
+
+  it('reports ids whose row is gone instead of creating them, and keeps going', async () => {
+    stage();
+    const base = mockDbSend.getMockImplementation()!;
+    mockDbSend.mockImplementation(async (cmd: any) => {
+      if (cmd.__cmd === 'Update' && cmd.Key?.PK === 'INGREDIENT#gone') {
+        throw Object.assign(new Error('cond'), { name: 'ConditionalCheckFailedException' });
+      }
+      return base(cmd);
+    });
+
+    const [status, body] = await reorder({ order: ['sugar', 'gone', 'tea'] });
+
+    expect(status).toBe(200);
+    expect(body).toEqual({ updated: 2, missing: ['gone'] });
+    // Positions are not compacted around the missing row — tea is still 3.
+    const ups = sent('Update', 'test-ingredients');
+    expect(ups[ups.length - 1].ExpressionAttributeValues[':o']).toBe(3);
+  });
+
+  it('rethrows any other DynamoDB failure', async () => {
+    stage();
+    mockDbSend.mockImplementation(async () => { throw new Error('throttled'); });
+    const [status] = await reorder({ order: ['sugar'] });
+    expect(status).toBe(500);
+  });
+
+  it.each([
+    ['missing order', {}],
+    ['empty order', { order: [] }],
+    ['non-array', { order: 'sugar' }],
+    ['non-string id', { order: ['sugar', 7] }],
+    ['empty id', { order: [''] }],
+    ['duplicate id', { order: ['sugar', 'sugar'] }],
+    ['over-long id', { order: ['x'.repeat(65)] }],
+    ['too many ids', { order: Array.from({ length: 501 }, (_, i) => `id${i}`) }],
+  ])('rejects %s with 400 and writes nothing', async (_label, body) => {
+    const [status] = await reorder(body);
+    expect(status).toBe(400);
+    expect(sent('Update', 'test-ingredients')).toHaveLength(0);
+  });
+});
+
 describe('DELETE /api/admin/ingredients/{id}', () => {
   it('deletes the META record and echoes the id', async () => {
     const [status, body] = await call(

@@ -222,6 +222,38 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
       return res(201, item);
     }
 
+    if (method === 'PUT' && path.endsWith('/admin/ingredients/reorder')) {
+      // Drag-and-drop reorder from Admin → Ingredients. Body is the full
+      // sequence of ingredientIds; each gets sortOrder = position (1-based).
+      // Placed BEFORE the generic /admin/ingredients/{id} PUT, which would
+      // otherwise take "reorder" as an id and write the body onto a phantom row.
+      const order = body?.order;
+      if (!Array.isArray(order) || !order.length || order.length > 500
+        || !order.every((id: unknown) => typeof id === 'string' && id.length > 0 && id.length <= 64)
+        || new Set(order).size !== order.length) {
+        return res(400, { error: 'order must be a non-empty list of unique ingredientIds' });
+      }
+      let updated = 0;
+      const missing: string[] = [];
+      for (let i = 0; i < order.length; i++) {
+        try {
+          await docClient.send(new UpdateCommand({
+            TableName: INGREDIENTS_TABLE, Key: { PK: `INGREDIENT#${order[i]}`, SK: 'META' },
+            UpdateExpression: 'SET sortOrder = :o',
+            // An UpdateCommand on an absent key CREATES the item — a stale or
+            // forged id must not leave a sortOrder-only ingredient row behind.
+            ConditionExpression: 'attribute_exists(PK)',
+            ExpressionAttributeValues: { ':o': i + 1 },
+          }));
+          updated++;
+        } catch (err: any) {
+          if (err?.name !== 'ConditionalCheckFailedException') throw err;
+          missing.push(order[i]);
+        }
+      }
+      return res(200, { updated, missing });
+    }
+
     if (method === 'PUT' && /\/admin\/ingredients\/[^/]+\/toggle-active$/.test(path)) {
       // Flip isActive on a single ingredient. Placed BEFORE the generic
       // /admin/ingredients/{id} PUT so path routing is unambiguous.

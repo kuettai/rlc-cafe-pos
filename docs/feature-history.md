@@ -4,6 +4,10 @@ Sprint-by-sprint completion log, moved out of `.kiro/steering.md` so it does not
 consume context on every turn. See `docs/update-YYYYMMDD.md` for session detail.
 
 ## Current Status (as of 2026-10-22)
+### Completed (2026-10-22, v1.85.0)
+- ✅ Admin → Ingredients "Rearrange" mode — drag (⠿, mouse/touch) or ↑/↓, Save Order writes `sortOrder` 1..n via `PUT /api/admin/ingredients/reorder`; Edit/Delete/toggles disabled while rearranging
+- ✅ Ingredient cards wrap on phones (same treatment as Menu rows)
+
 ### Completed (2026-10-22, v1.84.0)
 - ✅ Ingredient Sort Order — Admin → Ingredients form field; POS Stock Count and the admin list follow it (unnumbered rows after numbered, then location, then name)
 - ✅ Admin → Ingredients "Low Stock (n)" subfilter, combinable with All / Fridge / Storeroom
