@@ -211,6 +211,8 @@ export async function handleAdmin(event: APIGatewayProxyEvent): Promise<APIGatew
         name: body.name, unit: body.unit, usageUnit: body.usageUnit || null,
         currentStock: body.currentStock,
         lowStockThreshold: body.lowStockThreshold, storageLocation: body.storageLocation,
+        // Stock-count position; null = unordered (sorts after ordered rows).
+        sortOrder: typeof body.sortOrder === 'number' && Number.isFinite(body.sortOrder) ? body.sortOrder : null,
         // isActive=false means the ingredient is temporarily disabled.
         // Drinks that use it should be manually toggled off from the Menu tab
         // (no automatic linkage — recipes → menu mapping isn't in the schema).

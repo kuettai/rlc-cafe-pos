@@ -71,6 +71,7 @@ description: DynamoDB table schemas for RLC Café POS — orders, menu, ingredie
 | lowStockThreshold | number | Alert threshold |
 | storageLocation | string | FRIDGE / STOREROOM |
 | isActive | boolean | Whether ingredient is active |
+| sortOrder | number \| null | Admin-defined Stock Count position. Ascending; null/missing sorts after every numbered row, then by location, then name (`compareIngredientsForCount` in `routes/pos.ts`). 0 is a real position |
 
 ## Users Table (rlc-cafe-users)
 - PK: `USER#{userId}` (string), SK: `META` (string)

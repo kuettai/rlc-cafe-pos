@@ -869,6 +869,15 @@ describe('POST /api/admin/ingredients', () => {
     expect(item.lowStockThreshold).toBeUndefined();
   });
 
+  it('stores a numeric sortOrder, and null for anything else', async () => {
+    await create({ name: 'Sugar', unit: 'kg', sortOrder: 4 });
+    await create({ name: 'Salt', unit: 'kg' });
+    await create({ name: 'Tea', unit: 'kg', sortOrder: '2' });
+
+    const items = sent('Put', 'test-ingredients').map((p: any) => p.Item);
+    expect(items.map((i: any) => i.sortOrder)).toEqual([4, null, null]);
+  });
+
   it('writes to the INGREDIENTS table, never the MENU table', async () => {
     await create({ name: 'Sugar', unit: 'kg' });
     expect(sent('Put', 'test-menu')).toHaveLength(0);

@@ -1293,7 +1293,44 @@ async function togglePin(event: APIGatewayProxyEvent): Promise<APIGatewayProxyRe
 
 async function getInventory(): Promise<APIGatewayProxyResult> {
   const r = await docClient.send(new ScanCommand({ TableName: INGREDIENTS_TABLE }));
-  return res(200, { ingredients: r.Items || [] });
+  // Same order as the stock-count list, so Admin → Ingredients shows the
+  // sequence the cashier will walk. RECIPE# rows ride along; the admin page
+  // filters them out and nothing reads their position.
+  return res(200, { ingredients: (r.Items || []).sort(compareIngredientsForCount) });
+}
+
+// Admin-defined position (Admin → Ingredients → Sort Order). Anything that is
+// not a finite number — missing on legacy rows, null when the admin clears the
+// field — is "unordered".
+function ingredientSortOrder(i: any): number | null {
+  return typeof i.sortOrder === 'number' && Number.isFinite(i.sortOrder) ? i.sortOrder : null;
+}
+
+// Stock-count order: admin sortOrder first (ascending, unordered rows after
+// every ordered one), then by location, then by name within a location.
+//
+// Unlocated rows go LAST, and that is handled EXPLICITLY rather than with a
+// sentinel string. The old code used `(a.storageLocation || '~')`, chosen
+// because `'~'` sorts after letters by UTF-16 code point — but the comparison
+// was `localeCompare`, and ICU collation orders punctuation BEFORE letters
+// (`'~'.localeCompare('FRIDGE') === -1`), so the cashier's stock-count list
+// opened with the ingredients that have no location. Do not reintroduce a
+// sentinel: `localeCompare` is still wanted for the NAME comparison (accented
+// ingredient names), so the two rules cannot share one collation. The same
+// reasoning keeps unordered rows out of an `Infinity` sentinel — explicit
+// null handling, one rule per comparison.
+function compareIngredientsForCount(a: any, b: any): number {
+  const oa = ingredientSortOrder(a);
+  const ob = ingredientSortOrder(b);
+  if (oa === null && ob !== null) return 1;
+  if (ob === null && oa !== null) return -1;
+  if (oa !== null && ob !== null && oa !== ob) return oa - ob;
+  const la = a.storageLocation ? String(a.storageLocation) : null;
+  const lb = b.storageLocation ? String(b.storageLocation) : null;
+  if (la === null && lb !== null) return 1;
+  if (lb === null && la !== null) return -1;
+  if (la !== null && lb !== null && la !== lb) return la.localeCompare(lb);
+  return (a.name || '').localeCompare(b.name || '');
 }
 
 // Cashier view of the menu: every item that's still admin-active
@@ -1332,29 +1369,13 @@ async function listIngredientsForCount(): Promise<APIGatewayProxyResult> {
     currentStock: typeof i.currentStock === 'number' ? i.currentStock : Number(i.currentStock) || 0,
     storageLocation: i.storageLocation || null,
     lowStockThreshold: i.lowStockThreshold || 0,
+    sortOrder: ingredientSortOrder(i),
     // Missing isActive on legacy rows is treated as active by the UI.
     isActive: i.isActive !== false,
     lastCountedAt: i.lastCountedAt || null,
     lastCountedBy: i.lastCountedBy || null,
   }));
-  // Sort: by location, then by name within a location.
-  //
-  // Unlocated rows go LAST, and that is handled EXPLICITLY rather than with a
-  // sentinel string. The old code used `(a.storageLocation || '~')`, chosen
-  // because `'~'` sorts after letters by UTF-16 code point — but the comparison
-  // was `localeCompare`, and ICU collation orders punctuation BEFORE letters
-  // (`'~'.localeCompare('FRIDGE') === -1`), so the cashier's stock-count list
-  // opened with the ingredients that have no location. Do not reintroduce a
-  // sentinel: `localeCompare` is still wanted for the NAME comparison (accented
-  // ingredient names), so the two rules cannot share one collation.
-  ingredients.sort((a: any, b: any) => {
-    const la = a.storageLocation ? String(a.storageLocation) : null;
-    const lb = b.storageLocation ? String(b.storageLocation) : null;
-    if (la === null && lb !== null) return 1;
-    if (lb === null && la !== null) return -1;
-    if (la !== null && lb !== null && la !== lb) return la.localeCompare(lb);
-    return (a.name || '').localeCompare(b.name || '');
-  });
+  ingredients.sort(compareIngredientsForCount);
   return res(200, { ingredients });
 }
 

@@ -3,7 +3,11 @@
 Sprint-by-sprint completion log, moved out of `.kiro/steering.md` so it does not
 consume context on every turn. See `docs/update-YYYYMMDD.md` for session detail.
 
-## Current Status (as of 2026-09-25)
+## Current Status (as of 2026-10-22)
+### Completed (2026-10-22, v1.84.0)
+- ✅ Ingredient Sort Order — Admin → Ingredients form field; POS Stock Count and the admin list follow it (unnumbered rows after numbered, then location, then name)
+- ✅ Admin → Ingredients "Low Stock (n)" subfilter, combinable with All / Fridge / Storeroom
+
 ### Completed (Foundation)
 - ✅ All backend routes (auth, cafe, menu, orders, pos, admin)
 - ✅ Customer ordering PWA (menu, cart, order submission)

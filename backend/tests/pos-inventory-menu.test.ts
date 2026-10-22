@@ -662,6 +662,7 @@ describe('listIngredientsForCount — GET /api/pos/ingredients', () => {
       currentStock: 4,
       storageLocation: 'FRIDGE',
       lowStockThreshold: 2,
+      sortOrder: null,
       isActive: true,
       lastCountedAt: '2026-08-31T01:00:00.000Z',
       lastCountedBy: 'Ann',
@@ -769,6 +770,60 @@ describe('listIngredientsForCount — GET /api/pos/ingredients', () => {
       expect(JSON.parse(result.body).ingredients.map((i: any) => i.name))
         .toEqual(['Butter', 'Zest', 'Nutmeg']);
     }
+  });
+});
+
+describe('listIngredientsForCount — admin Sort Order', () => {
+  const names = async () => {
+    const result = await handlePos(makeEvent({ httpMethod: 'GET', path: '/api/pos/ingredients' }));
+    return JSON.parse(result.body).ingredients.map((i: any) => i.name);
+  };
+
+  it('orders by sortOrder ascending, overriding location and name', async () => {
+    mockDbSend.mockResolvedValueOnce({
+      Items: [
+        ingredient({ ingredientId: 'a', name: 'Almond Milk', storageLocation: 'FRIDGE', sortOrder: 3 }),
+        ingredient({ ingredientId: 'z', name: 'Zest', storageLocation: 'STOREROOM', sortOrder: 1 }),
+        ingredient({ ingredientId: 'b', name: 'Butter', storageLocation: 'FRIDGE', sortOrder: 2 }),
+      ],
+    });
+    expect(await names()).toEqual(['Zest', 'Butter', 'Almond Milk']);
+  });
+
+  it('puts unordered rows (missing or null) after every ordered one, in the legacy order', async () => {
+    mockDbSend.mockResolvedValueOnce({
+      Items: [
+        ingredient({ ingredientId: 'a', name: 'Almond Milk', storageLocation: 'FRIDGE' }),
+        ingredient({ ingredientId: 'n', name: 'Nutmeg', storageLocation: undefined, sortOrder: null }),
+        ingredient({ ingredientId: 'z', name: 'Zest', storageLocation: 'STOREROOM', sortOrder: 0 }),
+        ingredient({ ingredientId: 'y', name: 'Yeast', storageLocation: 'STOREROOM', sortOrder: 50 }),
+      ],
+    });
+    // 0 is a real position, not "unset".
+    expect(await names()).toEqual(['Zest', 'Yeast', 'Almond Milk', 'Nutmeg']);
+  });
+
+  it('breaks sortOrder ties by location then name', async () => {
+    mockDbSend.mockResolvedValueOnce({
+      Items: [
+        ingredient({ ingredientId: 'z', name: 'Zest', storageLocation: 'STOREROOM', sortOrder: 1 }),
+        ingredient({ ingredientId: 'b', name: 'Butter', storageLocation: 'FRIDGE', sortOrder: 1 }),
+        ingredient({ ingredientId: 'a', name: 'Almond Milk', storageLocation: 'FRIDGE', sortOrder: 1 }),
+      ],
+    });
+    expect(await names()).toEqual(['Almond Milk', 'Butter', 'Zest']);
+  });
+
+  it('treats a non-numeric sortOrder as unordered and projects it as null', async () => {
+    mockDbSend.mockResolvedValueOnce({
+      Items: [
+        ingredient({ ingredientId: 'a', name: 'Almond Milk', sortOrder: 'first' }),
+        ingredient({ ingredientId: 'b', name: 'Butter', sortOrder: 9 }),
+      ],
+    });
+    const result = await handlePos(makeEvent({ httpMethod: 'GET', path: '/api/pos/ingredients' }));
+    const rows = JSON.parse(result.body).ingredients;
+    expect(rows.map((i: any) => [i.name, i.sortOrder])).toEqual([['Butter', 9], ['Almond Milk', null]]);
   });
 });
 
